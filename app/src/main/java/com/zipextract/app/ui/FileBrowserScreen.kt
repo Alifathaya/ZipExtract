@@ -291,7 +291,7 @@ fun FileBrowserScreen(
                                 onLongClick = { onToggleSelect(item) },
                             )
                         }
-                        item { Spacer(Modifier = Modifier.height(88.dp)) }
+                        item { Spacer(modifier = Modifier.height(88.dp)) }
                     }
                 }
             }
@@ -467,7 +467,7 @@ private fun FileRow(
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
             )
-            Spacer(Modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(10.dp))
         }
 
         Icon(
