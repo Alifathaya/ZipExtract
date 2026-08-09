@@ -1,6 +1,6 @@
 # ZipExtract
 
-Aplikasi Android untuk mengelola file: **buat ZIP**, **extract**, **kompresi**, serta operasi file seperti **copy / cut / paste**, rename, hapus, dan buat folder.
+Aplikasi Android untuk mengelola file: **buat ZIP**, **extract**, **kompresi**, **baca PDF**, **lihat foto/gambar**, serta operasi file seperti **copy / cut / paste**, rename, hapus, dan buat folder.
 
 ## Fitur
 
@@ -8,17 +8,19 @@ Aplikasi Android untuk mengelola file: **buat ZIP**, **extract**, **kompresi**, 
 - Seleksi multi-file (tap lama / mode seleksi)
 - Buat ZIP (opsional kompresi maksimal)
 - Extract ZIP ke folder baru
+- Baca PDF (scroll per halaman via `PdfRenderer`)
+- Lihat foto/gambar (JPG, PNG, WEBP, GIF, BMP, …) dengan zoom & pan
 - Copy, Cut, Paste / Move
 - Rename, Delete, Buat folder
 - Progress indikator saat zip / extract / paste
-- Buka file `.zip` dari app lain (intent VIEW)
+- Buka file `.zip` / PDF / gambar dari app lain (intent VIEW)
 
 ## Stack
 
 - Kotlin
 - Jetpack Compose + Material 3
-- Coroutines
-- `java.util.zip` (ZipInputStream / ZipOutputStream)
+- Coroutines + Coil (gambar)
+- `java.util.zip` + Android `PdfRenderer`
 
 ## Cara jalankan (lokal)
 
@@ -52,10 +54,14 @@ app/src/main/java/com/zipextract/app/
     FileBrowserViewModel.kt
     FileBrowserScreen.kt
     theme/Theme.kt
+    viewer/
+      PdfViewerScreen.kt
+      ImageViewerScreen.kt
 ```
 
 ## Catatan
 
 - Min SDK 26, Target SDK 35
 - Untuk production, pertimbangkan Scoped Storage / SAF jika tidak ingin memakai `MANAGE_EXTERNAL_STORAGE`
-- Belum mendukung RAR/7z (hanya ZIP / JAR / APK sebagai archive)
+- Archive: ZIP / JAR / APK (belum RAR/7z)
+- Beberapa format gambar khusus (mis. HEIC) mungkin tidak ter-decode di semua device

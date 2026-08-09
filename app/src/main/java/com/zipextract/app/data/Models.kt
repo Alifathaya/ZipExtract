@@ -20,6 +20,15 @@ data class FileItem(
     val isArchive: Boolean
         get() = extension in ARCHIVE_EXTENSIONS
 
+    val isPdf: Boolean
+        get() = extension == "pdf"
+
+    val isImage: Boolean
+        get() = extension in IMAGE_EXTENSIONS
+
+    val isViewable: Boolean
+        get() = isPdf || isImage
+
     val formattedSize: String
         get() = if (isDirectory) "Folder" else formatBytes(sizeBytes)
 
@@ -28,6 +37,9 @@ data class FileItem(
 
     companion object {
         val ARCHIVE_EXTENSIONS = setOf("zip", "jar", "apk")
+        val IMAGE_EXTENSIONS = setOf(
+            "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "wbmp",
+        )
         private val DATE_FORMAT = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
         private val SIZE_FORMAT = DecimalFormat("#,##0.#")
 

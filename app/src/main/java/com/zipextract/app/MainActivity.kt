@@ -88,6 +88,7 @@ class MainActivity : ComponentActivity() {
                     FileBrowserScreen(
                         state = state,
                         onOpen = viewModel::openDirectory,
+                        onOpenItem = viewModel::openItem,
                         onGoUp = viewModel::goUp,
                         onRefresh = viewModel::refresh,
                         onToggleSelect = viewModel::toggleSelect,
@@ -104,6 +105,7 @@ class MainActivity : ComponentActivity() {
                         onExtract = viewModel::extractSelected,
                         onToggleSort = viewModel::toggleSort,
                         onRequestPermission = { requestStorageAccess() },
+                        onCloseViewer = viewModel::closeViewer,
                     )
                 }
             }
@@ -125,13 +127,19 @@ class MainActivity : ComponentActivity() {
         if (intent?.action != Intent.ACTION_VIEW) return
         val uri = intent.data ?: return
         val path = uri.path ?: return
-        // Common content paths may not map 1:1; try file scheme first.
         val file = when (uri.scheme) {
             "file" -> File(path)
             else -> null
-        }
-        if (file != null && file.exists()) {
-            viewModel.extractZipFile(file)
+        } ?: return
+        if (!file.exists()) return
+
+        val item = com.zipextract.app.data.FileItem(file)
+        when {
+            item.isArchive -> viewModel.extractZipFile(file)
+            item.isPdf || item.isImage -> {
+                viewModel.navigateTo(file.parentFile ?: return)
+                viewModel.openViewerFile(file)
+            }
         }
     }
 

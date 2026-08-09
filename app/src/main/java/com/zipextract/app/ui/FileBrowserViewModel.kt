@@ -22,6 +22,14 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.zip.Deflater
 
+sealed class ViewerContent {
+    abstract val file: File
+    val title: String get() = file.name
+
+    data class Image(override val file: File) : ViewerContent()
+    data class Pdf(override val file: File) : ViewerContent()
+}
+
 data class BrowserUiState(
     val currentDir: File = FileOperations.defaultRoot(),
     val items: List<FileItem> = emptyList(),
@@ -32,6 +40,7 @@ data class BrowserUiState(
     val canGoUp: Boolean = false,
     val storageGranted: Boolean = false,
     val sortNewestFirst: Boolean = false,
+    val viewer: ViewerContent? = null,
 )
 
 class FileBrowserViewModel : ViewModel() {
@@ -82,6 +91,37 @@ class FileBrowserViewModel : ViewModel() {
             )
         }
         refresh()
+    }
+
+    fun openItem(item: FileItem) {
+        when {
+            item.isDirectory -> openDirectory(item)
+            item.isPdf -> openViewer(ViewerContent.Pdf(item.file))
+            item.isImage -> openViewer(ViewerContent.Image(item.file))
+            item.isArchive -> toggleSelect(item)
+            else -> toggleSelect(item)
+        }
+    }
+
+    fun openViewer(content: ViewerContent) {
+        if (!content.file.exists() || !content.file.isFile) {
+            emit("File tidak ditemukan")
+            return
+        }
+        _uiState.update { it.copy(viewer = content) }
+    }
+
+    fun openViewerFile(file: File) {
+        val item = FileItem(file)
+        when {
+            item.isPdf -> openViewer(ViewerContent.Pdf(file))
+            item.isImage -> openViewer(ViewerContent.Image(file))
+            else -> emit("Format file tidak didukung untuk dibuka")
+        }
+    }
+
+    fun closeViewer() {
+        _uiState.update { it.copy(viewer = null) }
     }
 
     fun goUp() {

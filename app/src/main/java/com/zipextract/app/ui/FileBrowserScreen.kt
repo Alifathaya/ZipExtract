@@ -39,7 +39,9 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderZip
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Sort
@@ -76,6 +78,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zipextract.app.data.ClipboardMode
 import com.zipextract.app.data.FileItem
+import com.zipextract.app.ui.viewer.ImageViewerScreen
+import com.zipextract.app.ui.viewer.PdfViewerScreen
 
 private enum class DialogType {
     CREATE_FOLDER,
@@ -90,6 +94,7 @@ private enum class DialogType {
 fun FileBrowserScreen(
     state: BrowserUiState,
     onOpen: (FileItem) -> Unit,
+    onOpenItem: (FileItem) -> Unit,
     onGoUp: () -> Unit,
     onRefresh: () -> Unit,
     onToggleSelect: (FileItem) -> Unit,
@@ -106,6 +111,7 @@ fun FileBrowserScreen(
     onExtract: (String?) -> Unit,
     onToggleSort: () -> Unit,
     onRequestPermission: () -> Unit,
+    onCloseViewer: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var dialog by remember { mutableStateOf<DialogType?>(null) }
@@ -118,11 +124,21 @@ fun FileBrowserScreen(
     val canExtract = selectedItems.size == 1 && singleSelected?.isArchive == true
     val canRename = selectedItems.size == 1
 
-    BackHandler(enabled = state.selectionMode || state.canGoUp) {
+    BackHandler(enabled = state.viewer != null || state.selectionMode || state.canGoUp) {
         when {
+            state.viewer != null -> onCloseViewer()
             state.selectionMode -> onClearSelection()
             state.canGoUp -> onGoUp()
         }
+    }
+
+    if (state.viewer != null) {
+        when (val viewer = state.viewer) {
+            is ViewerContent.Pdf -> PdfViewerScreen(file = viewer.file, onClose = onCloseViewer)
+            is ViewerContent.Image -> ImageViewerScreen(file = viewer.file, onClose = onCloseViewer)
+            null -> Unit
+        }
+        return
     }
 
     Scaffold(
@@ -281,11 +297,7 @@ fun FileBrowserScreen(
                                 onClick = {
                                     when {
                                         state.selectionMode -> onToggleSelect(item)
-                                        item.isDirectory -> onOpen(item)
-                                        item.isArchive -> {
-                                            onToggleSelect(item)
-                                        }
-                                        else -> onToggleSelect(item)
+                                        else -> onOpenItem(item)
                                     }
                                 },
                                 onLongClick = { onToggleSelect(item) },
@@ -474,12 +486,16 @@ private fun FileRow(
             imageVector = when {
                 item.isDirectory -> Icons.Default.Folder
                 item.isArchive -> Icons.Default.Archive
+                item.isPdf -> Icons.Default.PictureAsPdf
+                item.isImage -> Icons.Default.Image
                 else -> Icons.AutoMirrored.Filled.InsertDriveFile
             },
             contentDescription = null,
             tint = when {
                 item.isDirectory -> MaterialTheme.colorScheme.primary
                 item.isArchive -> MaterialTheme.colorScheme.secondary
+                item.isPdf -> MaterialTheme.colorScheme.error
+                item.isImage -> MaterialTheme.colorScheme.tertiary
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             },
             modifier = Modifier.size(28.dp),
