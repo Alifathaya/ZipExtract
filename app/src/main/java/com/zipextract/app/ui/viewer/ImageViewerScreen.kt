@@ -21,12 +21,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
 import java.io.File
-import androidx.compose.ui.modifier as ComposeModifier
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,7 +74,7 @@ fun ImageViewerScreen(
         },
     ) { padding ->
         Box(
-            ComposeModifier
+            Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.92f)),
@@ -82,7 +82,7 @@ fun ImageViewerScreen(
         ) {
             ZoomableBox(
                 zoomState = zoomState,
-                modifier = ComposeModifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize(),
             ) {
                 SubcomposeAsyncImage(
                     model = file,
@@ -95,10 +95,10 @@ fun ImageViewerScreen(
                         Text(
                             text = "Gagal memuat gambar",
                             color = MaterialTheme.colorScheme.error,
-                            modifier = ComposeModifier.padding(24.dp),
+                            modifier = Modifier.padding(24.dp),
                         )
                     },
-                    modifier = ComposeModifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
         }

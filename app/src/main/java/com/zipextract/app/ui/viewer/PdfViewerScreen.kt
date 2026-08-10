@@ -1,7 +1,9 @@
 package com.zipextract.app.ui.viewer
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
+import android.net.Uri
 import android.os.ParcelFileDescriptor
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
@@ -38,10 +40,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import android.content.Context
-import android.net.Uri
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
@@ -49,7 +50,6 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import androidx.compose.ui.modifier as ComposeModifier
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -129,7 +129,7 @@ fun PdfViewerScreen(
         },
     ) { padding ->
         Box(
-            ComposeModifier
+            Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
@@ -144,7 +144,7 @@ fun PdfViewerScreen(
                 else -> {
                     ZoomableBox(
                         zoomState = zoomState,
-                        modifier = ComposeModifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize(),
                         preserveScrollGestures = true,
                     ) {
                         LazyColumn(
@@ -152,7 +152,7 @@ fun PdfViewerScreen(
                             userScrollEnabled = !zoomState.isZoomed,
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                             contentPadding = PaddingValues(12.dp),
-                            modifier = ComposeModifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxSize(),
                         ) {
                             itemsIndexed((0 until pageCount).toList()) { index, _ ->
                                 Column {
@@ -160,7 +160,7 @@ fun PdfViewerScreen(
                                         text = "Halaman ${index + 1} / $pageCount",
                                         style = MaterialTheme.typography.labelLarge,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = ComposeModifier.padding(bottom = 6.dp),
+                                        modifier = Modifier.padding(bottom = 6.dp),
                                     )
                                     PdfPage(
                                         holder = rendererHolder!!,
@@ -195,7 +195,7 @@ private fun PdfPage(
     }
 
     Box(
-        ComposeModifier
+        Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface),
         contentAlignment = Alignment.Center,
@@ -204,7 +204,7 @@ private fun PdfPage(
             failed -> Text("Gagal merender halaman ${pageIndex + 1}")
             bitmap == null -> {
                 Row(
-                    ComposeModifier.padding(24.dp),
+                    Modifier.padding(24.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     CircularProgressIndicator()
@@ -215,7 +215,7 @@ private fun PdfPage(
                     bitmap = bitmap!!.asImageBitmap(),
                     contentDescription = "Halaman ${pageIndex + 1}",
                     contentScale = ContentScale.FillWidth,
-                    modifier = ComposeModifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
