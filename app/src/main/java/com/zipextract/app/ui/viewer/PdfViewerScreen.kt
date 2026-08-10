@@ -3,27 +3,21 @@ package com.zipextract.app.ui.viewer
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -35,185 +29,106 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.File
-import androidx.compose.ui.Modifier as ComposeModifier
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PdfViewerScreen(
     file: File,
-    onClose: () -> Unit,
+    onClose: () -> Unit
 ) {
-    BackHandler(onBack = onClose)
-
-    var pageCount by remember { mutableStateOf(0) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var pageBitmaps by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
-    var rendererHolder by remember { mutableStateOf<PdfRendererHolder?>(null) }
-    val listState = rememberLazyListState()
+    var error by remember { mutableStateOf<String?>(null) }
+    val zoomState = rememberZoomState()
 
-    DisposableEffect(file.absolutePath) {
-        val holder = runCatching { PdfRendererHolder(file) }.getOrElse {
-            error = it.message ?: "Gagal membuka PDF"
-            loading = false
-            null
+    LaunchedEffect(file) {
+        loading = true
+        error = null
+        pageBitmaps = emptyList()
+        try {
+            val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            val renderer = PdfRenderer(pfd)
+            val bitmaps = mutableListOf<Bitmap>()
+            for (i in 0 until renderer.pageCount) {
+                val page = renderer.openPage(i)
+                val bitmap = Bitmap.createBitmap(
+                    page.width * 2,
+                    page.height * 2,
+                    Bitmap.Config.ARGB_8888
+                )
+                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                page.close()
+                bitmaps.add(bitmap)
+            }
+            renderer.close()
+            pfd.close()
+            pageBitmaps = bitmaps
+        } catch (e: Exception) {
+            error = e.message ?: "Gagal membuka PDF"
         }
-        rendererHolder = holder
-        pageCount = holder?.pageCount ?: 0
         loading = false
+    }
+
+    DisposableEffect(pageBitmaps) {
         onDispose {
-            holder?.close()
-            rendererHolder = null
+            pageBitmaps.forEach { it.recycle() }
         }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = file.name,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (pageCount > 0) {
-                            Text(
-                                text = "$pageCount halaman",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                },
+                title = { Text(file.name, maxLines = 1) },
                 navigationIcon = {
                     IconButton(onClick = onClose) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
                     }
                 },
+                actions = {
+                    IconButton(onClick = { zoomState.zoomOut() }) {
+                        Icon(Icons.Default.ZoomOut, contentDescription = "Perkecil")
+                    }
+                    IconButton(onClick = { zoomState.zoomIn() }) {
+                        Icon(Icons.Default.ZoomIn, contentDescription = "Perbesar")
+                    }
+                }
             )
-        },
+        }
     ) { padding ->
         Box(
-            ComposeModifier
+            modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-            contentAlignment = Alignment.Center,
+                .padding(padding),
+            contentAlignment = Alignment.Center
         ) {
             when {
                 loading -> CircularProgressIndicator()
-                error != null -> Text(error ?: "Error", color = MaterialTheme.colorScheme.error)
-                rendererHolder == null || pageCount == 0 -> {
-                    Text("PDF kosong atau tidak bisa dibaca")
-                }
+                error != null -> Text(error!!)
                 else -> {
-                    LazyColumn(
-                        state = listState,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        contentPadding = PaddingValues(12.dp),
-                        modifier = ComposeModifier.fillMaxSize(),
+                    ZoomableBox(
+                        zoomState = zoomState,
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        itemsIndexed((0 until pageCount).toList()) { index, _ ->
-                            Column {
-                                Text(
-                                    text = "Halaman ${index + 1} / $pageCount",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = ComposeModifier.padding(bottom = 6.dp),
-                                )
-                                PdfPage(
-                                    holder = rendererHolder!!,
-                                    pageIndex = index,
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            itemsIndexed(pageBitmaps) { index, bitmap ->
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = "Halaman ${index + 1}",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    contentScale = ContentScale.FillWidth
                                 )
                             }
                         }
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun PdfPage(
-    holder: PdfRendererHolder,
-    pageIndex: Int,
-) {
-    val density = LocalDensity.current
-    var bitmap by remember(pageIndex, holder) { mutableStateOf<Bitmap?>(null) }
-    var failed by remember(pageIndex) { mutableStateOf(false) }
-
-    LaunchedEffect(pageIndex, holder) {
-        val rendered = withContext(Dispatchers.IO) {
-            runCatching {
-                holder.renderPage(pageIndex, targetWidthPx = with(density) { 900.dp.roundToPx() })
-            }.getOrNull()
-        }
-        if (rendered == null) failed = true else bitmap = rendered
-    }
-
-    Box(
-        ComposeModifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface),
-        contentAlignment = Alignment.Center,
-    ) {
-        when {
-            failed -> Text("Gagal merender halaman ${pageIndex + 1}")
-            bitmap == null -> {
-                Row(
-                    ComposeModifier.padding(24.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CircularProgressIndicator()
-                }
-            }
-            else -> {
-                Image(
-                    bitmap = bitmap!!.asImageBitmap(),
-                    contentDescription = "Halaman ${pageIndex + 1}",
-                    contentScale = ContentScale.FillWidth,
-                    modifier = ComposeModifier.fillMaxWidth(),
-                )
-            }
-        }
-    }
-}
-
-private class PdfRendererHolder(file: File) {
-    private val pfd: ParcelFileDescriptor =
-        ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-    private val renderer = PdfRenderer(pfd)
-    private val lock = Any()
-
-    val pageCount: Int get() = renderer.pageCount
-
-    fun renderPage(index: Int, targetWidthPx: Int): Bitmap {
-        synchronized(lock) {
-            renderer.openPage(index).use { page ->
-                val width = targetWidthPx.coerceAtLeast(1)
-                val height = ((page.height.toFloat() / page.width.toFloat()) * width)
-                    .toInt()
-                    .coerceAtLeast(1)
-                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                return bitmap
-            }
-        }
-    }
-
-    fun close() {
-        synchronized(lock) {
-            runCatching { renderer.close() }
-            runCatching { pfd.close() }
         }
     }
 }
