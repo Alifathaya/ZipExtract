@@ -149,13 +149,13 @@ fun FileBrowserScreen(
         enabled = state.extractDialog != null ||
             state.viewer != null ||
             state.selectionMode ||
-            (!state.showHome && state.canGoUp),
+            !state.showHome,
     ) {
         when {
             state.extractDialog != null -> onCloseExtract()
             state.viewer != null -> onCloseViewer()
             state.selectionMode -> onClearSelection()
-            !state.showHome && state.canGoUp -> onGoUp()
+            !state.showHome -> onGoUp()
         }
     }
 
@@ -226,7 +226,7 @@ fun FileBrowserScreen(
                         }
                         state.canGoUp -> {
                             IconButton(onClick = onGoUp) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali ke beranda")
                             }
                         }
                     }
