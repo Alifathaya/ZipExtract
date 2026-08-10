@@ -24,7 +24,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zipextract.app.ui.FileBrowserScreen
 import com.zipextract.app.ui.FileBrowserViewModel
 import com.zipextract.app.ui.theme.ZipExtractTheme
-import java.io.File
 
 class MainActivity : ComponentActivity() {
 
@@ -139,21 +138,7 @@ class MainActivity : ComponentActivity() {
     private fun handleIncomingIntent(intent: Intent?) {
         if (intent?.action != Intent.ACTION_VIEW) return
         val uri = intent.data ?: return
-        val path = uri.path ?: return
-        val file = when (uri.scheme) {
-            "file" -> File(path)
-            else -> null
-        } ?: return
-        if (!file.exists()) return
-
-        val item = com.zipextract.app.data.FileItem(file)
-        when {
-            item.isArchive -> viewModel.extractZipFile(file)
-            item.isPdf || item.isImage -> {
-                viewModel.navigateTo(file.parentFile ?: return)
-                viewModel.openViewerFile(file)
-            }
-        }
+        viewModel.openSharedUri(this, uri, intent.type)
     }
 
     private fun hasStorageAccess(): Boolean {
