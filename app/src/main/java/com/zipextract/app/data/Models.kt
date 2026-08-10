@@ -18,7 +18,10 @@ data class FileItem(
         get() = if (isDirectory) "" else file.extension.lowercase(Locale.ROOT)
 
     val isArchive: Boolean
-        get() = extension in ARCHIVE_EXTENSIONS
+        get() = extension in ARCHIVE_EXTENSIONS || isZip
+
+    val isZip: Boolean
+        get() = extension == "zip" || name.lowercase(Locale.ROOT).endsWith(".zip")
 
     val isPdf: Boolean
         get() = extension == "pdf"

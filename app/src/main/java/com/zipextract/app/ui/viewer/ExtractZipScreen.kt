@@ -61,6 +61,7 @@ fun ExtractZipScreen(
     val destination = state.zipFile.parentFile
 
     Scaffold(
+        modifier = ComposeModifier.fillMaxSize(),
         topBar = {
             TopAppBar(
                 title = {

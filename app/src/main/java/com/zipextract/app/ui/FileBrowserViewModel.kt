@@ -106,7 +106,7 @@ class FileBrowserViewModel : ViewModel() {
     fun openItem(item: FileItem) {
         when {
             item.isDirectory -> openDirectory(item)
-            item.isArchive -> openExtractDialog(item.file)
+            item.isArchive -> openExtractDialog(item.file.canonicalFile)
             item.isPdf -> openViewer(ViewerContent.Pdf(item.file))
             item.isImage -> openViewer(ViewerContent.Image(item.file))
             else -> toggleSelect(item)
@@ -134,14 +134,19 @@ class FileBrowserViewModel : ViewModel() {
         _uiState.update { it.copy(viewer = null) }
     }
 
+    fun openExtractDialogForItem(item: FileItem) {
+        openExtractDialog(item.file)
+    }
+
     fun openExtractDialog(zipFile: File) {
-        if (!zipFile.exists() || !zipFile.isFile) {
+        val file = runCatching { zipFile.canonicalFile }.getOrDefault(zipFile)
+        if (!file.exists() || !file.isFile) {
             emit("File ZIP tidak ditemukan")
             return
         }
         _uiState.update {
             it.copy(
-                extractDialog = ExtractZipState(zipFile = zipFile, isLoading = true),
+                extractDialog = ExtractZipState(zipFile = file, isLoading = true),
                 selectionMode = false,
                 selectedPaths = emptySet(),
             )
@@ -149,13 +154,13 @@ class FileBrowserViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 val entries = withContext(Dispatchers.IO) {
-                    ZipManager.listZipEntryDetails(zipFile)
+                    ZipManager.listZipEntryDetails(file)
                 }
                 if (entries.isEmpty()) {
                     _uiState.update {
                         it.copy(
                             extractDialog = ExtractZipState(
-                                zipFile = zipFile,
+                                zipFile = file,
                                 isLoading = false,
                                 error = "File ZIP kosong",
                             ),
@@ -166,7 +171,7 @@ class FileBrowserViewModel : ViewModel() {
                 _uiState.update {
                     it.copy(
                         extractDialog = ExtractZipState(
-                            zipFile = zipFile,
+                            zipFile = file,
                             entries = entries,
                             selectedPaths = entries.map { entry -> entry.path }.toSet(),
                             isLoading = false,
@@ -177,7 +182,7 @@ class FileBrowserViewModel : ViewModel() {
                 _uiState.update {
                     it.copy(
                         extractDialog = ExtractZipState(
-                            zipFile = zipFile,
+                            zipFile = file,
                             isLoading = false,
                             error = "Gagal membaca ZIP: ${e.message ?: "error"}",
                         ),

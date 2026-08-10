@@ -76,6 +76,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.zipextract.app.data.ClipboardMode
 import com.zipextract.app.data.FileItem
 import com.zipextract.app.ui.viewer.ExtractZipScreen
@@ -139,19 +141,6 @@ fun FileBrowserScreen(
         }
     }
 
-    if (state.extractDialog != null) {
-        ExtractZipScreen(
-            state = state.extractDialog,
-            onClose = onCloseExtract,
-            onToggleEntry = onToggleExtractEntry,
-            onSelectAll = onSelectAllExtractEntries,
-            onDeselectAll = onDeselectAllExtractEntries,
-            onDeleteOriginalChange = onDeleteOriginalZipChange,
-            onExtract = onConfirmExtract,
-        )
-        return
-    }
-
     if (state.viewer != null) {
         when (val viewer = state.viewer) {
             is ViewerContent.Pdf -> PdfViewerScreen(file = viewer.file, onClose = onCloseViewer)
@@ -161,6 +150,7 @@ fun FileBrowserScreen(
         return
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -315,6 +305,7 @@ fun FileBrowserScreen(
                                 selectionMode = state.selectionMode,
                                 onClick = {
                                     when {
+                                        item.isArchive -> onOpenExtract(item)
                                         state.selectionMode -> onToggleSelect(item)
                                         else -> onOpenItem(item)
                                     }
@@ -331,6 +322,33 @@ fun FileBrowserScreen(
                 ProgressOverlay(progress)
             }
         }
+    }
+
+    state.extractDialog?.let { extractState ->
+        Dialog(
+            onDismissRequest = onCloseExtract,
+            properties = DialogProperties(
+                dismissOnBackPress = true,
+                dismissOnClickOutside = false,
+                usePlatformDefaultWidth = false,
+            ),
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background,
+            ) {
+                ExtractZipScreen(
+                    state = extractState,
+                    onClose = onCloseExtract,
+                    onToggleEntry = onToggleExtractEntry,
+                    onSelectAll = onSelectAllExtractEntries,
+                    onDeselectAll = onDeselectAllExtractEntries,
+                    onDeleteOriginalChange = onDeleteOriginalZipChange,
+                    onExtract = onConfirmExtract,
+                )
+            }
+        }
+    }
     }
 
     when (dialog) {
