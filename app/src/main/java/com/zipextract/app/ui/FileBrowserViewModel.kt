@@ -99,7 +99,7 @@ class FileBrowserViewModel : ViewModel() {
                 HomeDashboardData(
                     storageInfo = FileOperations.getStorageInfo(),
                     categories = FileOperations.getCategorySummaries(),
-                    recentFiles = FileOperations.getRecentFiles(),
+                    recentFiles = FileOperations.getRecentImages(),
                 )
             }
             _uiState.update {

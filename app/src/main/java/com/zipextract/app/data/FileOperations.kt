@@ -45,16 +45,24 @@ object FileOperations {
         return directory.listFiles()?.size ?: 0
     }
 
-    fun getRecentFiles(limit: Int = 12): List<FileItem> {
-        val roots = categoryRoots()
+    fun getRecentImages(limit: Int = 12): List<FileItem> {
+        val roots = listOf(
+            FileCategory.IMAGES.resolveFolder(),
+            FileCategory.DOWNLOADS.resolveFolder(),
+            FileCategory.OTHERS.resolveFolder(),
+        ).distinctBy { runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) }
+
         val files = mutableListOf<FileItem>()
         roots.forEach { root ->
-            collectFilesRecursive(root, depth = 0, maxDepth = 3, out = files, filesOnly = true)
+            collectFilesRecursive(root, depth = 0, maxDepth = 4, out = files, filesOnly = true)
         }
         return files
+            .filter { it.isImage }
             .sortedByDescending { it.lastModified }
             .take(limit)
     }
+
+    fun getRecentFiles(limit: Int = 12): List<FileItem> = getRecentImages(limit)
 
     fun searchFiles(query: String, maxResults: Int = 50): List<FileItem> {
         val trimmed = query.trim()

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,7 +28,6 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
@@ -47,6 +47,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -56,9 +57,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil.compose.SubcomposeAsyncImage
+import coil.compose.SubcomposeAsyncImageContent
 import com.zipextract.app.data.CategorySummary
 import com.zipextract.app.data.FileCategory
 import com.zipextract.app.data.FileItem
@@ -81,6 +85,7 @@ fun HomeDashboardScreen(
     onBrowseAll: () -> Unit,
     onOpenDownloads: () -> Unit,
     onOpenFile: (FileItem) -> Unit,
+    onViewAllPhotos: () -> Unit,
 ) {
     val isSearching = searchQuery.trim().length >= 2
 
@@ -157,10 +162,11 @@ fun HomeDashboardScreen(
                 }
 
                 item {
-                    RecentFilesSection(
-                        files = recentFiles,
+                    RecentPhotosSection(
+                        photos = recentFiles,
                         loading = isLoading,
-                        onOpenFile = onOpenFile,
+                        onOpenPhoto = onOpenFile,
+                        onViewAll = onViewAllPhotos,
                     )
                 }
 
@@ -287,45 +293,138 @@ private fun SearchResultsSection(
 }
 
 @Composable
-private fun RecentFilesSection(
-    files: List<FileItem>,
+private fun RecentPhotosSection(
+    photos: List<FileItem>,
     loading: Boolean,
-    onOpenFile: (FileItem) -> Unit,
+    onOpenPhoto: (FileItem) -> Unit,
+    onViewAll: () -> Unit,
 ) {
+    val samplePhotos = photos.take(6)
+
     Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.Default.History,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "File Terbaru",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Image,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "Foto Terbaru",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "Sample foto dari perangkat Anda",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            TextButton(onClick = onViewAll) {
+                Text("Lihat semua")
+            }
         }
-        Spacer(modifier = Modifier.height(8.dp))
+
+        Spacer(modifier = Modifier.height(10.dp))
 
         when {
-            loading && files.isEmpty() -> {
-                Text("Memuat file terbaru…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            loading && samplePhotos.isEmpty() -> {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(4) {
+                        PhotoPlaceholderTile(modifier = Modifier.size(108.dp))
+                    }
+                }
             }
-            files.isEmpty() -> {
+            samplePhotos.isEmpty() -> {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(4) {
+                        PhotoPlaceholderTile(modifier = Modifier.size(108.dp))
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Belum ada file terbaru",
+                    text = "Belum ada foto ditemukan. Tap Lihat semua untuk membuka folder gambar.",
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             else -> {
-                files.take(8).forEach { item ->
-                    FilePreviewRow(item = item, onClick = { onOpenFile(item) })
-                    Spacer(modifier = Modifier.height(6.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(end = 4.dp),
+                ) {
+                    items(samplePhotos, key = { it.path }) { photo ->
+                        PhotoThumbnail(
+                            photo = photo,
+                            onClick = { onOpenPhoto(photo) },
+                        )
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PhotoThumbnail(
+    photo: FileItem,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .size(108.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 2.dp,
+    ) {
+        SubcomposeAsyncImage(
+            model = photo.file,
+            contentDescription = photo.name,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            loading = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                }
+            },
+            error = {
+                PhotoPlaceholderTile(modifier = Modifier.fillMaxSize())
+            },
+            success = {
+                SubcomposeAsyncImageContent()
+            },
+        )
+    }
+}
+
+@Composable
+private fun PhotoPlaceholderTile(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Default.Image,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            modifier = Modifier.size(32.dp),
+        )
     }
 }
 

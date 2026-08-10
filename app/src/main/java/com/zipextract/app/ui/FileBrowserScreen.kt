@@ -188,6 +188,7 @@ fun FileBrowserScreen(
             onBrowseAll = onBrowseAll,
             onOpenDownloads = { onOpenCategory(FileCategory.DOWNLOADS) },
             onOpenFile = onOpenFileAnywhere,
+            onViewAllPhotos = { onOpenCategory(FileCategory.IMAGES) },
         )
         return
     }
