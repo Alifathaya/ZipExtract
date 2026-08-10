@@ -29,8 +29,29 @@ data class FileItem(
     val isImage: Boolean
         get() = extension in IMAGE_EXTENSIONS
 
+    val isVideo: Boolean
+        get() = extension in VIDEO_EXTENSIONS
+
+    val isDocument: Boolean
+        get() = isPdf || extension in DOCUMENT_EXTENSIONS
+
+    val isApp: Boolean
+        get() = extension in APP_EXTENSIONS
+
     val isViewable: Boolean
         get() = isPdf || isImage
+
+    fun matchesFilter(filter: FileFilter): Boolean {
+        return when (filter) {
+            FileFilter.ALL -> true
+            FileFilter.IMAGES -> isImage
+            FileFilter.VIDEOS -> isVideo
+            FileFilter.DOCUMENTS -> isDocument
+            FileFilter.ARCHIVES -> isArchive
+            FileFilter.APPS -> isApp
+            FileFilter.OTHERS -> !isImage && !isVideo && !isDocument && !isArchive && !isApp
+        }
+    }
 
     val formattedSize: String
         get() = if (isDirectory) "Folder" else formatBytes(sizeBytes)
@@ -43,6 +64,13 @@ data class FileItem(
         val IMAGE_EXTENSIONS = setOf(
             "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "wbmp",
         )
+        val VIDEO_EXTENSIONS = setOf(
+            "mp4", "mkv", "avi", "mov", "webm", "3gp", "flv", "wmv", "m4v", "ts",
+        )
+        val DOCUMENT_EXTENSIONS = setOf(
+            "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "rtf", "odt", "csv",
+        )
+        val APP_EXTENSIONS = setOf("apk", "xapk", "apks", "apkm")
         private val DATE_FORMAT = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
         private val SIZE_FORMAT = DecimalFormat("#,##0.#")
 

@@ -14,29 +14,36 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -62,12 +69,21 @@ import com.zipextract.app.data.StorageInfo
 fun HomeDashboardScreen(
     storageInfo: StorageInfo?,
     categories: List<CategorySummary>,
+    recentFiles: List<FileItem>,
+    searchQuery: String,
+    searchResults: List<FileItem>,
+    searchLoading: Boolean,
     isLoading: Boolean,
     onRefresh: () -> Unit,
+    onSearchQueryChange: (String) -> Unit,
+    onClearSearch: () -> Unit,
     onOpenCategory: (FileCategory) -> Unit,
     onBrowseAll: () -> Unit,
     onOpenDownloads: () -> Unit,
+    onOpenFile: (FileItem) -> Unit,
 ) {
+    val isSearching = searchQuery.trim().length >= 2
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -90,13 +106,11 @@ fun HomeDashboardScreen(
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                ),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
             )
         },
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
@@ -110,60 +124,271 @@ fun HomeDashboardScreen(
                 )
                 .padding(padding)
                 .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            StorageCard(storageInfo = storageInfo)
+            item {
+                StorageCard(storageInfo = storageInfo)
+            }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            item {
+                SearchBar(
+                    query = searchQuery,
+                    onQueryChange = onSearchQueryChange,
+                    onClear = onClearSearch,
+                )
+            }
 
-            QuickActionsRow(
-                onBrowseAll = onBrowseAll,
-                onOpenDownloads = onOpenDownloads,
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Text(
-                text = "Kategori",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = "Pilih jenis file yang ingin dibuka",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            if (isLoading && categories.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(200.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "Memuat kategori…",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (isSearching) {
+                item {
+                    SearchResultsSection(
+                        query = searchQuery,
+                        results = searchResults,
+                        loading = searchLoading,
+                        onOpenFile = onOpenFile,
                     )
                 }
             } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    contentPadding = PaddingValues(bottom = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    items(categories, key = { it.category.name }) { summary ->
-                        CategoryCard(
-                            summary = summary,
-                            onClick = { onOpenCategory(summary.category) },
+                item {
+                    QuickActionsRow(
+                        onBrowseAll = onBrowseAll,
+                        onOpenDownloads = onOpenDownloads,
+                    )
+                }
+
+                item {
+                    RecentFilesSection(
+                        files = recentFiles,
+                        loading = isLoading,
+                        onOpenFile = onOpenFile,
+                    )
+                }
+
+                item {
+                    Column {
+                        Text(
+                            text = "Kategori",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
                         )
+                        Text(
+                            text = "Pilih jenis file yang ingin dibuka",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                if (isLoading && categories.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("Memuat kategori…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                } else {
+                    items(categories.chunked(2), key = { row -> row.first().category.name }) { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            row.forEach { summary ->
+                                CategoryCard(
+                                    summary = summary,
+                                    onClick = { onOpenCategory(summary.category) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            if (row.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClear: () -> Unit,
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        placeholder = { Text("Cari file di penyimpanan…") },
+        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+        trailingIcon = {
+            if (query.isNotEmpty()) {
+                IconButton(onClick = onClear) {
+                    Icon(Icons.Default.Clear, contentDescription = "Hapus pencarian")
+                }
+            }
+        },
+        singleLine = true,
+    )
+}
+
+@Composable
+private fun SearchResultsSection(
+    query: String,
+    results: List<FileItem>,
+    loading: Boolean,
+    onOpenFile: (FileItem) -> Unit,
+) {
+    Column {
+        Text(
+            text = "Hasil pencarian",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = "\"$query\"",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        when {
+            loading -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
+            }
+            results.isEmpty() -> {
+                Text(
+                    text = "Tidak ada file ditemukan",
+                    modifier = Modifier.padding(vertical = 16.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            else -> {
+                results.forEach { item ->
+                    FilePreviewRow(item = item, onClick = { onOpenFile(item) })
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentFilesSection(
+    files: List<FileItem>,
+    loading: Boolean,
+    onOpenFile: (FileItem) -> Unit,
+) {
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.History,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "File Terbaru",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+
+        when {
+            loading && files.isEmpty() -> {
+                Text("Memuat file terbaru…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            files.isEmpty() -> {
+                Text(
+                    text = "Belum ada file terbaru",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            else -> {
+                files.take(8).forEach { item ->
+                    FilePreviewRow(item = item, onClick = { onOpenFile(item) })
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FilePreviewRow(
+    item: FileItem,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        tonalElevation = 1.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = iconForItem(item),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp),
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "${item.formattedSize} · ${item.formattedDate}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = item.file.parentFile?.name ?: item.path,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+private fun iconForItem(item: FileItem): ImageVector {
+    return when {
+        item.isDirectory -> Icons.Default.Folder
+        item.isArchive -> Icons.Default.Archive
+        item.isPdf -> Icons.Default.PictureAsPdf
+        item.isImage -> Icons.Default.Image
+        item.isVideo -> Icons.Default.Movie
+        item.isApp -> Icons.Default.Android
+        item.isDocument -> Icons.Default.Description
+        else -> Icons.AutoMirrored.Filled.InsertDriveFile
     }
 }
 
@@ -290,13 +515,12 @@ private fun QuickActionChip(
 private fun CategoryCard(
     summary: CategorySummary,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val style = categoryStyle(summary.category)
 
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+        modifier = modifier.clickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
@@ -304,11 +528,7 @@ private fun CategoryCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(style.start, style.end),
-                    ),
-                )
+                .background(Brush.linearGradient(colors = listOf(style.start, style.end)))
                 .padding(16.dp),
         ) {
             Column {
@@ -371,35 +591,11 @@ private data class CategoryStyle(
 
 private fun categoryStyle(category: FileCategory): CategoryStyle {
     return when (category) {
-        FileCategory.DOWNLOADS -> CategoryStyle(
-            icon = Icons.Default.Download,
-            start = Color(0xFF2563EB),
-            end = Color(0xFF1D4ED8),
-        )
-        FileCategory.IMAGES -> CategoryStyle(
-            icon = Icons.Default.Image,
-            start = Color(0xFFDB2777),
-            end = Color(0xFFBE185D),
-        )
-        FileCategory.VIDEOS -> CategoryStyle(
-            icon = Icons.Default.Movie,
-            start = Color(0xFF7C3AED),
-            end = Color(0xFF6D28D9),
-        )
-        FileCategory.DOCUMENTS -> CategoryStyle(
-            icon = Icons.Default.Description,
-            start = Color(0xFFD97706),
-            end = Color(0xFFB45309),
-        )
-        FileCategory.APPS -> CategoryStyle(
-            icon = Icons.Default.Android,
-            start = Color(0xFF059669),
-            end = Color(0xFF047857),
-        )
-        FileCategory.OTHERS -> CategoryStyle(
-            icon = Icons.Default.MusicNote,
-            start = Color(0xFF475569),
-            end = Color(0xFF334155),
-        )
+        FileCategory.DOWNLOADS -> CategoryStyle(Icons.Default.Download, Color(0xFF2563EB), Color(0xFF1D4ED8))
+        FileCategory.IMAGES -> CategoryStyle(Icons.Default.Image, Color(0xFFDB2777), Color(0xFFBE185D))
+        FileCategory.VIDEOS -> CategoryStyle(Icons.Default.Movie, Color(0xFF7C3AED), Color(0xFF6D28D9))
+        FileCategory.DOCUMENTS -> CategoryStyle(Icons.Default.Description, Color(0xFFD97706), Color(0xFFB45309))
+        FileCategory.APPS -> CategoryStyle(Icons.Default.Android, Color(0xFF059669), Color(0xFF047857))
+        FileCategory.OTHERS -> CategoryStyle(Icons.Default.MusicNote, Color(0xFF475569), Color(0xFF334155))
     }
 }

@@ -39,6 +39,78 @@ object FileOperations {
         return directory.listFiles()?.size ?: 0
     }
 
+    fun getRecentFiles(limit: Int = 12): List<FileItem> {
+        val roots = categoryRoots()
+        val files = mutableListOf<FileItem>()
+        roots.forEach { root ->
+            collectFilesRecursive(root, depth = 0, maxDepth = 3, out = files, filesOnly = true)
+        }
+        return files
+            .sortedByDescending { it.lastModified }
+            .take(limit)
+    }
+
+    fun searchFiles(query: String, maxResults: Int = 50): List<FileItem> {
+        val trimmed = query.trim()
+        if (trimmed.length < 2) return emptyList()
+        val needle = trimmed.lowercase()
+        val results = mutableListOf<FileItem>()
+        categoryRoots().forEach { root ->
+            searchRecursive(root, needle, depth = 0, maxDepth = 5, out = results, maxResults = maxResults)
+            if (results.size >= maxResults) return@forEach
+        }
+        return results
+            .sortedByDescending { it.lastModified }
+            .take(maxResults)
+    }
+
+    private fun categoryRoots(): List<File> {
+        return FileCategory.entries
+            .map { it.resolveFolder() }
+            .distinctBy { runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) }
+    }
+
+    private fun collectFilesRecursive(
+        directory: File,
+        depth: Int,
+        maxDepth: Int,
+        out: MutableList<FileItem>,
+        filesOnly: Boolean,
+    ) {
+        if (depth > maxDepth || !directory.exists() || !directory.isDirectory) return
+        val children = directory.listFiles() ?: return
+        children.forEach { child ->
+            if (child.isDirectory) {
+                if (!filesOnly) out += FileItem(child)
+                collectFilesRecursive(child, depth + 1, maxDepth, out, filesOnly)
+            } else {
+                out += FileItem(child)
+            }
+        }
+    }
+
+    private fun searchRecursive(
+        directory: File,
+        needle: String,
+        depth: Int,
+        maxDepth: Int,
+        out: MutableList<FileItem>,
+        maxResults: Int,
+    ) {
+        if (depth > maxDepth || out.size >= maxResults) return
+        if (!directory.exists() || !directory.isDirectory) return
+        val children = directory.listFiles() ?: return
+        children.forEach { child ->
+            if (out.size >= maxResults) return
+            if (child.name.lowercase().contains(needle)) {
+                out += FileItem(child)
+            }
+            if (child.isDirectory) {
+                searchRecursive(child, needle, depth + 1, maxDepth, out, maxResults)
+            }
+        }
+    }
+
     fun listFiles(directory: File): List<FileItem> {
         if (!directory.exists() || !directory.isDirectory) return emptyList()
         return directory.listFiles()
