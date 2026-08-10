@@ -7,6 +7,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +42,7 @@ import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Refresh
@@ -52,6 +55,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -79,6 +83,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.zipextract.app.data.ClipboardMode
+import com.zipextract.app.data.FileFilter
 import com.zipextract.app.data.FileCategory
 import com.zipextract.app.data.FileItem
 import com.zipextract.app.ui.viewer.ExtractZipScreen
@@ -115,6 +120,10 @@ fun FileBrowserScreen(
     onOpenCategory: (com.zipextract.app.data.FileCategory) -> Unit,
     onBrowseAll: () -> Unit,
     onGoHome: () -> Unit,
+    onSearchQueryChange: (String) -> Unit,
+    onClearSearch: () -> Unit,
+    onOpenFileAnywhere: (FileItem) -> Unit,
+    onSetFileFilter: (FileFilter) -> Unit,
     onToggleSort: () -> Unit,
     onRequestPermission: () -> Unit,
     onCloseViewer: () -> Unit,
@@ -167,11 +176,18 @@ fun FileBrowserScreen(
         HomeDashboardScreen(
             storageInfo = state.storageInfo,
             categories = state.categorySummaries,
+            recentFiles = state.recentFiles,
+            searchQuery = state.searchQuery,
+            searchResults = state.searchResults,
+            searchLoading = state.searchLoading,
             isLoading = state.homeLoading,
             onRefresh = onRefresh,
+            onSearchQueryChange = onSearchQueryChange,
+            onClearSearch = onClearSearch,
             onOpenCategory = onOpenCategory,
             onBrowseAll = onBrowseAll,
             onOpenDownloads = { onOpenCategory(FileCategory.DOWNLOADS) },
+            onOpenFile = onOpenFileAnywhere,
         )
         return
     }
@@ -321,29 +337,43 @@ fun FileBrowserScreen(
         ) {
             when {
                 !state.storageGranted -> PermissionPane(onRequestPermission)
-                state.items.isEmpty() -> EmptyPane()
+                state.items.isEmpty() -> EmptyPane(
+                    message = if (state.fileFilter != FileFilter.ALL) {
+                        "Tidak ada file ${state.fileFilter.label.lowercase()} di folder ini"
+                    } else {
+                        "Folder kosong"
+                    },
+                )
                 else -> {
-                    LazyColumn(
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        items(state.items, key = { it.path }) { item ->
-                            FileRow(
-                                item = item,
-                                selected = item.path in state.selectedPaths,
-                                selectionMode = state.selectionMode,
-                                onClick = {
-                                    when {
-                                        item.isArchive -> onOpenExtract(item)
-                                        state.selectionMode -> onToggleSelect(item)
-                                        else -> onOpenItem(item)
-                                    }
-                                },
-                                onLongClick = { onToggleSelect(item) },
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        if (!state.selectionMode) {
+                            FileFilterChips(
+                                selected = state.fileFilter,
+                                onSelect = onSetFileFilter,
                             )
                         }
-                        item { Spacer(modifier = Modifier.height(88.dp)) }
+                        LazyColumn(
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            items(state.items, key = { it.path }) { item ->
+                                FileRow(
+                                    item = item,
+                                    selected = item.path in state.selectedPaths,
+                                    selectionMode = state.selectionMode,
+                                    onClick = {
+                                        when {
+                                            item.isArchive -> onOpenExtract(item)
+                                            state.selectionMode -> onToggleSelect(item)
+                                            else -> onOpenItem(item)
+                                        }
+                                    },
+                                    onLongClick = { onToggleSelect(item) },
+                                )
+                            }
+                            item { Spacer(modifier = Modifier.height(88.dp)) }
+                        }
                     }
                 }
             }
@@ -543,6 +573,7 @@ private fun FileRow(
                 item.isArchive -> Icons.Default.Archive
                 item.isPdf -> Icons.Default.PictureAsPdf
                 item.isImage -> Icons.Default.Image
+                item.isVideo -> Icons.Default.Movie
                 else -> Icons.AutoMirrored.Filled.InsertDriveFile
             },
             contentDescription = null,
@@ -551,6 +582,7 @@ private fun FileRow(
                 item.isArchive -> MaterialTheme.colorScheme.secondary
                 item.isPdf -> MaterialTheme.colorScheme.error
                 item.isImage -> MaterialTheme.colorScheme.tertiary
+                item.isVideo -> MaterialTheme.colorScheme.secondary
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             },
             modifier = Modifier.size(28.dp),
@@ -600,10 +632,33 @@ private fun PermissionPane(onRequestPermission: () -> Unit) {
 }
 
 @Composable
-private fun EmptyPane() {
+private fun FileFilterChips(
+    selected: FileFilter,
+    onSelect: (FileFilter) -> Unit,
+) {
+    val scrollState = rememberScrollState()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(scrollState)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        FileFilter.entries.forEach { filter ->
+            FilterChip(
+                selected = selected == filter,
+                onClick = { onSelect(filter) },
+                label = { Text(filter.label) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun EmptyPane(message: String = "Folder kosong") {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(
-            text = "Folder kosong",
+            text = message,
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
