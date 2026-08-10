@@ -23,8 +23,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -79,6 +83,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.SubcomposeAsyncImage
+import coil.compose.SubcomposeAsyncImageContent
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -346,6 +355,12 @@ fun FileBrowserScreen(
                     },
                 )
                 else -> {
+                    val showImageGrid = state.fileFilter == FileFilter.IMAGES ||
+                        state.activeCategory == FileCategory.IMAGES
+                    val folders = state.items.filter { it.isDirectory }
+                    val images = state.items.filter { it.isImage }
+                    val otherItems = state.items.filter { !it.isDirectory && !it.isImage }
+
                     Column(modifier = Modifier.fillMaxSize()) {
                         if (!state.selectionMode) {
                             FileFilterChips(
@@ -353,27 +368,92 @@ fun FileBrowserScreen(
                                 onSelect = onSetFileFilter,
                             )
                         }
-                        LazyColumn(
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
-                            items(state.items, key = { it.path }) { item ->
-                                FileRow(
-                                    item = item,
-                                    selected = item.path in state.selectedPaths,
-                                    selectionMode = state.selectionMode,
-                                    onClick = {
-                                        when {
-                                            item.isArchive -> onOpenExtract(item)
-                                            state.selectionMode -> onToggleSelect(item)
-                                            else -> onOpenItem(item)
-                                        }
-                                    },
-                                    onLongClick = { onToggleSelect(item) },
-                                )
+                        if (showImageGrid) {
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(3),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                items(
+                                    items = folders,
+                                    key = { it.path },
+                                    span = { GridItemSpan(maxLineSpan) },
+                                ) { item ->
+                                    FileRow(
+                                        item = item,
+                                        selected = item.path in state.selectedPaths,
+                                        selectionMode = state.selectionMode,
+                                        onClick = {
+                                            when {
+                                                state.selectionMode -> onToggleSelect(item)
+                                                else -> onOpenItem(item)
+                                            }
+                                        },
+                                        onLongClick = { onToggleSelect(item) },
+                                    )
+                                }
+                                items(images, key = { it.path }) { item ->
+                                    ImageThumbnailCell(
+                                        item = item,
+                                        selected = item.path in state.selectedPaths,
+                                        selectionMode = state.selectionMode,
+                                        onClick = {
+                                            when {
+                                                state.selectionMode -> onToggleSelect(item)
+                                                else -> onOpenItem(item)
+                                            }
+                                        },
+                                        onLongClick = { onToggleSelect(item) },
+                                    )
+                                }
+                                items(
+                                    items = otherItems,
+                                    key = { it.path },
+                                    span = { GridItemSpan(maxLineSpan) },
+                                ) { item ->
+                                    FileRow(
+                                        item = item,
+                                        selected = item.path in state.selectedPaths,
+                                        selectionMode = state.selectionMode,
+                                        onClick = {
+                                            when {
+                                                item.isArchive -> onOpenExtract(item)
+                                                state.selectionMode -> onToggleSelect(item)
+                                                else -> onOpenItem(item)
+                                            }
+                                        },
+                                        onLongClick = { onToggleSelect(item) },
+                                    )
+                                }
+                                item(span = { GridItemSpan(maxLineSpan) }) {
+                                    Spacer(modifier = Modifier.height(88.dp))
+                                }
                             }
-                            item { Spacer(modifier = Modifier.height(88.dp)) }
+                        } else {
+                            LazyColumn(
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                items(state.items, key = { it.path }) { item ->
+                                    FileRow(
+                                        item = item,
+                                        selected = item.path in state.selectedPaths,
+                                        selectionMode = state.selectionMode,
+                                        onClick = {
+                                            when {
+                                                item.isArchive -> onOpenExtract(item)
+                                                state.selectionMode -> onToggleSelect(item)
+                                                else -> onOpenItem(item)
+                                            }
+                                        },
+                                        onLongClick = { onToggleSelect(item) },
+                                    )
+                                }
+                                item { Spacer(modifier = Modifier.height(88.dp)) }
+                            }
                         }
                     }
                 }
@@ -532,6 +612,84 @@ private fun ActionIcon(
                 MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
             },
         )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ImageThumbnailCell(
+    item: FileItem,
+    selected: Boolean,
+    selectionMode: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    val containerColor = if (selected) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+    } else {
+        MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+    }
+
+    Box(
+        modifier = Modifier
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(12.dp))
+            .background(containerColor)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+    ) {
+        SubcomposeAsyncImage(
+            model = item.file,
+            contentDescription = item.name,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            loading = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                }
+            },
+            error = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Image,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+            },
+            success = {
+                SubcomposeAsyncImageContent()
+            },
+        )
+
+        if (selectionMode) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = if (selected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
     }
 }
 

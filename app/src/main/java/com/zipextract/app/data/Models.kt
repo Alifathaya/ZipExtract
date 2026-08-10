@@ -44,7 +44,7 @@ data class FileItem(
     fun matchesFilter(filter: FileFilter): Boolean {
         return when (filter) {
             FileFilter.ALL -> true
-            FileFilter.IMAGES -> isImage
+            FileFilter.IMAGES -> isDirectory || isImage
             FileFilter.VIDEOS -> isVideo
             FileFilter.DOCUMENTS -> isDocument
             FileFilter.ARCHIVES -> isArchive
