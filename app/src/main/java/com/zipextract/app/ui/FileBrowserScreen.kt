@@ -78,6 +78,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zipextract.app.data.ClipboardMode
 import com.zipextract.app.data.FileItem
+import com.zipextract.app.ui.viewer.ExtractZipScreen
 import com.zipextract.app.ui.viewer.ImageViewerScreen
 import com.zipextract.app.ui.viewer.PdfViewerScreen
 
@@ -85,7 +86,6 @@ private enum class DialogType {
     CREATE_FOLDER,
     RENAME,
     CREATE_ZIP,
-    EXTRACT,
     DELETE_CONFIRM,
 }
 
@@ -108,10 +108,16 @@ fun FileBrowserScreen(
     onCreateFolder: (String) -> Unit,
     onRename: (String) -> Unit,
     onCreateZip: (String, Boolean) -> Unit,
-    onExtract: (String?) -> Unit,
+    onOpenExtract: (com.zipextract.app.data.FileItem) -> Unit,
     onToggleSort: () -> Unit,
     onRequestPermission: () -> Unit,
     onCloseViewer: () -> Unit,
+    onCloseExtract: () -> Unit,
+    onToggleExtractEntry: (String) -> Unit,
+    onSelectAllExtractEntries: () -> Unit,
+    onDeselectAllExtractEntries: () -> Unit,
+    onDeleteOriginalZipChange: (Boolean) -> Unit,
+    onConfirmExtract: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var dialog by remember { mutableStateOf<DialogType?>(null) }
@@ -124,12 +130,26 @@ fun FileBrowserScreen(
     val canExtract = selectedItems.size == 1 && singleSelected?.isArchive == true
     val canRename = selectedItems.size == 1
 
-    BackHandler(enabled = state.viewer != null || state.selectionMode || state.canGoUp) {
+    BackHandler(enabled = state.extractDialog != null || state.viewer != null || state.selectionMode || state.canGoUp) {
         when {
+            state.extractDialog != null -> onCloseExtract()
             state.viewer != null -> onCloseViewer()
             state.selectionMode -> onClearSelection()
             state.canGoUp -> onGoUp()
         }
+    }
+
+    if (state.extractDialog != null) {
+        ExtractZipScreen(
+            state = state.extractDialog,
+            onClose = onCloseExtract,
+            onToggleEntry = onToggleExtractEntry,
+            onSelectAll = onSelectAllExtractEntries,
+            onDeselectAll = onDeselectAllExtractEntries,
+            onDeleteOriginalChange = onDeleteOriginalZipChange,
+            onExtract = onConfirmExtract,
+        )
+        return
     }
 
     if (state.viewer != null) {
@@ -259,8 +279,7 @@ fun FileBrowserScreen(
                         dialog = DialogType.CREATE_ZIP
                     },
                     onExtract = {
-                        inputText = singleSelected?.file?.nameWithoutExtension.orEmpty()
-                        dialog = DialogType.EXTRACT
+                        singleSelected?.let { onOpenExtract(it) }
                     },
                 )
             }
@@ -347,18 +366,6 @@ fun FileBrowserScreen(
             onDismiss = { dialog = null },
             onConfirm = {
                 onCreateZip(inputText, bestCompression)
-                dialog = null
-            },
-        )
-        DialogType.EXTRACT -> TextInputDialog(
-            title = "Extract ZIP",
-            label = "Nama folder tujuan",
-            value = inputText,
-            confirmLabel = "Extract",
-            onValueChange = { inputText = it },
-            onDismiss = { dialog = null },
-            onConfirm = {
-                onExtract(inputText)
                 dialog = null
             },
         )

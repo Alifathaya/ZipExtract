@@ -76,3 +76,13 @@ data class ProgressState(
     val indeterminate: Boolean = true,
     val progress: Float = 0f,
 )
+
+data class ZipEntryItem(
+    val path: String,
+    val displayName: String,
+    val isDirectory: Boolean,
+    val sizeBytes: Long,
+) {
+    val formattedSize: String
+        get() = if (isDirectory) "Folder" else FileItem.formatBytes(sizeBytes)
+}

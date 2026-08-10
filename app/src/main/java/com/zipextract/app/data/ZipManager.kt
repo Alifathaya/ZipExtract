@@ -86,8 +86,62 @@ object ZipManager {
     }
 
     fun listZipEntries(zipFile: File): List<String> {
+        return listZipEntryDetails(zipFile).map { it.path }
+    }
+
+    fun listZipEntryDetails(zipFile: File): List<ZipEntryItem> {
         return ZipFile(zipFile).use { zip ->
-            zip.entries().asSequence().map { it.name }.sorted().toList()
+            zip.entries().asSequence().map { entry ->
+                val normalized = entry.name.replace('\\', '/')
+                val displayName = normalized.trimEnd('/').substringAfterLast('/')
+                ZipEntryItem(
+                    path = normalized,
+                    displayName = displayName.ifEmpty { normalized },
+                    isDirectory = entry.isDirectory,
+                    sizeBytes = entry.size,
+                )
+            }.sortedBy { it.path.lowercase() }.toList()
+        }
+    }
+
+    fun extractZipEntries(
+        zipFile: File,
+        destinationDir: File,
+        selectedPaths: Set<String>,
+        onProgress: ((Float, String) -> Unit)? = null,
+    ) {
+        require(zipFile.exists() && zipFile.isFile) { "File zip tidak ditemukan" }
+        require(selectedPaths.isNotEmpty()) { "Pilih minimal 1 file untuk diextract" }
+        destinationDir.mkdirs()
+
+        val totalEntries = selectedPaths.size.coerceAtLeast(1)
+        var processed = 0
+
+        ZipInputStream(BufferedInputStream(FileInputStream(zipFile))).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                val entryPath = entry.name.replace('\\', '/')
+                if (entryPath in selectedPaths) {
+                    val outFile = safeResolve(destinationDir, entryPath)
+                    onProgress?.invoke(++processed / totalEntries.toFloat(), entryPath)
+
+                    if (entry.isDirectory) {
+                        outFile.mkdirs()
+                    } else {
+                        outFile.parentFile?.mkdirs()
+                        FileOutputStream(outFile).use { fos ->
+                            BufferedOutputStream(fos).use { bos ->
+                                zis.copyTo(bos, bufferSize = DEFAULT_BUFFER)
+                            }
+                        }
+                        if (entry.time > 0) {
+                            outFile.setLastModified(entry.time)
+                        }
+                    }
+                }
+                zis.closeEntry()
+                entry = zis.nextEntry
+            }
         }
     }
 
