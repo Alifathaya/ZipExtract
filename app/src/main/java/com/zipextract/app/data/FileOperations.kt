@@ -1,6 +1,7 @@
 package com.zipextract.app.data
 
 import android.os.Environment
+import android.os.StatFs
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -9,6 +10,33 @@ object FileOperations {
 
     fun defaultRoot(): File {
         return Environment.getExternalStorageDirectory()
+    }
+
+    fun getStorageInfo(): StorageInfo {
+        val root = defaultRoot()
+        return runCatching {
+            val stat = StatFs(root.absolutePath)
+            val total = stat.blockSizeLong * stat.blockCountLong
+            val free = stat.availableBlocksLong * stat.blockSizeLong
+            StorageInfo(totalBytes = total, freeBytes = free)
+        }.getOrDefault(StorageInfo(totalBytes = 0L, freeBytes = 0L))
+    }
+
+    fun getCategorySummaries(): List<CategorySummary> {
+        return FileCategory.entries.map { category ->
+            val folder = category.resolveFolder()
+            if (!folder.exists()) folder.mkdirs()
+            CategorySummary(
+                category = category,
+                itemCount = countTopLevelItems(folder),
+                folder = folder,
+            )
+        }
+    }
+
+    fun countTopLevelItems(directory: File): Int {
+        if (!directory.exists() || !directory.isDirectory) return 0
+        return directory.listFiles()?.size ?: 0
     }
 
     fun listFiles(directory: File): List<FileItem> {
