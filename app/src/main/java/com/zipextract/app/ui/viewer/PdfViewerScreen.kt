@@ -37,6 +37,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import android.content.Context
+import android.net.Uri
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -49,18 +52,23 @@ import androidx.compose.ui.Modifier as ComposeModifier
 @Composable
 fun PdfViewerScreen(
     file: File,
+    sourceUri: Uri? = null,
     onClose: () -> Unit,
 ) {
     BackHandler(onBack = onClose)
+    val context = LocalContext.current
 
     var pageCount by remember { mutableStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var rendererHolder by remember { mutableStateOf<PdfRendererHolder?>(null) }
     val listState = rememberLazyListState()
+    val openKey = sourceUri?.toString() ?: file.absolutePath
 
-    DisposableEffect(file.absolutePath) {
-        val holder = runCatching { PdfRendererHolder(file) }.getOrElse {
+    DisposableEffect(openKey) {
+        val holder = runCatching {
+            PdfRendererHolder.open(context, file, sourceUri)
+        }.getOrElse {
             error = it.message ?: "Gagal membuka PDF"
             loading = false
             null
@@ -188,13 +196,28 @@ private fun PdfPage(
     }
 }
 
-private class PdfRendererHolder(file: File) {
-    private val pfd: ParcelFileDescriptor =
-        ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+private class PdfRendererHolder private constructor(
+    private val pfd: ParcelFileDescriptor,
+) {
     private val renderer = PdfRenderer(pfd)
     private val lock = Any()
 
     val pageCount: Int get() = renderer.pageCount
+
+    companion object {
+        fun open(context: Context, file: File, sourceUri: Uri? = null): PdfRendererHolder {
+            val descriptor = when {
+                file.exists() && file.isFile && file.length() > 0L -> {
+                    ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                }
+                sourceUri != null -> {
+                    context.contentResolver.openFileDescriptor(sourceUri, "r")
+                }
+                else -> null
+            } ?: throw IllegalStateException("Gagal membuka PDF")
+            return PdfRendererHolder(descriptor)
+        }
+    }
 
     fun renderPage(index: Int, targetWidthPx: Int): Bitmap {
         synchronized(lock) {

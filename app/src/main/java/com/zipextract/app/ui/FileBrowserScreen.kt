@@ -161,7 +161,11 @@ fun FileBrowserScreen(
 
     if (state.viewer != null) {
         when (val viewer = state.viewer) {
-            is ViewerContent.Pdf -> PdfViewerScreen(file = viewer.file, onClose = onCloseViewer)
+            is ViewerContent.Pdf -> PdfViewerScreen(
+                file = viewer.file,
+                sourceUri = viewer.sourceUri,
+                onClose = onCloseViewer,
+            )
             is ViewerContent.Image -> ImageViewerScreen(file = viewer.file, onClose = onCloseViewer)
             null -> Unit
         }

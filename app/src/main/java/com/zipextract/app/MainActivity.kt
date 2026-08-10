@@ -111,7 +111,11 @@ class MainActivity : ComponentActivity() {
                         onSetFileFilter = viewModel::setFileFilter,
                         onToggleSort = viewModel::toggleSort,
                         onRequestPermission = { requestStorageAccess() },
-                        onCloseViewer = viewModel::closeViewer,
+                        onCloseViewer = {
+                            if (viewModel.closeViewer()) {
+                                finish()
+                            }
+                        },
                         onCloseExtract = viewModel::closeExtractDialog,
                         onToggleExtractEntry = viewModel::toggleExtractEntry,
                         onSelectAllExtractEntries = viewModel::selectAllExtractEntries,
@@ -136,9 +140,27 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIncomingIntent(intent: Intent?) {
-        if (intent?.action != Intent.ACTION_VIEW) return
-        val uri = intent.data ?: return
-        viewModel.openSharedUri(this, uri, intent.type)
+        if (intent == null) return
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+
+        val uri = extractIncomingUri(intent) ?: return
+        val mimeType = intent.type ?: contentResolver.getType(uri)
+        viewModel.openSharedUri(this, uri, mimeType)
+    }
+
+    private fun extractIncomingUri(intent: Intent): Uri? {
+        return when (intent.action) {
+            Intent.ACTION_VIEW -> intent.data
+            Intent.ACTION_SEND -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM)
+                } ?: intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
+            }
+            else -> null
+        }
     }
 
     private fun hasStorageAccess(): Boolean {

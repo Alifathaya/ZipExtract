@@ -36,7 +36,10 @@ sealed class ViewerContent {
     val title: String get() = file.name
 
     data class Image(override val file: File) : ViewerContent()
-    data class Pdf(override val file: File) : ViewerContent()
+    data class Pdf(
+        override val file: File,
+        val sourceUri: Uri? = null,
+    ) : ViewerContent()
 }
 
 data class ExtractZipState(
@@ -70,6 +73,7 @@ data class BrowserUiState(
     val storageGranted: Boolean = false,
     val sortNewestFirst: Boolean = false,
     val viewer: ViewerContent? = null,
+    val launchedFromExternalIntent: Boolean = false,
     val extractDialog: ExtractZipState? = null,
 )
 
@@ -293,7 +297,14 @@ class FileBrowserViewModel : ViewModel() {
     }
 
     fun openViewer(content: ViewerContent) {
-        if (!content.file.exists() || !content.file.isFile) {
+        val canOpen = when (content) {
+            is ViewerContent.Pdf -> {
+                content.sourceUri != null ||
+                    (content.file.exists() && content.file.isFile)
+            }
+            is ViewerContent.Image -> content.file.exists() && content.file.isFile
+        }
+        if (!canOpen) {
             emit("File tidak ditemukan")
             return
         }
@@ -313,24 +324,39 @@ class FileBrowserViewModel : ViewModel() {
     fun openSharedUri(context: Context, uri: Uri, mimeType: String?) {
         viewModelScope.launch {
             _uiState.update {
-                it.copy(progress = ProgressState("Membuka file…", uri.lastPathSegment.orEmpty()))
+                it.copy(
+                    launchedFromExternalIntent = true,
+                    progress = ProgressState("Membuka file…", uri.lastPathSegment.orEmpty()),
+                )
             }
-            val file = withContext(Dispatchers.IO) {
-                SharedFileResolver.resolveToLocalFile(context, uri, mimeType)
+            val resolved = withContext(Dispatchers.IO) {
+                SharedFileResolver.resolveShare(context, uri, mimeType)
             }
             _uiState.update { it.copy(progress = null) }
-            if (file == null) {
+            if (resolved == null) {
+                _uiState.update { it.copy(launchedFromExternalIntent = false, showHome = true) }
                 emit("File tidak bisa dibuka")
                 return@launch
             }
-            val item = FileItem(file)
+
+            val item = FileItem(resolved.file)
             when {
-                item.isArchive -> {
-                    extractZipFile(file)
+                item.isArchive -> extractZipFile(resolved.file)
+                SharedFileResolver.isPdf(resolved.file, resolved.mimeType) -> {
+                    openViewer(
+                        ViewerContent.Pdf(
+                            file = resolved.file,
+                            sourceUri = resolved.sourceUri,
+                        )
+                    )
                 }
-                item.isPdf -> openViewer(ViewerContent.Pdf(file))
-                item.isImage -> openViewer(ViewerContent.Image(file))
-                else -> emit("Format file tidak didukung untuk dibuka")
+                SharedFileResolver.isImage(resolved.file, resolved.mimeType) -> {
+                    openViewer(ViewerContent.Image(resolved.file))
+                }
+                else -> {
+                    _uiState.update { it.copy(launchedFromExternalIntent = false, showHome = true) }
+                    emit("Format file tidak didukung untuk dibuka")
+                }
             }
         }
     }
@@ -344,8 +370,16 @@ class FileBrowserViewModel : ViewModel() {
         }
     }
 
-    fun closeViewer() {
-        _uiState.update { it.copy(viewer = null) }
+    fun closeViewer(): Boolean {
+        val shouldFinish = _uiState.value.launchedFromExternalIntent
+        _uiState.update {
+            it.copy(
+                viewer = null,
+                showHome = if (shouldFinish) true else it.showHome,
+                launchedFromExternalIntent = false,
+            )
+        }
+        return shouldFinish
     }
 
     fun openExtractDialogForItem(item: FileItem) {
