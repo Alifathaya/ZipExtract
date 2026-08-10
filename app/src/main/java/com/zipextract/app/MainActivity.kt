@@ -102,7 +102,7 @@ class MainActivity : ComponentActivity() {
                         onCreateFolder = viewModel::createFolder,
                         onRename = viewModel::renameSelected,
                         onCreateZip = viewModel::createZip,
-                        onOpenExtract = { viewModel.openExtractDialog(it.file) },
+                        onOpenExtract = viewModel::openExtractDialogForItem,
                         onToggleSort = viewModel::toggleSort,
                         onRequestPermission = { requestStorageAccess() },
                         onCloseViewer = viewModel::closeViewer,
