@@ -30,6 +30,15 @@ sealed class ViewerContent {
     data class Pdf(override val file: File) : ViewerContent()
 }
 
+data class ExtractZipState(
+    val zipFile: File,
+    val entries: List<com.zipextract.app.data.ZipEntryItem> = emptyList(),
+    val selectedPaths: Set<String> = emptySet(),
+    val deleteOriginal: Boolean = false,
+    val isLoading: Boolean = true,
+    val error: String? = null,
+)
+
 data class BrowserUiState(
     val currentDir: File = FileOperations.defaultRoot(),
     val items: List<FileItem> = emptyList(),
@@ -41,6 +50,7 @@ data class BrowserUiState(
     val storageGranted: Boolean = false,
     val sortNewestFirst: Boolean = false,
     val viewer: ViewerContent? = null,
+    val extractDialog: ExtractZipState? = null,
 )
 
 class FileBrowserViewModel : ViewModel() {
@@ -96,9 +106,9 @@ class FileBrowserViewModel : ViewModel() {
     fun openItem(item: FileItem) {
         when {
             item.isDirectory -> openDirectory(item)
+            item.isArchive -> openExtractDialog(item.file)
             item.isPdf -> openViewer(ViewerContent.Pdf(item.file))
             item.isImage -> openViewer(ViewerContent.Image(item.file))
-            item.isArchive -> toggleSelect(item)
             else -> toggleSelect(item)
         }
     }
@@ -122,6 +132,133 @@ class FileBrowserViewModel : ViewModel() {
 
     fun closeViewer() {
         _uiState.update { it.copy(viewer = null) }
+    }
+
+    fun openExtractDialog(zipFile: File) {
+        if (!zipFile.exists() || !zipFile.isFile) {
+            emit("File ZIP tidak ditemukan")
+            return
+        }
+        _uiState.update {
+            it.copy(
+                extractDialog = ExtractZipState(zipFile = zipFile, isLoading = true),
+                selectionMode = false,
+                selectedPaths = emptySet(),
+            )
+        }
+        viewModelScope.launch {
+            try {
+                val entries = withContext(Dispatchers.IO) {
+                    ZipManager.listZipEntryDetails(zipFile)
+                }
+                if (entries.isEmpty()) {
+                    _uiState.update {
+                        it.copy(
+                            extractDialog = ExtractZipState(
+                                zipFile = zipFile,
+                                isLoading = false,
+                                error = "File ZIP kosong",
+                            ),
+                        )
+                    }
+                    return@launch
+                }
+                _uiState.update {
+                    it.copy(
+                        extractDialog = ExtractZipState(
+                            zipFile = zipFile,
+                            entries = entries,
+                            selectedPaths = entries.map { entry -> entry.path }.toSet(),
+                            isLoading = false,
+                        ),
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        extractDialog = ExtractZipState(
+                            zipFile = zipFile,
+                            isLoading = false,
+                            error = "Gagal membaca ZIP: ${e.message ?: "error"}",
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    fun closeExtractDialog() {
+        _uiState.update { it.copy(extractDialog = null) }
+    }
+
+    fun toggleExtractEntry(path: String) {
+        _uiState.update { state ->
+            val dialog = state.extractDialog ?: return@update state
+            val next = dialog.selectedPaths.toMutableSet()
+            if (!next.add(path)) next.remove(path)
+            state.copy(extractDialog = dialog.copy(selectedPaths = next))
+        }
+    }
+
+    fun selectAllExtractEntries() {
+        _uiState.update { state ->
+            val dialog = state.extractDialog ?: return@update state
+            state.copy(
+                extractDialog = dialog.copy(
+                    selectedPaths = dialog.entries.map { it.path }.toSet(),
+                ),
+            )
+        }
+    }
+
+    fun deselectAllExtractEntries() {
+        _uiState.update { state ->
+            val dialog = state.extractDialog ?: return@update state
+            state.copy(extractDialog = dialog.copy(selectedPaths = emptySet()))
+        }
+    }
+
+    fun setDeleteOriginalZip(delete: Boolean) {
+        _uiState.update { state ->
+            val dialog = state.extractDialog ?: return@update state
+            state.copy(extractDialog = dialog.copy(deleteOriginal = delete))
+        }
+    }
+
+    fun confirmExtract() {
+        val dialog = _uiState.value.extractDialog ?: return
+        if (dialog.selectedPaths.isEmpty()) {
+            emit("Pilih minimal 1 file untuk diextract")
+            return
+        }
+        val zip = dialog.zipFile
+        val destination = zip.parentFile
+        if (destination == null || !destination.exists()) {
+            emit("Folder tujuan tidak ditemukan")
+            return
+        }
+
+        val deleteOriginal = dialog.deleteOriginal
+        val selectedPaths = dialog.selectedPaths
+        closeExtractDialog()
+
+        runJob("Extract ZIP…", zip.name) {
+            try {
+                ZipManager.extractZipEntries(zip, destination, selectedPaths) { progress, name ->
+                    updateProgress("Extract ZIP…", name, progress)
+                }
+                if (deleteOriginal) {
+                    if (!zip.delete()) {
+                        emit("Extract selesai, tetapi gagal menghapus ZIP asli")
+                        return@runJob
+                    }
+                }
+                val suffix = if (deleteOriginal) " (ZIP asli dihapus)" else ""
+                emit("Extract selesai ke ${destination.name}$suffix")
+            } catch (e: Exception) {
+                emit("Gagal extract: ${e.message ?: "error"}")
+            }
+        }
     }
 
     fun goUp() {
@@ -275,27 +412,14 @@ class FileBrowserViewModel : ViewModel() {
         }
     }
 
-    fun extractSelected(customFolderName: String? = null) {
+    fun extractSelected() {
         val zip = selectedFiles().singleOrNull { it.isFile && FileItem(it).isArchive }
             ?: selectedFiles().singleOrNull()?.takeIf { FileItem(it).isArchive }
         if (zip == null) {
             emit("Pilih 1 file ZIP untuk diextract")
             return
         }
-        val folderName = customFolderName?.trim()?.ifEmpty { null } ?: zip.nameWithoutExtension
-        val destination = FileOperations.uniqueName(File(_uiState.value.currentDir, folderName))
-
-        runJob("Extract ZIP…", zip.name) {
-            try {
-                ZipManager.extractZip(zip, destination) { progress, name ->
-                    updateProgress("Extract ZIP…", name, progress)
-                }
-                clearSelection()
-                emit("Extract selesai ke ${destination.name}")
-            } catch (e: Exception) {
-                emit("Gagal extract: ${e.message ?: "error"}")
-            }
-        }
+        openExtractDialog(zip)
     }
 
     fun extractZipFile(zip: File) {
@@ -304,13 +428,7 @@ class FileBrowserViewModel : ViewModel() {
             return
         }
         navigateTo(zip.parentFile ?: root)
-        _uiState.update {
-            it.copy(
-                selectionMode = true,
-                selectedPaths = setOf(zip.absolutePath),
-            )
-        }
-        extractSelected()
+        openExtractDialog(zip)
     }
 
     fun toggleSort() {
