@@ -12,6 +12,12 @@ object FileOperations {
         return Environment.getExternalStorageDirectory()
     }
 
+    fun samePath(left: File, right: File): Boolean {
+        return runCatching {
+            left.canonicalFile.absolutePath == right.canonicalFile.absolutePath
+        }.getOrDefault(left.absolutePath == right.absolutePath)
+    }
+
     fun getStorageInfo(): StorageInfo {
         val root = defaultRoot()
         return runCatching {

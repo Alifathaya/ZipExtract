@@ -254,12 +254,7 @@ class FileBrowserViewModel : ViewModel() {
                 list
             }
         }
-        val categoryRoot = _uiState.value.categoryRoot
-        val canGoUp = when {
-            categoryRoot != null && dir.absolutePath == categoryRoot.absolutePath -> true
-            dir.absolutePath != root.absolutePath && dir.parentFile != null -> true
-            else -> false
-        }
+        val canGoUp = !_uiState.value.showHome
         _uiState.update {
             it.copy(
                 items = items,
@@ -449,16 +444,23 @@ class FileBrowserViewModel : ViewModel() {
 
     fun goUp() {
         val state = _uiState.value
+        val dir = state.currentDir
         val categoryRoot = state.categoryRoot
-        if (categoryRoot != null && state.currentDir.absolutePath == categoryRoot.absolutePath) {
+
+        val atCategoryRoot = categoryRoot != null && FileOperations.samePath(dir, categoryRoot)
+        val atStorageRoot = FileOperations.samePath(dir, root)
+
+        if (atCategoryRoot || atStorageRoot) {
             goHome()
             return
         }
-        if (state.currentDir.absolutePath == root.absolutePath) {
+
+        val parent = dir.parentFile
+        if (parent == null || !parent.exists()) {
             goHome()
             return
         }
-        val parent = state.currentDir.parentFile ?: return
+
         _uiState.update {
             it.copy(
                 currentDir = parent,
