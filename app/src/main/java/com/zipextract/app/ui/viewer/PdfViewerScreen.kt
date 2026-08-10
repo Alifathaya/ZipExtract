@@ -19,6 +19,9 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.ZoomOut
+import androidx.compose.material.icons.filled.ZoomOutMap
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -46,7 +49,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import androidx.compose.ui.Modifier as ComposeModifier
+import androidx.compose.ui.modifier as ComposeModifier
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,6 +60,7 @@ fun PdfViewerScreen(
 ) {
     BackHandler(onBack = onClose)
     val context = LocalContext.current
+    val zoomState = rememberZoomState()
 
     var pageCount by remember { mutableStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -92,18 +96,33 @@ fun PdfViewerScreen(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        if (pageCount > 0) {
-                            Text(
-                                text = "$pageCount halaman",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                        Text(
+                            text = if (pageCount > 0) {
+                                "$pageCount halaman · cubit / double-tap zoom"
+                            } else {
+                                "Cubit / double-tap untuk zoom"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 },
                 navigationIcon = {
                     IconButton(onClick = onClose) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { zoomState.zoomOut() }) {
+                        Icon(Icons.Default.ZoomOut, contentDescription = "Perkecil")
+                    }
+                    IconButton(onClick = { zoomState.zoomIn() }) {
+                        Icon(Icons.Default.ZoomIn, contentDescription = "Perbesar")
+                    }
+                    IconButton(onClick = { zoomState.reset() }) {
+                        Icon(Icons.Default.ZoomOutMap, contentDescription = "Reset zoom")
                     }
                 },
             )
@@ -123,24 +142,31 @@ fun PdfViewerScreen(
                     Text("PDF kosong atau tidak bisa dibaca")
                 }
                 else -> {
-                    LazyColumn(
-                        state = listState,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        contentPadding = PaddingValues(12.dp),
+                    ZoomableBox(
+                        zoomState = zoomState,
                         modifier = ComposeModifier.fillMaxSize(),
+                        preserveScrollGestures = true,
                     ) {
-                        itemsIndexed((0 until pageCount).toList()) { index, _ ->
-                            Column {
-                                Text(
-                                    text = "Halaman ${index + 1} / $pageCount",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = ComposeModifier.padding(bottom = 6.dp),
-                                )
-                                PdfPage(
-                                    holder = rendererHolder!!,
-                                    pageIndex = index,
-                                )
+                        LazyColumn(
+                            state = listState,
+                            userScrollEnabled = !zoomState.isZoomed,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            contentPadding = PaddingValues(12.dp),
+                            modifier = ComposeModifier.fillMaxSize(),
+                        ) {
+                            itemsIndexed((0 until pageCount).toList()) { index, _ ->
+                                Column {
+                                    Text(
+                                        text = "Halaman ${index + 1} / $pageCount",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = ComposeModifier.padding(bottom = 6.dp),
+                                    )
+                                    PdfPage(
+                                        holder = rendererHolder!!,
+                                        pageIndex = index,
+                                    )
+                                }
                             }
                         }
                     }
