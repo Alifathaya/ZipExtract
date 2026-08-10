@@ -4,10 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zipextract.app.data.ClipboardMode
 import com.zipextract.app.data.ClipboardState
+import com.zipextract.app.data.CategorySummary
+import com.zipextract.app.data.FileCategory
 import com.zipextract.app.data.FileItem
 import com.zipextract.app.data.FileOperations
 import com.zipextract.app.data.OperationResult
 import com.zipextract.app.data.ProgressState
+import com.zipextract.app.data.StorageInfo
 import com.zipextract.app.data.ZipManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -40,6 +43,12 @@ data class ExtractZipState(
 )
 
 data class BrowserUiState(
+    val showHome: Boolean = true,
+    val activeCategory: FileCategory? = null,
+    val categoryRoot: File? = null,
+    val storageInfo: StorageInfo? = null,
+    val categorySummaries: List<CategorySummary> = emptyList(),
+    val homeLoading: Boolean = false,
     val currentDir: File = FileOperations.defaultRoot(),
     val items: List<FileItem> = emptyList(),
     val selectedPaths: Set<String> = emptySet(),
@@ -65,10 +74,84 @@ class FileBrowserViewModel : ViewModel() {
 
     fun setStorageGranted(granted: Boolean) {
         _uiState.update { it.copy(storageGranted = granted) }
-        if (granted) refresh()
+        if (granted) {
+            if (_uiState.value.showHome) {
+                loadHomeData()
+            } else {
+                refresh()
+            }
+        }
+    }
+
+    fun loadHomeData() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(homeLoading = true) }
+            val data = withContext(Dispatchers.IO) {
+                HomeDashboardData(
+                    storageInfo = FileOperations.getStorageInfo(),
+                    categories = FileOperations.getCategorySummaries(),
+                )
+            }
+            _uiState.update {
+                it.copy(
+                    homeLoading = false,
+                    storageInfo = data.storageInfo,
+                    categorySummaries = data.categories,
+                )
+            }
+        }
+    }
+
+    fun openCategory(category: FileCategory) {
+        val folder = category.resolveFolder()
+        if (!folder.exists()) folder.mkdirs()
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                activeCategory = category,
+                categoryRoot = folder,
+                currentDir = folder,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+            )
+        }
+        refresh()
+    }
+
+    fun browseAllFiles() {
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                activeCategory = null,
+                categoryRoot = null,
+                currentDir = root,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+            )
+        }
+        refresh()
+    }
+
+    fun goHome() {
+        _uiState.update {
+            it.copy(
+                showHome = true,
+                activeCategory = null,
+                categoryRoot = null,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+                items = emptyList(),
+                canGoUp = false,
+            )
+        }
+        loadHomeData()
     }
 
     fun refresh() {
+        if (_uiState.value.showHome) {
+            loadHomeData()
+            return
+        }
         val dir = _uiState.value.currentDir
         val items = FileOperations.listFiles(dir).let { list ->
             if (_uiState.value.sortNewestFirst) {
@@ -80,10 +163,16 @@ class FileBrowserViewModel : ViewModel() {
                 list
             }
         }
+        val categoryRoot = _uiState.value.categoryRoot
+        val canGoUp = when {
+            categoryRoot != null && dir.absolutePath == categoryRoot.absolutePath -> true
+            dir.absolutePath != root.absolutePath && dir.parentFile != null -> true
+            else -> false
+        }
         _uiState.update {
             it.copy(
                 items = items,
-                canGoUp = dir.absolutePath != root.absolutePath && dir.parentFile != null,
+                canGoUp = canGoUp,
                 selectedPaths = it.selectedPaths.filter { path ->
                     items.any { item -> item.path == path }
                 }.toSet(),
@@ -95,6 +184,7 @@ class FileBrowserViewModel : ViewModel() {
         if (!item.isDirectory) return
         _uiState.update {
             it.copy(
+                showHome = false,
                 currentDir = item.file,
                 selectionMode = false,
                 selectedPaths = emptySet(),
@@ -267,7 +357,17 @@ class FileBrowserViewModel : ViewModel() {
     }
 
     fun goUp() {
-        val parent = _uiState.value.currentDir.parentFile ?: return
+        val state = _uiState.value
+        val categoryRoot = state.categoryRoot
+        if (categoryRoot != null && state.currentDir.absolutePath == categoryRoot.absolutePath) {
+            goHome()
+            return
+        }
+        if (state.currentDir.absolutePath == root.absolutePath) {
+            goHome()
+            return
+        }
+        val parent = state.currentDir.parentFile ?: return
         _uiState.update {
             it.copy(
                 currentDir = parent,
@@ -282,6 +382,7 @@ class FileBrowserViewModel : ViewModel() {
         if (!path.exists() || !path.isDirectory) return
         _uiState.update {
             it.copy(
+                showHome = false,
                 currentDir = path,
                 selectionMode = false,
                 selectedPaths = emptySet(),
@@ -485,4 +586,9 @@ class FileBrowserViewModel : ViewModel() {
     private fun emit(message: String) {
         _events.tryEmit(message)
     }
+
+    private data class HomeDashboardData(
+        val storageInfo: StorageInfo,
+        val categories: List<CategorySummary>,
+    )
 }

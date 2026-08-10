@@ -79,6 +79,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.zipextract.app.data.ClipboardMode
+import com.zipextract.app.data.FileCategory
 import com.zipextract.app.data.FileItem
 import com.zipextract.app.ui.viewer.ExtractZipScreen
 import com.zipextract.app.ui.viewer.ImageViewerScreen
@@ -111,6 +112,9 @@ fun FileBrowserScreen(
     onRename: (String) -> Unit,
     onCreateZip: (String, Boolean) -> Unit,
     onOpenExtract: (com.zipextract.app.data.FileItem) -> Unit,
+    onOpenCategory: (com.zipextract.app.data.FileCategory) -> Unit,
+    onBrowseAll: () -> Unit,
+    onGoHome: () -> Unit,
     onToggleSort: () -> Unit,
     onRequestPermission: () -> Unit,
     onCloseViewer: () -> Unit,
@@ -132,12 +136,17 @@ fun FileBrowserScreen(
     val canExtract = selectedItems.size == 1 && singleSelected?.isArchive == true
     val canRename = selectedItems.size == 1
 
-    BackHandler(enabled = state.extractDialog != null || state.viewer != null || state.selectionMode || state.canGoUp) {
+    BackHandler(
+        enabled = state.extractDialog != null ||
+            state.viewer != null ||
+            state.selectionMode ||
+            (!state.showHome && state.canGoUp),
+    ) {
         when {
             state.extractDialog != null -> onCloseExtract()
             state.viewer != null -> onCloseViewer()
             state.selectionMode -> onClearSelection()
-            state.canGoUp -> onGoUp()
+            !state.showHome && state.canGoUp -> onGoUp()
         }
     }
 
@@ -150,6 +159,23 @@ fun FileBrowserScreen(
         return
     }
 
+    if (state.showHome) {
+        if (!state.storageGranted) {
+            PermissionPane(onRequestPermission)
+            return
+        }
+        HomeDashboardScreen(
+            storageInfo = state.storageInfo,
+            categories = state.categorySummaries,
+            isLoading = state.homeLoading,
+            onRefresh = onRefresh,
+            onOpenCategory = onOpenCategory,
+            onBrowseAll = onBrowseAll,
+            onOpenDownloads = { onOpenCategory(FileCategory.DOWNLOADS) },
+        )
+        return
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         topBar = {
@@ -157,7 +183,11 @@ fun FileBrowserScreen(
                 title = {
                     Column {
                         Text(
-                            text = if (state.selectionMode) "$selectedCount dipilih" else "ZipExtract",
+                            text = when {
+                                state.selectionMode -> "$selectedCount dipilih"
+                                state.activeCategory != null -> state.activeCategory.title
+                                else -> "Semua File"
+                            },
                             style = MaterialTheme.typography.titleLarge,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -180,7 +210,7 @@ fun FileBrowserScreen(
                         }
                         state.canGoUp -> {
                             IconButton(onClick = onGoUp) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Naik folder")
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
                             }
                         }
                     }
