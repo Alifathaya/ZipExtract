@@ -12,7 +12,9 @@ import com.zipextract.app.data.FileOperations
 import com.zipextract.app.data.OperationResult
 import com.zipextract.app.data.ProgressState
 import com.zipextract.app.data.StorageInfo
-import com.zipextract.app.data.ZipManager
+import android.content.Context
+import android.net.Uri
+import com.zipextract.app.data.SharedFileResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -294,7 +296,42 @@ class FileBrowserViewModel : ViewModel() {
             emit("File tidak ditemukan")
             return
         }
-        _uiState.update { it.copy(viewer = content) }
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                viewer = content,
+                extractDialog = null,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+                searchQuery = "",
+                searchResults = emptyList(),
+            )
+        }
+    }
+
+    fun openSharedUri(context: Context, uri: Uri, mimeType: String?) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(progress = ProgressState("Membuka file…", uri.lastPathSegment.orEmpty()))
+            }
+            val file = withContext(Dispatchers.IO) {
+                SharedFileResolver.resolveToLocalFile(context, uri, mimeType)
+            }
+            _uiState.update { it.copy(progress = null) }
+            if (file == null) {
+                emit("File tidak bisa dibuka")
+                return@launch
+            }
+            val item = FileItem(file)
+            when {
+                item.isArchive -> {
+                    extractZipFile(file)
+                }
+                item.isPdf -> openViewer(ViewerContent.Pdf(file))
+                item.isImage -> openViewer(ViewerContent.Image(file))
+                else -> emit("Format file tidak didukung untuk dibuka")
+            }
+        }
     }
 
     fun openViewerFile(file: File) {
