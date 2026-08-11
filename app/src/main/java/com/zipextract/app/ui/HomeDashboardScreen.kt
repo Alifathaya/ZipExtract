@@ -4,10 +4,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -64,6 +66,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.min
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import com.zipextract.app.data.CategorySummary
@@ -184,7 +187,9 @@ fun HomeDashboardScreen(
                     loading = isLoading,
                     onOpenPhoto = onOpenFile,
                     onViewAll = onViewAllPhotos,
-                    compact = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
                 )
 
                 Column {
@@ -317,12 +322,11 @@ private fun RecentPhotosSection(
     loading: Boolean,
     onOpenPhoto: (FileItem) -> Unit,
     onViewAll: () -> Unit,
-    compact: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     val samplePhotos = photos.take(6)
-    val thumbSize = if (compact) 72.dp else 108.dp
 
-    Column {
+    Column(modifier = modifier) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -333,61 +337,67 @@ private fun RecentPhotosSection(
                     Icons.Default.Image,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(if (compact) 18.dp else 20.dp),
+                    modifier = Modifier.size(18.dp),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Column {
-                    Text(
-                        text = "Foto Terbaru",
-                        style = if (compact) {
-                            MaterialTheme.typography.titleSmall
-                        } else {
-                            MaterialTheme.typography.titleMedium
-                        },
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    if (!compact) {
-                        Text(
-                            text = "Sample foto dari perangkat Anda",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+                Text(
+                    text = "Foto Terbaru",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
             TextButton(onClick = onViewAll) {
                 Text("Lihat semua")
             }
         }
 
-        Spacer(modifier = Modifier.height(if (compact) 6.dp else 10.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-        when {
-            loading && samplePhotos.isEmpty() -> {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(4) {
-                        PhotoPlaceholderTile(modifier = Modifier.size(thumbSize))
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f, fill = true),
+        ) {
+            // Fill leftover dashboard height so category buttons sit at the bottom.
+            val thumbSize = min(maxHeight, 220.dp).coerceAtLeast(96.dp)
+
+            when {
+                loading && samplePhotos.isEmpty() -> {
+                    LazyRow(
+                        modifier = Modifier.fillMaxHeight(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        items(4) {
+                            PhotoPlaceholderTile(modifier = Modifier.size(thumbSize))
+                        }
                     }
                 }
-            }
-            samplePhotos.isEmpty() -> {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(4) {
-                        PhotoPlaceholderTile(modifier = Modifier.size(thumbSize))
+                samplePhotos.isEmpty() -> {
+                    LazyRow(
+                        modifier = Modifier.fillMaxHeight(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        items(4) {
+                            PhotoPlaceholderTile(modifier = Modifier.size(thumbSize))
+                        }
                     }
                 }
-            }
-            else -> {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(end = 4.dp),
-                ) {
-                    items(samplePhotos, key = { it.path }) { photo ->
-                        PhotoThumbnail(
-                            photo = photo,
-                            onClick = { onOpenPhoto(photo) },
-                            size = thumbSize,
-                        )
+                else -> {
+                    LazyRow(
+                        modifier = Modifier.fillMaxHeight(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        contentPadding = PaddingValues(end = 4.dp),
+                    ) {
+                        items(samplePhotos, key = { it.path }) { photo ->
+                            PhotoThumbnail(
+                                photo = photo,
+                                onClick = { onOpenPhoto(photo) },
+                                size = thumbSize,
+                            )
+                        }
                     }
                 }
             }
