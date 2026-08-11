@@ -160,7 +160,9 @@ fun HomeDashboardScreen(
             }
         } else {
             Column(
-                modifier = pageModifier.padding(bottom = 12.dp),
+                modifier = pageModifier
+                    .navigationBarsPadding()
+                    .padding(bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 StorageCard(storageInfo = storageInfo, compact = true)
