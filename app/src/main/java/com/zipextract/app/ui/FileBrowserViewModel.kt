@@ -72,6 +72,7 @@ data class BrowserUiState(
     val canGoUp: Boolean = false,
     val storageGranted: Boolean = false,
     val sortNewestFirst: Boolean = false,
+    val imageGalleryMode: Boolean = false,
     val viewer: ViewerContent? = null,
     val launchedFromExternalIntent: Boolean = false,
     val extractDialog: ExtractZipState? = null,
@@ -103,10 +104,11 @@ class FileBrowserViewModel : ViewModel() {
         viewModelScope.launch {
             _uiState.update { it.copy(homeLoading = true) }
             val data = withContext(Dispatchers.IO) {
+                val allImages = FileOperations.getAllImages()
                 HomeDashboardData(
                     storageInfo = FileOperations.getStorageInfo(),
-                    categories = FileOperations.getCategorySummaries(),
-                    recentFiles = FileOperations.getRecentImages(),
+                    categories = FileOperations.getCategorySummaries(imageCountOverride = allImages.size),
+                    recentFiles = allImages.take(12),
                 )
             }
             _uiState.update {
@@ -121,6 +123,10 @@ class FileBrowserViewModel : ViewModel() {
     }
 
     fun openCategory(category: FileCategory) {
+        if (category == FileCategory.IMAGES) {
+            openImageGallery()
+            return
+        }
         val folder = category.resolveFolder()
         if (!folder.exists()) folder.mkdirs()
         _uiState.update {
@@ -130,6 +136,7 @@ class FileBrowserViewModel : ViewModel() {
                 categoryRoot = folder,
                 currentDir = folder,
                 fileFilter = FileFilter.forCategory(category),
+                imageGalleryMode = false,
                 selectionMode = false,
                 selectedPaths = emptySet(),
                 searchQuery = "",
@@ -137,6 +144,51 @@ class FileBrowserViewModel : ViewModel() {
             )
         }
         refresh()
+    }
+
+    fun openImageGallery() {
+        val folder = FileCategory.IMAGES.resolveFolder()
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                activeCategory = FileCategory.IMAGES,
+                categoryRoot = folder,
+                currentDir = folder,
+                fileFilter = FileFilter.IMAGES,
+                imageGalleryMode = true,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+                searchQuery = "",
+                searchResults = emptyList(),
+                items = emptyList(),
+                canGoUp = true,
+                progress = ProgressState(
+                    title = "Memuat foto…",
+                    message = "Mencari semua gambar di perangkat",
+                    indeterminate = true,
+                ),
+            )
+        }
+        viewModelScope.launch {
+            val images = withContext(Dispatchers.IO) {
+                FileOperations.getAllImages()
+            }
+            val sorted = if (_uiState.value.sortNewestFirst) {
+                images
+            } else {
+                images.sortedByDescending { it.lastModified }
+            }
+            _uiState.update {
+                it.copy(
+                    items = sorted,
+                    progress = null,
+                    canGoUp = true,
+                    selectedPaths = it.selectedPaths.filter { path ->
+                        sorted.any { item -> item.path == path }
+                    }.toSet(),
+                )
+            }
+        }
     }
 
     fun updateSearchQuery(query: String) {
@@ -180,6 +232,7 @@ class FileBrowserViewModel : ViewModel() {
                     categoryRoot = null,
                     currentDir = item.file,
                     fileFilter = FileFilter.ALL,
+                    imageGalleryMode = false,
                     searchQuery = "",
                     searchResults = emptyList(),
                 )
@@ -187,22 +240,31 @@ class FileBrowserViewModel : ViewModel() {
             refresh()
             return
         }
-        val parent = item.file.parentFile
-        if (parent != null) {
-            _uiState.update {
-                it.copy(
-                    showHome = false,
-                    activeCategory = null,
-                    categoryRoot = null,
-                    currentDir = parent,
-                    fileFilter = FileFilter.ALL,
-                    searchQuery = "",
-                    searchResults = emptyList(),
-                )
+        // Open media directly without switching into folder-list mode.
+        when {
+            item.isPdf || item.isImage -> {
+                openItem(item)
             }
-            refresh()
+            else -> {
+                val parent = item.file.parentFile
+                if (parent != null) {
+                    _uiState.update {
+                        it.copy(
+                            showHome = false,
+                            activeCategory = null,
+                            categoryRoot = null,
+                            currentDir = parent,
+                            fileFilter = FileFilter.ALL,
+                            imageGalleryMode = false,
+                            searchQuery = "",
+                            searchResults = emptyList(),
+                        )
+                    }
+                    refresh()
+                }
+                openItem(item)
+            }
         }
-        openItem(item)
     }
 
     fun browseAllFiles() {
@@ -213,6 +275,7 @@ class FileBrowserViewModel : ViewModel() {
                 categoryRoot = null,
                 currentDir = root,
                 fileFilter = FileFilter.ALL,
+                imageGalleryMode = false,
                 selectionMode = false,
                 selectedPaths = emptySet(),
                 searchQuery = "",
@@ -230,6 +293,7 @@ class FileBrowserViewModel : ViewModel() {
                 activeCategory = null,
                 categoryRoot = null,
                 fileFilter = FileFilter.ALL,
+                imageGalleryMode = false,
                 selectionMode = false,
                 selectedPaths = emptySet(),
                 items = emptyList(),
@@ -237,6 +301,7 @@ class FileBrowserViewModel : ViewModel() {
                 searchQuery = "",
                 searchResults = emptyList(),
                 searchLoading = false,
+                progress = null,
             )
         }
         loadHomeData()
@@ -245,6 +310,10 @@ class FileBrowserViewModel : ViewModel() {
     fun refresh() {
         if (_uiState.value.showHome) {
             loadHomeData()
+            return
+        }
+        if (_uiState.value.imageGalleryMode) {
+            openImageGallery()
             return
         }
         val dir = _uiState.value.currentDir
@@ -516,6 +585,10 @@ class FileBrowserViewModel : ViewModel() {
 
     fun goUp() {
         val state = _uiState.value
+        if (state.imageGalleryMode) {
+            goHome()
+            return
+        }
         val dir = state.currentDir
         val categoryRoot = state.categoryRoot
 

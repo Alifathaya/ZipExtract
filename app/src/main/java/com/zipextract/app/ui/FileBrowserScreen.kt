@@ -23,8 +23,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -78,10 +83,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import coil.compose.SubcomposeAsyncImage
+import coil.compose.SubcomposeAsyncImageContent
 import com.zipextract.app.data.ClipboardMode
 import com.zipextract.app.data.FileFilter
 import com.zipextract.app.data.FileCategory
@@ -206,6 +214,7 @@ fun FileBrowserScreen(
                         Text(
                             text = when {
                                 state.selectionMode -> "$selectedCount dipilih"
+                                state.imageGalleryMode -> "Gambar"
                                 state.activeCategory != null -> state.activeCategory.title
                                 else -> "Semua File"
                             },
@@ -214,7 +223,12 @@ fun FileBrowserScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = state.currentDir.absolutePath,
+                            text = when {
+                                state.imageGalleryMode && state.items.isNotEmpty() ->
+                                    "${state.items.size} foto di perangkat"
+                                state.imageGalleryMode -> "Semua foto di perangkat"
+                                else -> state.currentDir.absolutePath
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -342,13 +356,38 @@ fun FileBrowserScreen(
         ) {
             when {
                 !state.storageGranted -> PermissionPane(onRequestPermission)
+                state.items.isEmpty() && state.progress != null -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator()
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = state.progress.message.ifBlank { "Memuat…" },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
                 state.items.isEmpty() -> EmptyPane(
-                    message = if (state.fileFilter != FileFilter.ALL) {
-                        "Tidak ada file ${state.fileFilter.label.lowercase()} di folder ini"
-                    } else {
-                        "Folder kosong"
+                    message = when {
+                        state.imageGalleryMode -> "Tidak ada foto ditemukan di perangkat"
+                        state.fileFilter != FileFilter.ALL ->
+                            "Tidak ada file ${state.fileFilter.label.lowercase()} di folder ini"
+                        else -> "Folder kosong"
                     },
                 )
+                state.imageGalleryMode ||
+                    state.activeCategory == FileCategory.IMAGES ||
+                    state.fileFilter == FileFilter.IMAGES -> {
+                    ImageGalleryGrid(
+                        items = state.items.filter { it.isImage },
+                        selectedPaths = state.selectedPaths,
+                        selectionMode = state.selectionMode,
+                        onOpenItem = onOpenItem,
+                        onToggleSelect = onToggleSelect,
+                    )
+                }
                 else -> {
                     Column(modifier = Modifier.fillMaxSize()) {
                         if (!state.selectionMode) {
@@ -536,6 +575,111 @@ private fun ActionIcon(
                 MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
             },
         )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ImageGalleryGrid(
+    items: List<FileItem>,
+    selectedPaths: Set<String>,
+    selectionMode: Boolean,
+    onOpenItem: (FileItem) -> Unit,
+    onToggleSelect: (FileItem) -> Unit,
+) {
+    if (items.isEmpty()) {
+        EmptyPane(message = "Tidak ada foto ditemukan di perangkat")
+        return
+    }
+
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(3),
+        contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 96.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        gridItems(items, key = { it.path }) { item ->
+            ImageThumbnailCell(
+                item = item,
+                selected = item.path in selectedPaths,
+                selectionMode = selectionMode,
+                onClick = {
+                    if (selectionMode) onToggleSelect(item) else onOpenItem(item)
+                },
+                onLongClick = { onToggleSelect(item) },
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ImageThumbnailCell(
+    item: FileItem,
+    selected: Boolean,
+    selectionMode: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+    ) {
+        SubcomposeAsyncImage(
+            model = item.file,
+            contentDescription = item.name,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            loading = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp))
+                }
+            },
+            error = {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Image,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+            },
+            success = {
+                SubcomposeAsyncImageContent()
+            },
+        )
+
+        if (selected || selectionMode) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = if (selected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
     }
 }
 

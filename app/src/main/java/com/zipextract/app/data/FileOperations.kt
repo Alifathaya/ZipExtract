@@ -28,13 +28,17 @@ object FileOperations {
         }.getOrDefault(StorageInfo(totalBytes = 0L, freeBytes = 0L))
     }
 
-    fun getCategorySummaries(): List<CategorySummary> {
+    fun getCategorySummaries(imageCountOverride: Int? = null): List<CategorySummary> {
         return FileCategory.entries.map { category ->
             val folder = category.resolveFolder()
             if (!folder.exists()) folder.mkdirs()
+            val count = when (category) {
+                FileCategory.IMAGES -> imageCountOverride ?: countAllImages()
+                else -> countTopLevelItems(folder)
+            }
             CategorySummary(
                 category = category,
-                itemCount = countTopLevelItems(folder),
+                itemCount = count,
                 folder = folder,
             )
         }
@@ -46,23 +50,123 @@ object FileOperations {
     }
 
     fun getRecentImages(limit: Int = 12): List<FileItem> {
-        val roots = listOf(
-            FileCategory.IMAGES.resolveFolder(),
-            FileCategory.DOWNLOADS.resolveFolder(),
-            FileCategory.OTHERS.resolveFolder(),
-        ).distinctBy { runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) }
-
-        val files = mutableListOf<FileItem>()
-        roots.forEach { root ->
-            collectFilesRecursive(root, depth = 0, maxDepth = 4, out = files, filesOnly = true)
-        }
-        return files
-            .filter { it.isImage }
-            .sortedByDescending { it.lastModified }
-            .take(limit)
+        return getAllImages(maxResults = 400).take(limit)
     }
 
     fun getRecentFiles(limit: Int = 12): List<FileItem> = getRecentImages(limit)
+
+    /**
+     * Collect images from common photo locations across the device
+     * (DCIM, Pictures, Download, WhatsApp, etc.), not only one folder.
+     */
+    fun getAllImages(maxResults: Int = 2500): List<FileItem> {
+        val out = LinkedHashMap<String, FileItem>()
+        imageScanRoots().forEach { root ->
+            collectImagesRecursive(
+                directory = root,
+                depth = 0,
+                maxDepth = 8,
+                out = out,
+                maxResults = maxResults,
+            )
+            if (out.size >= maxResults) return@forEach
+        }
+        return out.values
+            .sortedByDescending { it.lastModified }
+            .take(maxResults)
+    }
+
+    fun countAllImages(maxDepth: Int = 8, softAt: Int = 9999): Int {
+        var count = 0
+        val seen = HashSet<String>()
+        imageScanRoots().forEach { root ->
+            count += countImagesRecursive(root, depth = 0, maxDepth = maxDepth, seen = seen, stopAt = stopAt)
+            if (count >= stopAt) return stopAt
+        }
+        return count
+    }
+
+    fun imageScanRoots(): List<File> {
+        val storage = Environment.getExternalStorageDirectory()
+        val candidates = listOf(
+            File(storage, "DCIM"),
+            File(storage, "Pictures"),
+            File(storage, "Download"),
+            File(storage, "Downloads"),
+            File(storage, "WhatsApp/Media/WhatsApp Images"),
+            File(storage, "WhatsApp/Media/WhatsApp Documents"),
+            File(storage, "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images"),
+            File(storage, "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Documents"),
+            File(storage, "Android/media/com.whatsapp.w4b/WhatsApp Business/Media/WhatsApp Images"),
+            File(storage, "Telegram/Telegram Images"),
+            File(storage, "Android/media/org.telegram.messenger/Telegram/Telegram Images"),
+            File(storage, "Snapchat"),
+            File(storage, "Screenshots"),
+            File(storage, "Pictures/Screenshots"),
+            File(storage, "DCIM/Camera"),
+            File(storage, "DCIM/Screenshots"),
+            FileCategory.IMAGES.resolveFolder(),
+            FileCategory.DOWNLOADS.resolveFolder(),
+        )
+        return candidates
+            .filter { it.exists() && it.isDirectory }
+            .distinctBy { runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) }
+    }
+
+    private fun collectImagesRecursive(
+        directory: File,
+        depth: Int,
+        maxDepth: Int,
+        out: MutableMap<String, FileItem>,
+        maxResults: Int,
+    ) {
+        if (depth > maxDepth || out.size >= maxResults) return
+        if (!directory.exists() || !directory.isDirectory) return
+        val children = directory.listFiles() ?: return
+        children.forEach { child ->
+            if (out.size >= maxResults) return
+            if (child.isDirectory) {
+                val name = child.name
+                if (name.startsWith('.') || name.equals("cache", true) || name.equals("thumbnails", true)) {
+                    return@forEach
+                }
+                collectImagesRecursive(child, depth + 1, maxDepth, out, maxResults)
+            } else {
+                val item = FileItem(child)
+                if (item.isImage) {
+                    out[item.path] = item
+                }
+            }
+        }
+    }
+
+    private fun countImagesRecursive(
+        directory: File,
+        depth: Int,
+        maxDepth: Int,
+        seen: MutableSet<String>,
+        stopAt: Int,
+    ): Int {
+        if (depth > maxDepth) return 0
+        if (!directory.exists() || !directory.isDirectory) return 0
+        val path = runCatching { directory.canonicalPath }.getOrDefault(directory.absolutePath)
+        if (!seen.add(path)) return 0
+        var count = 0
+        val children = directory.listFiles() ?: return 0
+        children.forEach { child ->
+            if (count >= stopAt) return count
+            if (child.isDirectory) {
+                val name = child.name
+                if (name.startsWith('.') || name.equals("cache", true) || name.equals("thumbnails", true)) {
+                    return@forEach
+                }
+                count += countImagesRecursive(child, depth + 1, maxDepth, seen, stopAt - count)
+            } else if (FileItem(child).isImage) {
+                count++
+            }
+        }
+        return count
+    }
 
     fun searchFiles(query: String, maxResults: Int = 50): List<FileItem> {
         val trimmed = query.trim()
@@ -82,25 +186,6 @@ object FileOperations {
         return FileCategory.entries
             .map { it.resolveFolder() }
             .distinctBy { runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) }
-    }
-
-    private fun collectFilesRecursive(
-        directory: File,
-        depth: Int,
-        maxDepth: Int,
-        out: MutableList<FileItem>,
-        filesOnly: Boolean,
-    ) {
-        if (depth > maxDepth || !directory.exists() || !directory.isDirectory) return
-        val children = directory.listFiles() ?: return
-        children.forEach { child ->
-            if (child.isDirectory) {
-                if (!filesOnly) out += FileItem(child)
-                collectFilesRecursive(child, depth + 1, maxDepth, out, filesOnly)
-            } else {
-                out += FileItem(child)
-            }
-        }
     }
 
     private fun searchRecursive(
