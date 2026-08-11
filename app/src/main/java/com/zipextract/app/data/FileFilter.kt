@@ -17,6 +17,7 @@ enum class FileFilter(val label: String) {
                 FileCategory.IMAGES -> IMAGES
                 FileCategory.VIDEOS -> VIDEOS
                 FileCategory.DOCUMENTS -> DOCUMENTS
+                FileCategory.ARCHIVES -> ARCHIVES
                 FileCategory.APPS -> APPS
                 FileCategory.OTHERS -> OTHERS
             }

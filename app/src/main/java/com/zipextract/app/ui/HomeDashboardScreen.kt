@@ -694,6 +694,7 @@ private fun categoryStyle(category: FileCategory): CategoryStyle {
         FileCategory.IMAGES -> CategoryStyle(Icons.Default.Image, Color(0xFFDB2777), Color(0xFFBE185D))
         FileCategory.VIDEOS -> CategoryStyle(Icons.Default.Movie, Color(0xFF7C3AED), Color(0xFF6D28D9))
         FileCategory.DOCUMENTS -> CategoryStyle(Icons.Default.Description, Color(0xFFD97706), Color(0xFFB45309))
+        FileCategory.ARCHIVES -> CategoryStyle(Icons.Default.Archive, Color(0xFF0F766E), Color(0xFF0D9488))
         FileCategory.APPS -> CategoryStyle(Icons.Default.Android, Color(0xFF059669), Color(0xFF047857))
         FileCategory.OTHERS -> CategoryStyle(Icons.Default.MusicNote, Color(0xFF475569), Color(0xFF334155))
     }

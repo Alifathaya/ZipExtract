@@ -72,7 +72,7 @@ data class BrowserUiState(
     val canGoUp: Boolean = false,
     val storageGranted: Boolean = false,
     val sortNewestFirst: Boolean = false,
-    val imageGalleryMode: Boolean = false,
+    val libraryMode: Boolean = false,
     val viewer: ViewerContent? = null,
     val launchedFromExternalIntent: Boolean = false,
     val extractDialog: ExtractZipState? = null,
@@ -104,11 +104,11 @@ class FileBrowserViewModel : ViewModel() {
         viewModelScope.launch {
             _uiState.update { it.copy(homeLoading = true) }
             val data = withContext(Dispatchers.IO) {
-                val allImages = FileOperations.getAllImages()
+                val library = FileOperations.scanMediaLibrary()
                 HomeDashboardData(
                     storageInfo = FileOperations.getStorageInfo(),
-                    categories = FileOperations.getCategorySummaries(imageCountOverride = allImages.size),
-                    recentFiles = allImages.take(12),
+                    categories = FileOperations.getCategorySummaries(library),
+                    recentFiles = library.images.take(12),
                 )
             }
             _uiState.update {
@@ -123,10 +123,10 @@ class FileBrowserViewModel : ViewModel() {
     }
 
     fun openCategory(category: FileCategory) {
-        if (category == FileCategory.IMAGES) {
-            openImageGallery()
-            return
-        }
+        openCategoryLibrary(category)
+    }
+
+    fun openCategoryLibrary(category: FileCategory) {
         val folder = category.resolveFolder()
         if (!folder.exists()) folder.mkdirs()
         _uiState.update {
@@ -136,26 +136,7 @@ class FileBrowserViewModel : ViewModel() {
                 categoryRoot = folder,
                 currentDir = folder,
                 fileFilter = FileFilter.forCategory(category),
-                imageGalleryMode = false,
-                selectionMode = false,
-                selectedPaths = emptySet(),
-                searchQuery = "",
-                searchResults = emptyList(),
-            )
-        }
-        refresh()
-    }
-
-    fun openImageGallery() {
-        val folder = FileCategory.IMAGES.resolveFolder()
-        _uiState.update {
-            it.copy(
-                showHome = false,
-                activeCategory = FileCategory.IMAGES,
-                categoryRoot = folder,
-                currentDir = folder,
-                fileFilter = FileFilter.IMAGES,
-                imageGalleryMode = true,
+                libraryMode = true,
                 selectionMode = false,
                 selectedPaths = emptySet(),
                 searchQuery = "",
@@ -163,20 +144,20 @@ class FileBrowserViewModel : ViewModel() {
                 items = emptyList(),
                 canGoUp = true,
                 progress = ProgressState(
-                    title = "Memuat foto…",
-                    message = "Mencari semua gambar di perangkat",
+                    title = "Memuat ${category.title}…",
+                    message = "Mencari semua ${category.libraryNoun} di perangkat",
                     indeterminate = true,
                 ),
             )
         }
         viewModelScope.launch {
-            val images = withContext(Dispatchers.IO) {
-                FileOperations.getAllImages()
+            val files = withContext(Dispatchers.IO) {
+                FileOperations.getFilesForCategory(category)
             }
             val sorted = if (_uiState.value.sortNewestFirst) {
-                images
+                files.sortedByDescending { it.lastModified }
             } else {
-                images.sortedByDescending { it.lastModified }
+                files.sortedByDescending { it.lastModified }
             }
             _uiState.update {
                 it.copy(
@@ -232,7 +213,7 @@ class FileBrowserViewModel : ViewModel() {
                     categoryRoot = null,
                     currentDir = item.file,
                     fileFilter = FileFilter.ALL,
-                    imageGalleryMode = false,
+                    libraryMode = false,
                     searchQuery = "",
                     searchResults = emptyList(),
                 )
@@ -255,7 +236,7 @@ class FileBrowserViewModel : ViewModel() {
                             categoryRoot = null,
                             currentDir = parent,
                             fileFilter = FileFilter.ALL,
-                            imageGalleryMode = false,
+                            libraryMode = false,
                             searchQuery = "",
                             searchResults = emptyList(),
                         )
@@ -275,7 +256,7 @@ class FileBrowserViewModel : ViewModel() {
                 categoryRoot = null,
                 currentDir = root,
                 fileFilter = FileFilter.ALL,
-                imageGalleryMode = false,
+                libraryMode = false,
                 selectionMode = false,
                 selectedPaths = emptySet(),
                 searchQuery = "",
@@ -293,7 +274,7 @@ class FileBrowserViewModel : ViewModel() {
                 activeCategory = null,
                 categoryRoot = null,
                 fileFilter = FileFilter.ALL,
-                imageGalleryMode = false,
+                libraryMode = false,
                 selectionMode = false,
                 selectedPaths = emptySet(),
                 items = emptyList(),
@@ -312,8 +293,9 @@ class FileBrowserViewModel : ViewModel() {
             loadHomeData()
             return
         }
-        if (_uiState.value.imageGalleryMode) {
-            openImageGallery()
+        if (_uiState.value.libraryMode) {
+            val category = _uiState.value.activeCategory ?: return
+            openCategoryLibrary(category)
             return
         }
         val dir = _uiState.value.currentDir
@@ -585,7 +567,7 @@ class FileBrowserViewModel : ViewModel() {
 
     fun goUp() {
         val state = _uiState.value
-        if (state.imageGalleryMode) {
+        if (state.libraryMode) {
             goHome()
             return
         }

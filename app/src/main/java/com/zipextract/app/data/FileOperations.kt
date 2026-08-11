@@ -28,17 +28,14 @@ object FileOperations {
         }.getOrDefault(StorageInfo(totalBytes = 0L, freeBytes = 0L))
     }
 
-    fun getCategorySummaries(imageCountOverride: Int? = null): List<CategorySummary> {
+    fun getCategorySummaries(library: MediaLibrary? = null): List<CategorySummary> {
+        val media = library ?: scanMediaLibrary()
         return FileCategory.entries.map { category ->
             val folder = category.resolveFolder()
             if (!folder.exists()) folder.mkdirs()
-            val count = when (category) {
-                FileCategory.IMAGES -> imageCountOverride ?: countAllImages()
-                else -> countTopLevelItems(folder)
-            }
             CategorySummary(
                 category = category,
-                itemCount = count,
+                itemCount = media.forCategory(category).size,
                 folder = folder,
             )
         }
@@ -50,130 +47,174 @@ object FileOperations {
     }
 
     fun getRecentImages(limit: Int = 12): List<FileItem> {
-        return getAllImages(maxResults = 400).take(limit)
+        return getFilesForCategory(FileCategory.IMAGES, maxResults = 400).take(limit)
     }
 
     fun getRecentFiles(limit: Int = 12): List<FileItem> = getRecentImages(limit)
 
-    /**
-     * Collect images from common photo locations across the device
-     * (DCIM, Pictures, Download, WhatsApp, etc.), not only one folder.
-     */
     fun getAllImages(maxResults: Int = 2500): List<FileItem> {
-        val out = LinkedHashMap<String, FileItem>()
-        imageScanRoots().forEach { root ->
-            collectImagesRecursive(
-                directory = root,
-                depth = 0,
-                maxDepth = 8,
-                out = out,
-                maxResults = maxResults,
-            )
-            if (out.size >= maxResults) return@forEach
-        }
-        return out.values
-            .sortedByDescending { it.lastModified }
-            .take(maxResults)
+        return getFilesForCategory(FileCategory.IMAGES, maxResults)
     }
 
-    fun countAllImages(maxDepth: Int = 8, limit: Int = 9999): Int {
-        var count = 0
-        val seen = HashSet<String>()
-        for (root in imageScanRoots()) {
-            count += countImagesRecursive(
-                directory = root,
-                depth = 0,
-                maxDepth = maxDepth,
-                seen = seen,
-                stopAt = limit,
-            )
-            if (count >= limit) {
-                return limit
+    fun getFilesForCategory(category: FileCategory, maxResults: Int = 2500): List<FileItem> {
+        return scanMediaLibrary(maxPerCategory = maxResults).forCategory(category).take(maxResults)
+    }
+
+    /**
+     * One-pass scan of common storage locations, then classify files into categories.
+     */
+    fun scanMediaLibrary(maxPerCategory: Int = 2500, maxDepth: Int = 8): MediaLibrary {
+        val downloads = LinkedHashMap<String, FileItem>()
+        val images = LinkedHashMap<String, FileItem>()
+        val videos = LinkedHashMap<String, FileItem>()
+        val documents = LinkedHashMap<String, FileItem>()
+        val archives = LinkedHashMap<String, FileItem>()
+        val apps = LinkedHashMap<String, FileItem>()
+        val others = LinkedHashMap<String, FileItem>()
+        val visited = HashSet<String>()
+        val downloadRoots = downloadScanRoots()
+            .map { runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) }
+            .toSet()
+
+        fun underDownload(path: String): Boolean {
+            return downloadRoots.any { root ->
+                path == root || path.startsWith(root + File.separator)
             }
         }
-        return count
+
+        fun addLimited(map: MutableMap<String, FileItem>, item: FileItem) {
+            if (map.size >= maxPerCategory) return
+            map[item.path] = item
+        }
+
+        mediaScanRoots().forEach { root ->
+            walkFiles(root, depth = 0, maxDepth = maxDepth, visited = visited) { file ->
+                val item = FileItem(file)
+                val path = runCatching { file.canonicalPath }.getOrDefault(file.absolutePath)
+                if (underDownload(path)) {
+                    addLimited(downloads, item)
+                }
+                when {
+                    item.isImage -> addLimited(images, item)
+                    item.isVideo -> addLimited(videos, item)
+                    item.isApp -> addLimited(apps, item)
+                    item.isArchive -> addLimited(archives, item)
+                    item.isDocument -> addLimited(documents, item)
+                    item.isAudio -> addLimited(others, item)
+                }
+            }
+        }
+
+        fun newest(map: Map<String, FileItem>): List<FileItem> {
+            return map.values.sortedByDescending { it.lastModified }
+        }
+
+        return MediaLibrary(
+            downloads = newest(downloads),
+            images = newest(images),
+            videos = newest(videos),
+            documents = newest(documents),
+            archives = newest(archives),
+            apps = newest(apps),
+            others = newest(others),
+        )
     }
 
-    fun imageScanRoots(): List<File> {
+    private fun mediaScanRoots(): List<File> {
         val storage = Environment.getExternalStorageDirectory()
         val candidates = listOf(
             File(storage, "DCIM"),
             File(storage, "Pictures"),
+            File(storage, "Movies"),
+            File(storage, "Video"),
             File(storage, "Download"),
             File(storage, "Downloads"),
-            File(storage, "WhatsApp/Media/WhatsApp Images"),
-            File(storage, "WhatsApp/Media/WhatsApp Documents"),
-            File(storage, "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images"),
-            File(storage, "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Documents"),
-            File(storage, "Android/media/com.whatsapp.w4b/WhatsApp Business/Media/WhatsApp Images"),
-            File(storage, "Telegram/Telegram Images"),
-            File(storage, "Android/media/org.telegram.messenger/Telegram/Telegram Images"),
-            File(storage, "Snapchat"),
+            File(storage, "Documents"),
+            File(storage, "Music"),
+            File(storage, "Podcasts"),
+            File(storage, "Recordings"),
             File(storage, "Screenshots"),
-            File(storage, "Pictures/Screenshots"),
-            File(storage, "DCIM/Camera"),
-            File(storage, "DCIM/Screenshots"),
-            FileCategory.IMAGES.resolveFolder(),
-            FileCategory.DOWNLOADS.resolveFolder(),
-        )
+            File(storage, "WhatsApp"),
+            File(storage, "Android/media/com.whatsapp"),
+            File(storage, "Android/media/com.whatsapp.w4b"),
+            File(storage, "Telegram"),
+            File(storage, "Android/media/org.telegram.messenger"),
+            File(storage, "Snapchat"),
+            File(storage, "Bluetooth"),
+            storage,
+        ) + FileCategory.entries.map { it.resolveFolder() }
+
         return candidates
             .filter { it.exists() && it.isDirectory }
             .distinctBy { runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) }
     }
 
-    private fun collectImagesRecursive(
+    private fun downloadScanRoots(): List<File> {
+        val storage = Environment.getExternalStorageDirectory()
+        return listOf(
+            File(storage, "Download"),
+            File(storage, "Downloads"),
+            FileCategory.DOWNLOADS.resolveFolder(),
+        ).filter { it.exists() && it.isDirectory }
+            .distinctBy { runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) }
+    }
+
+    private fun walkFiles(
         directory: File,
         depth: Int,
         maxDepth: Int,
-        out: MutableMap<String, FileItem>,
-        maxResults: Int,
+        visited: MutableSet<String>,
+        onFile: (File) -> Unit,
     ) {
-        if (depth > maxDepth || out.size >= maxResults) return
+        if (depth > maxDepth) return
         if (!directory.exists() || !directory.isDirectory) return
+        val path = runCatching { directory.canonicalPath }.getOrDefault(directory.absolutePath)
+        if (!visited.add(path)) return
+
+        // Avoid scanning huge/system-ish trees from storage root.
+        if (depth == 0 && isStorageRoot(directory)) {
+            directory.listFiles()
+                ?.filter { it.isDirectory && shouldScanTopLevelName(it.name) }
+                ?.forEach { child ->
+                    walkFiles(child, depth + 1, maxDepth, visited, onFile)
+                }
+            directory.listFiles()
+                ?.filter { it.isFile }
+                ?.forEach(onFile)
+            return
+        }
+
         val children = directory.listFiles() ?: return
         children.forEach { child ->
-            if (out.size >= maxResults) return
             if (child.isDirectory) {
                 val name = child.name
-                if (name.startsWith('.') || name.equals("cache", true) || name.equals("thumbnails", true)) {
-                    return@forEach
-                }
-                collectImagesRecursive(child, depth + 1, maxDepth, out, maxResults)
+                if (shouldSkipDirectoryName(name)) return@forEach
+                walkFiles(child, depth + 1, maxDepth, visited, onFile)
             } else {
-                val item = FileItem(child)
-                if (item.isImage) {
-                    out[item.path] = item
-                }
+                onFile(child)
             }
         }
     }
 
-    private fun countImagesRecursive(
-        directory: File,
-        depth: Int,
-        maxDepth: Int,
-        seen: MutableSet<String>,
-        stopAt: Int,
-    ): Int {
-        if (depth > maxDepth) return 0
-        if (!directory.exists() || !directory.isDirectory) return 0
-        val path = runCatching { directory.canonicalPath }.getOrDefault(directory.absolutePath)
-        if (!seen.add(path)) return 0
-        var count = 0
-        val children = directory.listFiles() ?: return 0
-        children.forEach { child ->
-            if (count >= stopAt) return count
-            if (child.isDirectory) {
-                val name = child.name
-                if (name.startsWith('.') || name.equals("cache", true) || name.equals("thumbnails", true)) {
-                    return@forEach
-                }
-                count += countImagesRecursive(child, depth + 1, maxDepth, seen, stopAt - count)
-            } else if (FileItem(child).isImage) {
-                count++
-            }
-        }
-        return count
+    private fun isStorageRoot(directory: File): Boolean {
+        val storage = Environment.getExternalStorageDirectory()
+        return samePath(directory, storage)
+    }
+
+    private fun shouldScanTopLevelName(name: String): Boolean {
+        val lower = name.lowercase()
+        if (lower.startsWith('.')) return false
+        val blocked = setOf(
+            "android", "data", "obb", "lost.dir", "lost+found", "notifications",
+            "alarms", "ringtones", "systemui",
+        )
+        return lower !in blocked
+    }
+
+    private fun shouldSkipDirectoryName(name: String): Boolean {
+        val lower = name.lowercase()
+        return lower.startsWith('.') ||
+            lower in setOf("cache", "thumbnails", "tmp", "temp", ".thumbnails", "code_cache")
     }
 
     fun searchFiles(query: String, maxResults: Int = 50): List<FileItem> {

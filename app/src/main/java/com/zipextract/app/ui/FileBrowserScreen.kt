@@ -34,7 +34,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Close
@@ -214,7 +216,7 @@ fun FileBrowserScreen(
                         Text(
                             text = when {
                                 state.selectionMode -> "$selectedCount dipilih"
-                                state.imageGalleryMode -> "Gambar"
+                                state.libraryMode && state.activeCategory != null -> state.activeCategory.title
                                 state.activeCategory != null -> state.activeCategory.title
                                 else -> "Semua File"
                             },
@@ -224,9 +226,11 @@ fun FileBrowserScreen(
                         )
                         Text(
                             text = when {
-                                state.imageGalleryMode && state.items.isNotEmpty() ->
-                                    "${state.items.size} foto di perangkat"
-                                state.imageGalleryMode -> "Semua foto di perangkat"
+                                state.libraryMode && state.activeCategory != null && state.items.isNotEmpty() ->
+                                    "${state.items.size} ${state.activeCategory.libraryNoun} di perangkat"
+                                state.libraryMode && state.activeCategory != null ->
+                                    "Semua ${state.activeCategory.libraryNoun} di perangkat"
+                                state.libraryMode -> "Semua file di perangkat"
                                 else -> state.currentDir.absolutePath
                             },
                             style = MaterialTheme.typography.bodyMedium,
@@ -371,20 +375,33 @@ fun FileBrowserScreen(
                 }
                 state.items.isEmpty() -> EmptyPane(
                     message = when {
-                        state.imageGalleryMode -> "Tidak ada foto ditemukan di perangkat"
+                        state.libraryMode && state.activeCategory != null ->
+                            "Tidak ada ${state.activeCategory.libraryNoun} ditemukan di perangkat"
+                        state.libraryMode -> "Tidak ada file ditemukan di perangkat"
                         state.fileFilter != FileFilter.ALL ->
                             "Tidak ada file ${state.fileFilter.label.lowercase()} di folder ini"
                         else -> "Folder kosong"
                     },
                 )
-                state.imageGalleryMode ||
+                state.libraryMode && (
                     state.activeCategory == FileCategory.IMAGES ||
-                    state.fileFilter == FileFilter.IMAGES -> {
+                        state.fileFilter == FileFilter.IMAGES
+                    ) -> {
                     ImageGalleryGrid(
                         items = state.items.filter { it.isImage },
                         selectedPaths = state.selectedPaths,
                         selectionMode = state.selectionMode,
                         onOpenItem = onOpenItem,
+                        onToggleSelect = onToggleSelect,
+                    )
+                }
+                state.libraryMode -> {
+                    CategoryLibraryList(
+                        items = state.items,
+                        selectedPaths = state.selectedPaths,
+                        selectionMode = state.selectionMode,
+                        onOpenItem = onOpenItem,
+                        onOpenExtract = onOpenExtract,
                         onToggleSelect = onToggleSelect,
                     )
                 }
@@ -406,6 +423,7 @@ fun FileBrowserScreen(
                                     item = item,
                                     selected = item.path in state.selectedPaths,
                                     selectionMode = state.selectionMode,
+                                    showFolder = false,
                                     onClick = {
                                         when {
                                             item.isArchive -> onOpenExtract(item)
@@ -683,12 +701,47 @@ private fun ImageThumbnailCell(
     }
 }
 
+@Composable
+private fun CategoryLibraryList(
+    items: List<FileItem>,
+    selectedPaths: Set<String>,
+    selectionMode: Boolean,
+    onOpenItem: (FileItem) -> Unit,
+    onOpenExtract: (FileItem) -> Unit,
+    onToggleSelect: (FileItem) -> Unit,
+) {
+    LazyColumn(
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        items(items, key = { it.path }) { item ->
+            FileRow(
+                item = item,
+                selected = item.path in selectedPaths,
+                selectionMode = selectionMode,
+                showFolder = true,
+                onClick = {
+                    when {
+                        item.isArchive -> onOpenExtract(item)
+                        selectionMode -> onToggleSelect(item)
+                        else -> onOpenItem(item)
+                    }
+                },
+                onLongClick = { onToggleSelect(item) },
+            )
+        }
+        item { Spacer(modifier = Modifier.height(88.dp)) }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FileRow(
     item: FileItem,
     selected: Boolean,
     selectionMode: Boolean,
+    showFolder: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -720,15 +773,18 @@ private fun FileRow(
             imageVector = when {
                 item.isDirectory -> Icons.Default.Folder
                 item.isArchive -> Icons.Default.Archive
+                item.isApp -> Icons.Default.Android
                 item.isPdf -> Icons.Default.PictureAsPdf
                 item.isImage -> Icons.Default.Image
                 item.isVideo -> Icons.Default.Movie
+                item.isAudio -> Icons.Default.MusicNote
                 else -> Icons.AutoMirrored.Filled.InsertDriveFile
             },
             contentDescription = null,
             tint = when {
                 item.isDirectory -> MaterialTheme.colorScheme.primary
                 item.isArchive -> MaterialTheme.colorScheme.secondary
+                item.isApp -> MaterialTheme.colorScheme.tertiary
                 item.isPdf -> MaterialTheme.colorScheme.error
                 item.isImage -> MaterialTheme.colorScheme.tertiary
                 item.isVideo -> MaterialTheme.colorScheme.secondary
@@ -753,6 +809,15 @@ private fun FileRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (showFolder) {
+                Text(
+                    text = item.parentFolderName,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

@@ -11,6 +11,7 @@ enum class FileCategory(
     IMAGES("Gambar", "Foto & gambar"),
     VIDEOS("Video", "Film & rekaman"),
     DOCUMENTS("Dokumen", "PDF, Word, Excel"),
+    ARCHIVES("ZIP", "File ZIP & arsip"),
     APPS("Aplikasi", "File APK & installer"),
     OTHERS("Lainnya", "Musik & file lain"),
     ;
@@ -34,6 +35,10 @@ enum class FileCategory(
                 publicDir(Environment.DIRECTORY_DOCUMENTS),
                 File(storage, "Documents"),
             )
+            ARCHIVES -> firstExisting(
+                publicDir(Environment.DIRECTORY_DOWNLOADS, File(storage, "Download")),
+                File(storage, "Download"),
+            )
             APPS -> firstExisting(
                 File(publicDir(Environment.DIRECTORY_DOWNLOADS), "APK"),
                 publicDir(Environment.DIRECTORY_DOWNLOADS),
@@ -45,6 +50,17 @@ enum class FileCategory(
             )
         }
     }
+
+    val libraryNoun: String
+        get() = when (this) {
+            DOWNLOADS -> "file unduhan"
+            IMAGES -> "foto"
+            VIDEOS -> "video"
+            DOCUMENTS -> "dokumen"
+            ARCHIVES -> "file ZIP"
+            APPS -> "APK"
+            OTHERS -> "file"
+        }
 
     private fun publicDir(type: String, fallback: File? = null): File {
         return runCatching {
@@ -78,4 +94,26 @@ data class StorageInfo(
 
     val usedFraction: Float
         get() = if (totalBytes > 0L) usedBytes.toFloat() / totalBytes.toFloat() else 0f
+}
+
+data class MediaLibrary(
+    val downloads: List<FileItem> = emptyList(),
+    val images: List<FileItem> = emptyList(),
+    val videos: List<FileItem> = emptyList(),
+    val documents: List<FileItem> = emptyList(),
+    val archives: List<FileItem> = emptyList(),
+    val apps: List<FileItem> = emptyList(),
+    val others: List<FileItem> = emptyList(),
+) {
+    fun forCategory(category: FileCategory): List<FileItem> {
+        return when (category) {
+            FileCategory.DOWNLOADS -> downloads
+            FileCategory.IMAGES -> images
+            FileCategory.VIDEOS -> videos
+            FileCategory.DOCUMENTS -> documents
+            FileCategory.ARCHIVES -> archives
+            FileCategory.APPS -> apps
+            FileCategory.OTHERS -> others
+        }
+    }
 }

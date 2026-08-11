@@ -32,6 +32,9 @@ data class FileItem(
     val isVideo: Boolean
         get() = extension in VIDEO_EXTENSIONS
 
+    val isAudio: Boolean
+        get() = extension in AUDIO_EXTENSIONS
+
     val isDocument: Boolean
         get() = isPdf || extension in DOCUMENT_EXTENSIONS
 
@@ -44,14 +47,29 @@ data class FileItem(
     fun matchesFilter(filter: FileFilter): Boolean {
         return when (filter) {
             FileFilter.ALL -> true
-            FileFilter.IMAGES -> isImage
-            FileFilter.VIDEOS -> isVideo
-            FileFilter.DOCUMENTS -> isDocument
-            FileFilter.ARCHIVES -> isArchive
-            FileFilter.APPS -> isApp
-            FileFilter.OTHERS -> !isImage && !isVideo && !isDocument && !isArchive && !isApp
+            FileFilter.IMAGES -> isDirectory || isImage
+            FileFilter.VIDEOS -> isDirectory || isVideo
+            FileFilter.DOCUMENTS -> isDirectory || isDocument
+            FileFilter.ARCHIVES -> isDirectory || (isArchive && !isApp)
+            FileFilter.APPS -> isDirectory || isApp
+            FileFilter.OTHERS -> isDirectory || (!isImage && !isVideo && !isDocument && !(isArchive && !isApp) && !isApp)
         }
     }
+
+    fun matchesCategory(category: FileCategory): Boolean {
+        return when (category) {
+            FileCategory.DOWNLOADS -> true
+            FileCategory.IMAGES -> isImage
+            FileCategory.VIDEOS -> isVideo
+            FileCategory.DOCUMENTS -> isDocument
+            FileCategory.ARCHIVES -> isArchive && !isApp
+            FileCategory.APPS -> isApp
+            FileCategory.OTHERS -> isAudio || (!isImage && !isVideo && !isDocument && !(isArchive && !isApp) && !isApp)
+        }
+    }
+
+    val parentFolderName: String
+        get() = file.parentFile?.name?.takeIf { it.isNotBlank() } ?: "Storage"
 
     val formattedSize: String
         get() = if (isDirectory) "Folder" else formatBytes(sizeBytes)
@@ -60,12 +78,15 @@ data class FileItem(
         get() = DATE_FORMAT.format(Date(lastModified))
 
     companion object {
-        val ARCHIVE_EXTENSIONS = setOf("zip", "jar", "apk")
+        val ARCHIVE_EXTENSIONS = setOf("zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "jar")
         val IMAGE_EXTENSIONS = setOf(
             "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "wbmp",
         )
         val VIDEO_EXTENSIONS = setOf(
             "mp4", "mkv", "avi", "mov", "webm", "3gp", "flv", "wmv", "m4v", "ts",
+        )
+        val AUDIO_EXTENSIONS = setOf(
+            "mp3", "m4a", "aac", "flac", "wav", "ogg", "opus", "wma", "amr",
         )
         val DOCUMENT_EXTENSIONS = setOf(
             "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "rtf", "odt", "csv",
