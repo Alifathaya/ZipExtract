@@ -83,7 +83,7 @@ fun HomeDashboardScreen(
     onClearSearch: () -> Unit,
     onOpenCategory: (FileCategory) -> Unit,
     onBrowseAll: () -> Unit,
-    onOpenDownloads: () -> Unit,
+    onOpenZips: () -> Unit,
     onOpenFile: (FileItem) -> Unit,
     onViewAllPhotos: () -> Unit,
 ) {
@@ -157,7 +157,7 @@ fun HomeDashboardScreen(
                 item {
                     QuickActionsRow(
                         onBrowseAll = onBrowseAll,
-                        onOpenDownloads = onOpenDownloads,
+                        onOpenZips = onOpenZips,
                     )
                 }
 
@@ -197,7 +197,8 @@ fun HomeDashboardScreen(
                         }
                     }
                 } else {
-                    items(categories.chunked(2), key = { row -> row.first().category.name }) { row ->
+                    val visibleCategories = categories.filter { it.category != FileCategory.ARCHIVES }
+                    items(visibleCategories.chunked(2), key = { row -> row.first().category.name }) { row ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -563,7 +564,7 @@ private fun StorageCard(storageInfo: StorageInfo?) {
 @Composable
 private fun QuickActionsRow(
     onBrowseAll: () -> Unit,
-    onOpenDownloads: () -> Unit,
+    onOpenZips: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -581,7 +582,7 @@ private fun QuickActionsRow(
             icon = Icons.Default.Archive,
             label = "File ZIP",
             container = MaterialTheme.colorScheme.tertiaryContainer,
-            onClick = onOpenDownloads,
+            onClick = onOpenZips,
         )
     }
 }

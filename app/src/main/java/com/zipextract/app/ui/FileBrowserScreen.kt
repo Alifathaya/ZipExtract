@@ -200,7 +200,7 @@ fun FileBrowserScreen(
             onClearSearch = onClearSearch,
             onOpenCategory = onOpenCategory,
             onBrowseAll = onBrowseAll,
-            onOpenDownloads = { onOpenCategory(FileCategory.DOWNLOADS) },
+            onOpenZips = { onOpenCategory(FileCategory.ARCHIVES) },
             onOpenFile = onOpenFileAnywhere,
             onViewAllPhotos = { onOpenCategory(FileCategory.IMAGES) },
         )
