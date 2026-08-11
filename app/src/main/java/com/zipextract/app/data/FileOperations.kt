@@ -76,12 +76,20 @@ object FileOperations {
             .take(maxResults)
     }
 
-    fun countAllImages(maxDepth: Int = 8, softAt: Int = 9999): Int {
+    fun countAllImages(maxDepth: Int = 8, limit: Int = 9999): Int {
         var count = 0
         val seen = HashSet<String>()
-        imageScanRoots().forEach { root ->
-            count += countImagesRecursive(root, depth = 0, maxDepth = maxDepth, seen = seen, stopAt = stopAt)
-            if (count >= stopAt) return stopAt
+        for (root in imageScanRoots()) {
+            count += countImagesRecursive(
+                directory = root,
+                depth = 0,
+                maxDepth = maxDepth,
+                seen = seen,
+                stopAt = limit,
+            )
+            if (count >= limit) {
+                return limit
+            }
         }
         return count
     }
