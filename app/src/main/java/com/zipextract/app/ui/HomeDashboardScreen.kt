@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -52,7 +53,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -84,6 +85,7 @@ fun HomeDashboardScreen(
     onOpenCategory: (FileCategory) -> Unit,
     onBrowseAll: () -> Unit,
     onOpenZips: () -> Unit,
+    onOpenFavorites: () -> Unit,
     onOpenFile: (FileItem) -> Unit,
     onViewAllPhotos: () -> Unit,
 ) {
@@ -95,12 +97,12 @@ fun HomeDashboardScreen(
                 title = {
                     Column {
                         Text(
-                            text = "ZipExtract",
+                            text = "FileNest",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                         )
                         Text(
-                            text = "Kelola file dengan mudah",
+                            text = "Kelola file & arsip dengan mudah",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -158,6 +160,7 @@ fun HomeDashboardScreen(
                     QuickActionsRow(
                         onBrowseAll = onBrowseAll,
                         onOpenZips = onOpenZips,
+                        onOpenFavorites = onOpenFavorites,
                     )
                 }
 
@@ -565,24 +568,34 @@ private fun StorageCard(storageInfo: StorageInfo?) {
 private fun QuickActionsRow(
     onBrowseAll: () -> Unit,
     onOpenZips: () -> Unit,
+    onOpenFavorites: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            QuickActionChip(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.FolderOpen,
+                label = "Semua File",
+                container = MaterialTheme.colorScheme.secondaryContainer,
+                onClick = onBrowseAll,
+            )
+            QuickActionChip(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.Archive,
+                label = "File ZIP",
+                container = MaterialTheme.colorScheme.tertiaryContainer,
+                onClick = onOpenZips,
+            )
+        }
         QuickActionChip(
-            modifier = Modifier.weight(1f),
-            icon = Icons.Default.FolderOpen,
-            label = "Semua File",
-            container = MaterialTheme.colorScheme.secondaryContainer,
-            onClick = onBrowseAll,
-        )
-        QuickActionChip(
-            modifier = Modifier.weight(1f),
-            icon = Icons.Default.Archive,
-            label = "File ZIP",
-            container = MaterialTheme.colorScheme.tertiaryContainer,
-            onClick = onOpenZips,
+            modifier = Modifier.fillMaxWidth(),
+            icon = Icons.Default.Star,
+            label = "Favorit",
+            container = MaterialTheme.colorScheme.primaryContainer,
+            onClick = onOpenFavorites,
         )
     }
 }

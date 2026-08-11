@@ -49,12 +49,16 @@ import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -81,7 +85,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -93,12 +97,16 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import com.zipextract.app.data.ClipboardMode
+import com.zipextract.app.data.DuplicateGroup
 import com.zipextract.app.data.FileFilter
 import com.zipextract.app.data.FileCategory
 import com.zipextract.app.data.FileItem
+import com.zipextract.app.data.LibrarySubFilter
+import com.zipextract.app.data.ThemeMode
 import com.zipextract.app.ui.viewer.ExtractZipScreen
 import com.zipextract.app.ui.viewer.ImageViewerScreen
 import com.zipextract.app.ui.viewer.PdfViewerScreen
+import java.io.File
 
 private enum class DialogType {
     CREATE_FOLDER,
@@ -125,7 +133,7 @@ fun FileBrowserScreen(
     onDelete: () -> Unit,
     onCreateFolder: (String) -> Unit,
     onRename: (String) -> Unit,
-    onCreateZip: (String, Boolean) -> Unit,
+    onCreateZip: (String, Boolean, String?) -> Unit,
     onOpenExtract: (com.zipextract.app.data.FileItem) -> Unit,
     onOpenCategory: (com.zipextract.app.data.FileCategory) -> Unit,
     onBrowseAll: () -> Unit,
@@ -143,6 +151,22 @@ fun FileBrowserScreen(
     onDeselectAllExtractEntries: () -> Unit,
     onDeleteOriginalZipChange: (Boolean) -> Unit,
     onConfirmExtract: () -> Unit,
+    onSetExtractDestination: (File) -> Unit,
+    onShareSelected: () -> Unit,
+    onOpenWithSelected: () -> Unit,
+    onToggleFavoriteSelected: () -> Unit,
+    onShowSelectedDetails: () -> Unit,
+    onCloseFileDetails: () -> Unit,
+    onOpenParentOfDetails: () -> Unit,
+    onOpenFavorites: () -> Unit,
+    onSetThemeMode: (ThemeMode) -> Unit,
+    onSetLibrarySubFilter: (LibrarySubFilter) -> Unit,
+    onFindDuplicates: () -> Unit,
+    onCloseDuplicates: () -> Unit,
+    onDeleteDuplicateExtras: () -> Unit,
+    onCancelProgress: () -> Unit,
+    onToggleFavoritePath: (String) -> Unit,
+    onShowFileDetails: (FileItem) -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var dialog by remember { mutableStateOf<DialogType?>(null) }
@@ -154,17 +178,21 @@ fun FileBrowserScreen(
     val singleSelected = selectedItems.singleOrNull()
     val canExtract = selectedItems.size == 1 && singleSelected?.isArchive == true
     val canRename = selectedItems.size == 1
+    val canFavoriteOrDetails = selectedItems.size == 1
 
     BackHandler(
         enabled = state.extractDialog != null ||
             state.viewer != null ||
+            state.fileDetails != null ||
             state.selectionMode ||
             !state.showHome,
     ) {
         when {
             state.extractDialog != null -> onCloseExtract()
             state.viewer != null -> onCloseViewer()
+            state.fileDetails != null -> onCloseFileDetails()
             state.selectionMode -> onClearSelection()
+            state.showDuplicates -> onCloseDuplicates()
             !state.showHome -> onGoUp()
         }
     }
@@ -201,6 +229,7 @@ fun FileBrowserScreen(
             onOpenCategory = onOpenCategory,
             onBrowseAll = onBrowseAll,
             onOpenZips = { onOpenCategory(FileCategory.ARCHIVES) },
+            onOpenFavorites = onOpenFavorites,
             onOpenFile = onOpenFileAnywhere,
             onViewAllPhotos = { onOpenCategory(FileCategory.IMAGES) },
         )
@@ -216,6 +245,8 @@ fun FileBrowserScreen(
                         Text(
                             text = when {
                                 state.selectionMode -> "$selectedCount dipilih"
+                                state.showDuplicates -> "Duplikat"
+                                state.showFavoritesOnly -> "Favorit"
                                 state.libraryMode && state.activeCategory != null -> state.activeCategory.title
                                 state.activeCategory != null -> state.activeCategory.title
                                 else -> "Semua File"
@@ -226,6 +257,10 @@ fun FileBrowserScreen(
                         )
                         Text(
                             text = when {
+                                state.showDuplicates ->
+                                    "${state.duplicateGroups.size} grup ditemukan"
+                                state.showFavoritesOnly ->
+                                    "${state.items.size} item favorit"
                                 state.libraryMode && state.activeCategory != null && state.items.isNotEmpty() ->
                                     "${state.items.size} ${state.activeCategory.libraryNoun} di perangkat"
                                 state.libraryMode && state.activeCategory != null ->
@@ -247,8 +282,12 @@ fun FileBrowserScreen(
                                 Icon(Icons.Default.Close, contentDescription = "Batal seleksi")
                             }
                         }
-                        state.canGoUp -> {
-                            IconButton(onClick = onGoUp) {
+                        state.canGoUp || state.showDuplicates || state.showFavoritesOnly -> {
+                            IconButton(
+                                onClick = {
+                                    if (state.showDuplicates) onCloseDuplicates() else onGoUp()
+                                },
+                            ) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali ke beranda")
                             }
                         }
@@ -295,6 +334,39 @@ fun FileBrowserScreen(
                             },
                             leadingIcon = { Icon(Icons.Default.CreateNewFolder, contentDescription = null) },
                         )
+                        DropdownMenuItem(
+                            text = { Text("Favorit") },
+                            onClick = {
+                                menuExpanded = false
+                                onOpenFavorites()
+                            },
+                            leadingIcon = { Icon(Icons.Default.Star, contentDescription = null) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Cari duplikat") },
+                            onClick = {
+                                menuExpanded = false
+                                onFindDuplicates()
+                            },
+                            leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
+                        )
+                        ThemeMode.entries.forEach { mode ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (state.themeMode == mode) {
+                                            "Tema: ${mode.label} ✓"
+                                        } else {
+                                            "Tema: ${mode.label}"
+                                        },
+                                    )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onSetThemeMode(mode)
+                                },
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -318,6 +390,7 @@ fun FileBrowserScreen(
                 ActionBar(
                     canExtract = canExtract,
                     canRename = canRename,
+                    canFavoriteOrDetails = canFavoriteOrDetails,
                     hasClipboard = state.clipboard != null,
                     clipboardMode = state.clipboard?.mode,
                     onCopy = onCopy,
@@ -340,6 +413,10 @@ fun FileBrowserScreen(
                     onExtract = {
                         singleSelected?.let { onOpenExtract(it) }
                     },
+                    onShare = onShareSelected,
+                    onOpenWith = onOpenWithSelected,
+                    onFavorite = onToggleFavoriteSelected,
+                    onDetails = onShowSelectedDetails,
                 )
             }
         },
@@ -360,6 +437,14 @@ fun FileBrowserScreen(
         ) {
             when {
                 !state.storageGranted -> PermissionPane(onRequestPermission)
+                state.showDuplicates -> {
+                    DuplicateGroupsPane(
+                        groups = state.duplicateGroups,
+                        onDeleteExtras = onDeleteDuplicateExtras,
+                        onOpenItem = onOpenItem,
+                        onShowDetails = onShowFileDetails,
+                    )
+                }
                 state.items.isEmpty() && state.progress != null -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -375,6 +460,7 @@ fun FileBrowserScreen(
                 }
                 state.items.isEmpty() -> EmptyPane(
                     message = when {
+                        state.showFavoritesOnly -> "Belum ada favorit"
                         state.libraryMode && state.activeCategory != null ->
                             "Tidak ada ${state.activeCategory.libraryNoun} ditemukan di perangkat"
                         state.libraryMode -> "Tidak ada file ditemukan di perangkat"
@@ -396,18 +482,27 @@ fun FileBrowserScreen(
                     )
                 }
                 state.libraryMode -> {
-                    CategoryLibraryList(
-                        items = state.items,
-                        selectedPaths = state.selectedPaths,
-                        selectionMode = state.selectionMode,
-                        onOpenItem = onOpenItem,
-                        onOpenExtract = onOpenExtract,
-                        onToggleSelect = onToggleSelect,
-                    )
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        if (state.activeCategory == FileCategory.DOCUMENTS) {
+                            LibrarySubFilterChips(
+                                selected = state.librarySubFilter,
+                                onSelect = onSetLibrarySubFilter,
+                            )
+                        }
+                        CategoryLibraryList(
+                            items = state.items,
+                            selectedPaths = state.selectedPaths,
+                            selectionMode = state.selectionMode,
+                            onOpenItem = onOpenItem,
+                            onOpenExtract = onOpenExtract,
+                            onToggleSelect = onToggleSelect,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
                 else -> {
                     Column(modifier = Modifier.fillMaxSize()) {
-                        if (!state.selectionMode) {
+                        if (!state.selectionMode && !state.showFavoritesOnly) {
                             FileFilterChips(
                                 selected = state.fileFilter,
                                 onSelect = onSetFileFilter,
@@ -423,7 +518,7 @@ fun FileBrowserScreen(
                                     item = item,
                                     selected = item.path in state.selectedPaths,
                                     selectionMode = state.selectionMode,
-                                    showFolder = false,
+                                    showFolder = state.showFavoritesOnly,
                                     onClick = {
                                         when {
                                             item.isArchive -> onOpenExtract(item)
@@ -441,7 +536,7 @@ fun FileBrowserScreen(
             }
 
             state.progress?.let { progress ->
-                ProgressOverlay(progress)
+                ProgressOverlay(progress = progress, onCancel = onCancelProgress)
             }
         }
     }
@@ -467,6 +562,7 @@ fun FileBrowserScreen(
                     onDeselectAll = onDeselectAllExtractEntries,
                     onDeleteOriginalChange = onDeleteOriginalZipChange,
                     onExtract = onConfirmExtract,
+                    onSetDestination = onSetExtractDestination,
                 )
             }
         }
@@ -504,8 +600,8 @@ fun FileBrowserScreen(
             onValueChange = { inputText = it },
             onBestCompressionChange = { bestCompression = it },
             onDismiss = { dialog = null },
-            onConfirm = {
-                onCreateZip(inputText, bestCompression)
+            onConfirm = { password ->
+                onCreateZip(inputText, bestCompression, password)
                 dialog = null
             },
         )
@@ -525,12 +621,38 @@ fun FileBrowserScreen(
         )
         null -> Unit
     }
+
+    state.fileDetails?.let { details ->
+        AlertDialog(
+            onDismissRequest = onCloseFileDetails,
+            title = { Text(details.name) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Ukuran: ${details.formattedSize}")
+                    Text("Tanggal: ${details.formattedDate}")
+                    Text(
+                        text = "Path: ${details.path}",
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = onCloseFileDetails) { Text("Tutup") }
+                    TextButton(onClick = onOpenParentOfDetails) { Text("Buka folder") }
+                    TextButton(onClick = { onToggleFavoritePath(details.path) }) { Text("Favorit") }
+                }
+            },
+        )
+    }
 }
 
 @Composable
 private fun ActionBar(
     canExtract: Boolean,
     canRename: Boolean,
+    canFavoriteOrDetails: Boolean,
     hasClipboard: Boolean,
     clipboardMode: ClipboardMode?,
     onCopy: () -> Unit,
@@ -540,6 +662,10 @@ private fun ActionBar(
     onRename: () -> Unit,
     onZip: () -> Unit,
     onExtract: () -> Unit,
+    onShare: () -> Unit,
+    onOpenWith: () -> Unit,
+    onFavorite: () -> Unit,
+    onDetails: () -> Unit,
 ) {
     Surface(
         tonalElevation = 3.dp,
@@ -549,8 +675,9 @@ private fun ActionBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 8.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ActionIcon(Icons.Default.ContentCopy, "Copy", onCopy)
@@ -565,6 +692,10 @@ private fun ActionBar(
                 enabled = hasClipboard,
                 onClick = onPaste,
             )
+            ActionIcon(Icons.Default.Share, "Share", onShare)
+            ActionIcon(Icons.Default.OpenInNew, "Open with", onOpenWith)
+            ActionIcon(Icons.Default.Star, "Favorite", onFavorite, enabled = canFavoriteOrDetails)
+            ActionIcon(Icons.Default.Info, "Detail", onDetails, enabled = canFavoriteOrDetails)
             ActionIcon(Icons.Default.FolderZip, "Zip", onZip)
             ActionIcon(Icons.Default.Unarchive, "Extract", onExtract, enabled = canExtract)
             ActionIcon(Icons.Default.DriveFileRenameOutline, "Rename", onRename, enabled = canRename)
@@ -593,6 +724,78 @@ private fun ActionIcon(
                 MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
             },
         )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun DuplicateGroupsPane(
+    groups: List<DuplicateGroup>,
+    onDeleteExtras: () -> Unit,
+    onOpenItem: (FileItem) -> Unit,
+    onShowDetails: (FileItem) -> Unit,
+) {
+    if (groups.isEmpty()) {
+        EmptyPane(message = "Tidak ada file duplikat")
+        return
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.weight(1f),
+        ) {
+            items(groups, key = { it.key }) { group ->
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    tonalElevation = 1.dp,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "${group.files.size} salinan · hemat ${FileItem.formatBytes(group.wastedBytes)}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        group.files.forEach { file ->
+                            Text(
+                                text = file.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .combinedClickable(
+                                        onClick = { onOpenItem(file) },
+                                        onLongClick = { onShowDetails(file) },
+                                    )
+                                    .padding(vertical = 4.dp),
+                            )
+                            Text(
+                                text = file.path,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+            item { Spacer(modifier = Modifier.height(72.dp)) }
+        }
+        Surface(tonalElevation = 3.dp) {
+            TextButton(
+                onClick = onDeleteExtras,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+            ) {
+                Text("Hapus salinan")
+            }
+        }
     }
 }
 
@@ -709,11 +912,12 @@ private fun CategoryLibraryList(
     onOpenItem: (FileItem) -> Unit,
     onOpenExtract: (FileItem) -> Unit,
     onToggleSelect: (FileItem) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     LazyColumn(
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize(),
     ) {
         items(items, key = { it.path }) { item ->
             FileRow(
@@ -831,7 +1035,7 @@ private fun PermissionPane(onRequestPermission: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("ZipExtract", style = MaterialTheme.typography.headlineMedium)
+        Text("FileNest", style = MaterialTheme.typography.headlineMedium)
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = "Izinkan akses penyimpanan untuk browse, zip, extract, copy, dan paste file.",
@@ -869,6 +1073,29 @@ private fun FileFilterChips(
 }
 
 @Composable
+private fun LibrarySubFilterChips(
+    selected: LibrarySubFilter,
+    onSelect: (LibrarySubFilter) -> Unit,
+) {
+    val scrollState = rememberScrollState()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(scrollState)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        LibrarySubFilter.entries.forEach { filter ->
+            FilterChip(
+                selected = selected == filter,
+                onClick = { onSelect(filter) },
+                label = { Text(filter.label) },
+            )
+        }
+    }
+}
+
+@Composable
 private fun EmptyPane(message: String = "Folder kosong") {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(
@@ -880,7 +1107,10 @@ private fun EmptyPane(message: String = "Folder kosong") {
 }
 
 @Composable
-private fun ProgressOverlay(progress: com.zipextract.app.data.ProgressState) {
+private fun ProgressOverlay(
+    progress: com.zipextract.app.data.ProgressState,
+    onCancel: () -> Unit,
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -917,6 +1147,10 @@ private fun ProgressOverlay(progress: com.zipextract.app.data.ProgressState) {
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text("${(progress.progress * 100).toInt()}%")
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                TextButton(onClick = onCancel) {
+                    Text("Batalkan")
                 }
             }
         }
@@ -963,8 +1197,10 @@ private fun ZipDialog(
     onValueChange: (String) -> Unit,
     onBestCompressionChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
+    onConfirm: (String?) -> Unit,
 ) {
+    var password by remember { mutableStateOf("") }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Buat ZIP") },
@@ -974,6 +1210,14 @@ private fun ZipDialog(
                     value = value,
                     onValueChange = onValueChange,
                     label = { Text("Nama file ZIP") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Password (opsional)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -988,7 +1232,10 @@ private fun ZipDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onConfirm, enabled = value.isNotBlank()) {
+            TextButton(
+                onClick = { onConfirm(password.ifBlank { null }) },
+                enabled = value.isNotBlank(),
+            ) {
                 Text("Buat ZIP")
             }
         },

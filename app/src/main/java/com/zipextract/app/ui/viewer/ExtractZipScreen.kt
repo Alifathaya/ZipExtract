@@ -1,6 +1,8 @@
 package com.zipextract.app.ui.viewer
 
+import android.os.Environment
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckBox
@@ -41,7 +44,6 @@ import androidx.compose.ui.unit.dp
 import com.zipextract.app.data.ZipEntryItem
 import com.zipextract.app.ui.ExtractZipState
 import java.io.File
-import androidx.compose.ui.Modifier as ComposeModifier
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,15 +55,15 @@ fun ExtractZipScreen(
     onDeselectAll: () -> Unit,
     onDeleteOriginalChange: (Boolean) -> Unit,
     onExtract: () -> Unit,
+    onSetDestination: (File) -> Unit,
 ) {
     BackHandler(onBack = onClose)
 
     val allSelected = state.entries.isNotEmpty() &&
         state.selectedPaths.size == state.entries.size
-    val destination = state.zipFile.parentFile
 
     Scaffold(
-        modifier = ComposeModifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
                 title = {
@@ -90,12 +92,12 @@ fun ExtractZipScreen(
             if (!state.isLoading && state.error == null) {
                 Surface(tonalElevation = 3.dp) {
                     Column(
-                        modifier = ComposeModifier
+                        modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                     ) {
                         Row(
-                            modifier = ComposeModifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Checkbox(
@@ -107,11 +109,11 @@ fun ExtractZipScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                         }
-                        Spacer(modifier = ComposeModifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         Button(
                             onClick = onExtract,
                             enabled = state.selectedPaths.isNotEmpty(),
-                            modifier = ComposeModifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text(
                                 text = if (state.selectedPaths.isEmpty()) {
@@ -129,20 +131,20 @@ fun ExtractZipScreen(
         when {
             state.isLoading -> {
                 Column(
-                    modifier = ComposeModifier
+                    modifier = Modifier
                         .fillMaxSize()
                         .padding(padding),
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     CircularProgressIndicator()
-                    Spacer(modifier = ComposeModifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     Text("Membaca isi ZIP…")
                 }
             }
             state.error != null -> {
                 Column(
-                    modifier = ComposeModifier
+                    modifier = Modifier
                         .fillMaxSize()
                         .padding(padding)
                         .padding(24.dp),
@@ -154,7 +156,7 @@ fun ExtractZipScreen(
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.error,
                     )
-                    Spacer(modifier = ComposeModifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                     TextButton(onClick = onClose) {
                         Text("Kembali")
                     }
@@ -162,14 +164,18 @@ fun ExtractZipScreen(
             }
             else -> {
                 Column(
-                    modifier = ComposeModifier
+                    modifier = Modifier
                         .fillMaxSize()
                         .padding(padding),
                 ) {
-                    DestinationInfo(destination = destination)
+                    DestinationInfo(
+                        destination = state.destinationDir,
+                        zipFile = state.zipFile,
+                        onSetDestination = onSetDestination,
+                    )
 
                     Row(
-                        modifier = ComposeModifier
+                        modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.End,
@@ -185,7 +191,7 @@ fun ExtractZipScreen(
                     LazyColumn(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = ComposeModifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize(),
                     ) {
                         items(state.entries, key = { it.path }) { entry ->
                             ZipEntryRow(
@@ -194,7 +200,7 @@ fun ExtractZipScreen(
                                 onToggle = { onToggleEntry(entry.path) },
                             )
                         }
-                        item { Spacer(modifier = ComposeModifier.height(96.dp)) }
+                        item { Spacer(modifier = Modifier.height(96.dp)) }
                     }
                 }
             }
@@ -203,36 +209,67 @@ fun ExtractZipScreen(
 }
 
 @Composable
-private fun DestinationInfo(destination: File?) {
+private fun DestinationInfo(
+    destination: File,
+    zipFile: File,
+    onSetDestination: (File) -> Unit,
+) {
     Surface(
         tonalElevation = 1.dp,
-        modifier = ComposeModifier
+        modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
-        Column(modifier = ComposeModifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
             Text(
                 text = "Lokasi extract",
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
             )
-            Spacer(modifier = ComposeModifier.height(4.dp))
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = destination?.absolutePath ?: "Tidak diketahui",
+                text = destination.absolutePath,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(modifier = ComposeModifier.height(4.dp))
-            Text(
-                text = "File akan diekstrak ke folder yang sama dengan file ZIP.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                TextButton(
+                    onClick = {
+                        zipFile.parentFile?.let(onSetDestination)
+                    },
+                ) {
+                    Text("Folder yang sama")
+                }
+                TextButton(
+                    onClick = {
+                        onSetDestination(
+                            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                        )
+                    },
+                ) {
+                    Text("Download")
+                }
+                TextButton(
+                    onClick = {
+                        onSetDestination(
+                            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
+                        )
+                    },
+                ) {
+                    Text("Documents")
+                }
+            }
         }
     }
-    HorizontalDivider(modifier = ComposeModifier.padding(horizontal = 12.dp))
+    HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
 }
 
 @Composable
@@ -242,7 +279,7 @@ private fun ZipEntryRow(
     onToggle: () -> Unit,
 ) {
     Row(
-        modifier = ComposeModifier
+        modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -263,12 +300,12 @@ private fun ZipEntryRow(
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant
             },
-            modifier = ComposeModifier.size(22.dp),
+            modifier = Modifier.size(22.dp),
         )
 
-        Spacer(modifier = ComposeModifier.width(10.dp))
+        Spacer(modifier = Modifier.width(10.dp))
 
-        Column(modifier = ComposeModifier.weight(1f)) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = entry.path,
                 style = MaterialTheme.typography.bodyMedium,

@@ -95,7 +95,7 @@ private val AppTypography = androidx.compose.material3.Typography(
 )
 
 @Composable
-fun ZipExtractTheme(
+fun FileNestTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
@@ -104,4 +104,13 @@ fun ZipExtractTheme(
         typography = AppTypography,
         content = content,
     )
+}
+
+@Deprecated("Use FileNestTheme", ReplaceWith("FileNestTheme(darkTheme, content)"))
+@Composable
+fun ZipExtractTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit,
+) {
+    FileNestTheme(darkTheme = darkTheme, content = content)
 }

@@ -1,21 +1,28 @@
 package com.zipextract.app.ui
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import android.content.Context
+import android.net.Uri
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.zipextract.app.data.AppPreferences
 import com.zipextract.app.data.ClipboardMode
 import com.zipextract.app.data.ClipboardState
 import com.zipextract.app.data.CategorySummary
+import com.zipextract.app.data.DuplicateFinder
+import com.zipextract.app.data.DuplicateGroup
+import com.zipextract.app.data.FileActions
 import com.zipextract.app.data.FileCategory
 import com.zipextract.app.data.FileFilter
 import com.zipextract.app.data.FileItem
 import com.zipextract.app.data.FileOperations
+import com.zipextract.app.data.LibrarySubFilter
 import com.zipextract.app.data.MediaLibrary
 import com.zipextract.app.data.OperationResult
 import com.zipextract.app.data.ProgressState
-import com.zipextract.app.data.StorageInfo
-import android.content.Context
-import android.net.Uri
 import com.zipextract.app.data.SharedFileResolver
+import com.zipextract.app.data.StorageInfo
+import com.zipextract.app.data.ThemeMode
 import com.zipextract.app.data.ZipManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -49,6 +56,7 @@ data class ExtractZipState(
     val entries: List<com.zipextract.app.data.ZipEntryItem> = emptyList(),
     val selectedPaths: Set<String> = emptySet(),
     val deleteOriginal: Boolean = false,
+    val destinationDir: File = zipFile.parentFile ?: zipFile,
     val isLoading: Boolean = true,
     val error: String? = null,
 )
@@ -75,14 +83,27 @@ data class BrowserUiState(
     val storageGranted: Boolean = false,
     val sortNewestFirst: Boolean = false,
     val libraryMode: Boolean = false,
+    val librarySubFilter: LibrarySubFilter = LibrarySubFilter.ALL,
+    val favoritePaths: Set<String> = emptySet(),
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val showFavoritesOnly: Boolean = false,
+    val fileDetails: FileItem? = null,
+    val duplicateGroups: List<DuplicateGroup> = emptyList(),
+    val showDuplicates: Boolean = false,
     val viewer: ViewerContent? = null,
     val launchedFromExternalIntent: Boolean = false,
     val extractDialog: ExtractZipState? = null,
 )
 
-class FileBrowserViewModel : ViewModel() {
+class FileBrowserViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val _uiState = MutableStateFlow(BrowserUiState())
+    private val prefs = AppPreferences(application)
+    private val _uiState = MutableStateFlow(
+        BrowserUiState(
+            favoritePaths = prefs.getFavoritePaths(),
+            themeMode = prefs.getThemeMode(),
+        )
+    )
     val uiState: StateFlow<BrowserUiState> = _uiState.asStateFlow()
 
     private val _events = MutableSharedFlow<String>(extraBufferCapacity = 8)
@@ -91,6 +112,7 @@ class FileBrowserViewModel : ViewModel() {
     private val root = FileOperations.defaultRoot()
     private var searchJob: Job? = null
     private var libraryJob: Job? = null
+    private var activeJob: Job? = null
     @Volatile
     private var mediaLibraryCache: MediaLibrary? = null
 
@@ -142,7 +164,17 @@ class FileBrowserViewModel : ViewModel() {
         }
 
         if (cachedFiles != null) {
-            val sorted = sortLibraryFiles(cachedFiles)
+            val subFilter = if (category == FileCategory.DOCUMENTS) {
+                _uiState.value.librarySubFilter
+            } else {
+                LibrarySubFilter.ALL
+            }
+            val filtered = if (category == FileCategory.DOCUMENTS) {
+                cachedFiles.filter { subFilter.matches(it) }
+            } else {
+                cachedFiles
+            }
+            val sorted = sortLibraryFiles(filtered)
             _uiState.update {
                 it.copy(
                     showHome = false,
@@ -151,6 +183,9 @@ class FileBrowserViewModel : ViewModel() {
                     currentDir = folder,
                     fileFilter = FileFilter.forCategory(category),
                     libraryMode = true,
+                    librarySubFilter = subFilter,
+                    showFavoritesOnly = false,
+                    showDuplicates = false,
                     selectionMode = false,
                     selectedPaths = emptySet(),
                     searchQuery = "",
@@ -193,12 +228,20 @@ class FileBrowserViewModel : ViewModel() {
             if (_uiState.value.activeCategory != category || !_uiState.value.libraryMode) {
                 return@launch
             }
-            val sorted = sortLibraryFiles(library.forCategory(category))
+            val subFilter = _uiState.value.librarySubFilter
+            val base = library.forCategory(category)
+            val filtered = if (category == FileCategory.DOCUMENTS) {
+                base.filter { subFilter.matches(it) }
+            } else {
+                base
+            }
+            val sorted = sortLibraryFiles(filtered)
             _uiState.update {
                 it.copy(
                     items = sorted,
                     progress = null,
                     canGoUp = true,
+                    librarySubFilter = if (category == FileCategory.DOCUMENTS) subFilter else LibrarySubFilter.ALL,
                     selectedPaths = it.selectedPaths.filter { path ->
                         sorted.any { item -> item.path == path }
                     }.toSet(),
@@ -326,6 +369,10 @@ class FileBrowserViewModel : ViewModel() {
                 categoryRoot = null,
                 fileFilter = FileFilter.ALL,
                 libraryMode = false,
+                showFavoritesOnly = false,
+                showDuplicates = false,
+                duplicateGroups = emptyList(),
+                librarySubFilter = LibrarySubFilter.ALL,
                 selectionMode = false,
                 selectedPaths = emptySet(),
                 items = emptyList(),
@@ -396,6 +443,11 @@ class FileBrowserViewModel : ViewModel() {
             item.isArchive -> openExtractDialog(item.file.canonicalFile)
             item.isPdf -> openViewer(ViewerContent.Pdf(item.file))
             item.isImage -> openViewer(ViewerContent.Image(item.file))
+            item.isVideo || item.isAudio -> {
+                if (!FileActions.playMedia(getApplication(), item.file)) {
+                    emit("Tidak bisa memutar media")
+                }
+            }
             else -> toggleSelect(item)
         }
     }
@@ -498,7 +550,11 @@ class FileBrowserViewModel : ViewModel() {
         }
         _uiState.update {
             it.copy(
-                extractDialog = ExtractZipState(zipFile = file, isLoading = true),
+                extractDialog = ExtractZipState(
+                    zipFile = file,
+                    destinationDir = file.parentFile ?: file,
+                    isLoading = true,
+                ),
                 selectionMode = false,
                 selectedPaths = emptySet(),
             )
@@ -589,8 +645,11 @@ class FileBrowserViewModel : ViewModel() {
             return
         }
         val zip = dialog.zipFile
-        val destination = zip.parentFile
-        if (destination == null || !destination.exists()) {
+        val destination = dialog.destinationDir
+        if (!destination.exists()) {
+            destination.mkdirs()
+        }
+        if (!destination.exists() || !destination.isDirectory) {
             emit("Folder tujuan tidak ditemukan")
             return
         }
@@ -622,7 +681,11 @@ class FileBrowserViewModel : ViewModel() {
 
     fun goUp() {
         val state = _uiState.value
-        if (state.libraryMode) {
+        if (state.showDuplicates) {
+            closeDuplicates()
+            return
+        }
+        if (state.showFavoritesOnly || state.libraryMode) {
             goHome()
             return
         }
@@ -771,7 +834,7 @@ class FileBrowserViewModel : ViewModel() {
         }
     }
 
-    fun createZip(zipName: String, bestCompression: Boolean) {
+    fun createZip(zipName: String, bestCompression: Boolean, password: String? = null) {
         val sources = selectedFiles().ifEmpty {
             emit("Pilih file/folder untuk di-zip")
             return
@@ -779,15 +842,19 @@ class FileBrowserViewModel : ViewModel() {
         val safeName = zipName.trim().let { if (it.endsWith(".zip", true)) it else "$it.zip" }
         val destination = FileOperations.uniqueName(File(_uiState.value.currentDir, safeName))
         val level = if (bestCompression) Deflater.BEST_COMPRESSION else Deflater.DEFAULT_COMPRESSION
+        val pass = password?.takeIf { it.isNotBlank() }
 
         runJob("Membuat ZIP…", destination.name) {
             try {
-                ZipManager.createZip(sources, destination, level) { progress, name ->
+                ZipManager.createZip(sources, destination, level, password = pass) { progress, name ->
                     updateProgress("Membuat ZIP…", name, progress)
                 }
                 _uiState.update { it.copy(selectionMode = false, selectedPaths = emptySet()) }
                 invalidateMediaLibraryCache()
-                emit("ZIP berhasil: ${destination.name}")
+                emit(
+                    if (pass != null) "ZIP terenkripsi berhasil: ${destination.name}"
+                    else "ZIP berhasil: ${destination.name}"
+                )
                 refresh()
             } catch (e: Exception) {
                 emit("Gagal membuat ZIP: ${e.message ?: "error"}")
@@ -827,17 +894,31 @@ class FileBrowserViewModel : ViewModel() {
     }
 
     private fun runJob(title: String, message: String, block: suspend () -> Unit) {
-        viewModelScope.launch {
+        activeJob?.cancel()
+        activeJob = viewModelScope.launch {
             _uiState.update {
                 it.copy(progress = ProgressState(title, message, indeterminate = true))
             }
             try {
                 withContext(Dispatchers.IO) { block() }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                emit("Dibatalkan")
+                throw e
             } finally {
                 _uiState.update { it.copy(progress = null) }
+                if (activeJob === this) {
+                    activeJob = null
+                }
                 refresh()
             }
         }
+    }
+
+    fun cancelActiveJob() {
+        activeJob?.cancel()
+        activeJob = null
+        _uiState.update { it.copy(progress = null) }
+        emit("Operasi dibatalkan")
     }
 
     private fun updateProgress(title: String, message: String, progress: Float) {
@@ -850,6 +931,219 @@ class FileBrowserViewModel : ViewModel() {
                     progress = progress.coerceIn(0f, 1f),
                 )
             )
+        }
+    }
+
+
+    fun setExtractDestination(dir: File) {
+        val current = _uiState.value.extractDialog ?: return
+        if (!dir.exists()) dir.mkdirs()
+        _uiState.update {
+            it.copy(extractDialog = current.copy(destinationDir = dir))
+        }
+    }
+
+    fun shareSelected(context: Context) {
+        val files = selectedFiles()
+        if (files.isEmpty()) {
+            emit("Pilih file untuk dibagikan")
+            return
+        }
+        if (!FileActions.shareFiles(context, files)) {
+            emit("Gagal membagikan file")
+        }
+    }
+
+    fun openWithSelected(context: Context) {
+        val file = selectedFiles().singleOrNull()
+        if (file == null) {
+            emit("Pilih 1 file untuk dibuka")
+            return
+        }
+        if (!FileActions.openWith(context, file)) {
+            emit("Tidak ada aplikasi yang bisa membuka file ini")
+        }
+    }
+
+    fun showFileDetails(item: FileItem) {
+        _uiState.update { it.copy(fileDetails = item) }
+    }
+
+    fun showSelectedDetails() {
+        val item = _uiState.value.items.firstOrNull { it.path in _uiState.value.selectedPaths }
+        if (item == null) {
+            emit("Pilih 1 item untuk detail")
+            return
+        }
+        showFileDetails(item)
+    }
+
+    fun closeFileDetails() {
+        _uiState.update { it.copy(fileDetails = null) }
+    }
+
+    fun openParentOfDetails() {
+        val item = _uiState.value.fileDetails ?: return
+        val parent = item.file.parentFile ?: return
+        closeFileDetails()
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                libraryMode = false,
+                showFavoritesOnly = false,
+                activeCategory = null,
+                categoryRoot = null,
+                currentDir = parent,
+                fileFilter = FileFilter.ALL,
+            )
+        }
+        refresh()
+    }
+
+    fun toggleFavorite(path: String) {
+        val nowFavorite = prefs.toggleFavorite(path)
+        _uiState.update { it.copy(favoritePaths = prefs.getFavoritePaths()) }
+        emit(if (nowFavorite) "Ditambahkan ke favorit" else "Dihapus dari favorit")
+    }
+
+    fun toggleFavoriteSelected() {
+        val path = _uiState.value.selectedPaths.singleOrNull()
+        if (path == null) {
+            emit("Pilih 1 item untuk favorit")
+            return
+        }
+        toggleFavorite(path)
+    }
+
+    fun openFavorites() {
+        val favorites = prefs.getFavoritePaths()
+        val items = favorites.mapNotNull { path ->
+            val file = File(path)
+            if (file.exists()) FileItem(file) else null
+        }.sortedByDescending { it.lastModified }
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                libraryMode = false,
+                showFavoritesOnly = true,
+                activeCategory = null,
+                categoryRoot = null,
+                currentDir = root,
+                fileFilter = FileFilter.ALL,
+                items = items,
+                canGoUp = true,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+                progress = null,
+            )
+        }
+    }
+
+    fun setThemeMode(mode: ThemeMode) {
+        prefs.setThemeMode(mode)
+        _uiState.update { it.copy(themeMode = mode) }
+    }
+
+    fun setLibrarySubFilter(filter: LibrarySubFilter) {
+        _uiState.update { it.copy(librarySubFilter = filter) }
+        val category = _uiState.value.activeCategory
+        val cached = mediaLibraryCache
+        if (category != null && cached != null && _uiState.value.libraryMode) {
+            val base = cached.forCategory(category)
+            val filtered = if (category == FileCategory.DOCUMENTS) {
+                base.filter { filter.matches(it) }
+            } else {
+                base
+            }
+            _uiState.update { it.copy(items = sortLibraryFiles(filtered)) }
+        }
+    }
+
+    fun findDuplicates() {
+        activeJob?.cancel()
+        activeJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    progress = ProgressState("Mencari duplikat…", "Memindai file", indeterminate = true),
+                )
+            }
+            try {
+                val groups = withContext(Dispatchers.IO) {
+                    val library = obtainMediaLibrary(forceRefresh = false)
+                    val pool = library.images + library.videos + library.documents +
+                        library.archives + library.apps
+                    DuplicateFinder.findDuplicates(pool) { progress, message ->
+                        updateProgress("Mencari duplikat…", message, progress)
+                    }
+                }
+                _uiState.update {
+                    it.copy(
+                        showHome = false,
+                        showDuplicates = true,
+                        duplicateGroups = groups,
+                        libraryMode = false,
+                        showFavoritesOnly = false,
+                        progress = null,
+                    )
+                }
+                emit(
+                    if (groups.isEmpty()) "Tidak ada file duplikat"
+                    else "${groups.size} grup duplikat ditemukan",
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                emit("Dibatalkan")
+                throw e
+            } catch (e: Exception) {
+                emit("Gagal mencari duplikat: ${e.message ?: "error"}")
+            } finally {
+                _uiState.update { it.copy(progress = null) }
+                if (activeJob === this) activeJob = null
+            }
+        }
+    }
+
+    fun closeDuplicates() {
+        _uiState.update { it.copy(showDuplicates = false, duplicateGroups = emptyList()) }
+        goHome()
+    }
+
+    fun deleteDuplicateExtras() {
+        val extras = _uiState.value.duplicateGroups.flatMap { group ->
+            group.files.drop(1).map { it.file }
+        }
+        if (extras.isEmpty()) {
+            emit("Tidak ada file untuk dihapus")
+            return
+        }
+        activeJob?.cancel()
+        activeJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(progress = ProgressState("Menghapus duplikat…", "${extras.size} file"))
+            }
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    FileOperations.deleteRecursively(extras)
+                }
+                invalidateMediaLibraryCache()
+                handleResult(result)
+                val groups = withContext(Dispatchers.IO) {
+                    val library = obtainMediaLibrary(forceRefresh = true)
+                    val pool = library.images + library.videos + library.documents +
+                        library.archives + library.apps
+                    DuplicateFinder.findDuplicates(pool)
+                }
+                _uiState.update {
+                    it.copy(duplicateGroups = groups, progress = null, showDuplicates = true)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                emit("Dibatalkan")
+                throw e
+            } catch (e: Exception) {
+                emit("Gagal menghapus: ${e.message ?: "error"}")
+            } finally {
+                _uiState.update { it.copy(progress = null) }
+                if (activeJob === this) activeJob = null
+            }
         }
     }
 

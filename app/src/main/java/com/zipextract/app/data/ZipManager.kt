@@ -17,6 +17,7 @@ object ZipManager {
         sources: List<File>,
         destinationZip: File,
         compressionLevel: Int = Deflater.DEFAULT_COMPRESSION,
+        password: String? = null,
         onProgress: ((Float, String) -> Unit)? = null,
     ) {
         require(sources.isNotEmpty()) { "Tidak ada file yang dipilih" }
@@ -29,6 +30,11 @@ object ZipManager {
             } else {
                 allFiles += source to source.name
             }
+        }
+
+        if (!password.isNullOrBlank()) {
+            createEncryptedZip(allFiles, destinationZip, password, onProgress)
+            return
         }
 
         val total = allFiles.size.coerceAtLeast(1)
@@ -46,6 +52,29 @@ object ZipManager {
                     }
                 }
             }
+        }
+    }
+
+    private fun createEncryptedZip(
+        allFiles: List<Pair<File, String>>,
+        destinationZip: File,
+        password: String,
+        onProgress: ((Float, String) -> Unit)?,
+    ) {
+        if (destinationZip.exists()) destinationZip.delete()
+        val zipFile = net.lingala.zip4j.ZipFile(destinationZip, password.toCharArray())
+        val total = allFiles.size.coerceAtLeast(1)
+        allFiles.forEachIndexed { index, (file, entryName) ->
+            onProgress?.invoke((index + 1f) / total, entryName)
+            val params = net.lingala.zip4j.model.ZipParameters().apply {
+                compressionMethod = net.lingala.zip4j.model.enums.CompressionMethod.DEFLATE
+                compressionLevel = net.lingala.zip4j.model.enums.CompressionLevel.NORMAL
+                isEncryptFiles = true
+                encryptionMethod = net.lingala.zip4j.model.enums.EncryptionMethod.AES
+                aesKeyStrength = net.lingala.zip4j.model.enums.AesKeyStrength.KEY_STRENGTH_256
+                fileNameInZip = entryName.replace('\\', '/')
+            }
+            zipFile.addFile(file, params)
         }
     }
 

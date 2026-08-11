@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
@@ -21,9 +22,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.zipextract.app.data.ThemeMode
 import com.zipextract.app.ui.FileBrowserScreen
 import com.zipextract.app.ui.FileBrowserViewModel
-import com.zipextract.app.ui.theme.ZipExtractTheme
+import com.zipextract.app.ui.theme.FileNestTheme
 
 class MainActivity : ComponentActivity() {
 
@@ -34,8 +36,14 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            ZipExtractTheme {
-                val state by viewModel.uiState.collectAsStateWithLifecycle()
+            val state by viewModel.uiState.collectAsStateWithLifecycle()
+            val darkTheme = when (state.themeMode) {
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
+
+            FileNestTheme(darkTheme = darkTheme) {
                 val context = LocalContext.current
 
                 val legacyPermissionLauncher = rememberLauncherForActivityResult(
@@ -122,6 +130,22 @@ class MainActivity : ComponentActivity() {
                         onDeselectAllExtractEntries = viewModel::deselectAllExtractEntries,
                         onDeleteOriginalZipChange = viewModel::setDeleteOriginalZip,
                         onConfirmExtract = viewModel::confirmExtract,
+                        onSetExtractDestination = viewModel::setExtractDestination,
+                        onShareSelected = { viewModel.shareSelected(context) },
+                        onOpenWithSelected = { viewModel.openWithSelected(context) },
+                        onToggleFavoriteSelected = viewModel::toggleFavoriteSelected,
+                        onShowSelectedDetails = viewModel::showSelectedDetails,
+                        onCloseFileDetails = viewModel::closeFileDetails,
+                        onOpenParentOfDetails = viewModel::openParentOfDetails,
+                        onOpenFavorites = viewModel::openFavorites,
+                        onSetThemeMode = viewModel::setThemeMode,
+                        onSetLibrarySubFilter = viewModel::setLibrarySubFilter,
+                        onFindDuplicates = viewModel::findDuplicates,
+                        onCloseDuplicates = viewModel::closeDuplicates,
+                        onDeleteDuplicateExtras = viewModel::deleteDuplicateExtras,
+                        onCancelProgress = viewModel::cancelActiveJob,
+                        onToggleFavoritePath = viewModel::toggleFavorite,
+                        onShowFileDetails = viewModel::showFileDetails,
                     )
                 }
             }
