@@ -12,8 +12,8 @@ android {
         applicationId = "com.zipextract.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 17
-        versionName = "2.0.2"
+        versionCode = 18
+        versionName = "2.0.3"
     }
 
     buildTypes {

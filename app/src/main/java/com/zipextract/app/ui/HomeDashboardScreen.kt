@@ -204,7 +204,7 @@ fun HomeDashboardScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f),
+                            .padding(vertical = 24.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text("Memuat kategori…", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -212,25 +212,19 @@ fun HomeDashboardScreen(
                 } else {
                     val visibleCategories = categories.filter { it.category != FileCategory.ARCHIVES }
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         visibleCategories.chunked(2).forEach { row ->
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 row.forEach { summary ->
                                     CategoryCard(
                                         summary = summary,
                                         onClick = { onOpenCategory(summary.category) },
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .fillMaxSize(),
+                                        modifier = Modifier.weight(1f),
                                     )
                                 }
                                 if (row.size == 1) {
@@ -673,53 +667,52 @@ private fun CategoryCard(
     val style = categoryStyle(summary.category)
 
     Card(
-        modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = modifier
+            .height(52.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
     ) {
-        Box(
+        Row(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Brush.linearGradient(colors = listOf(style.start, style.end)))
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.SpaceBetween,
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.22f)),
+                contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(30.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.22f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = style.icon,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
+                Icon(
+                    imageVector = style.icon,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
 
-                Column {
-                    Text(
-                        text = summary.category.title,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = "${summary.itemCount} item",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color.White.copy(alpha = 0.9f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = summary.category.title,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "${summary.itemCount} item",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.88f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
