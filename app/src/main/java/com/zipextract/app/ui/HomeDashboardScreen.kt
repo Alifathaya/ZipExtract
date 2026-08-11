@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -61,6 +62,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
@@ -117,36 +119,36 @@ fun HomeDashboardScreen(
             )
         },
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            MaterialTheme.colorScheme.background,
-                            MaterialTheme.colorScheme.background,
-                        ),
+        val pageModifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        MaterialTheme.colorScheme.background,
+                        MaterialTheme.colorScheme.background,
                     ),
-                )
-                .padding(padding)
-                .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            item {
-                StorageCard(storageInfo = storageInfo)
-            }
+                ),
+            )
+            .padding(padding)
+            .padding(horizontal = 16.dp)
 
-            item {
-                SearchBar(
-                    query = searchQuery,
-                    onQueryChange = onSearchQueryChange,
-                    onClear = onClearSearch,
-                )
-            }
-
-            if (isSearching) {
+        if (isSearching) {
+            LazyColumn(
+                modifier = pageModifier,
+                contentPadding = PaddingValues(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                item {
+                    StorageCard(storageInfo = storageInfo)
+                }
+                item {
+                    SearchBar(
+                        query = searchQuery,
+                        onQueryChange = onSearchQueryChange,
+                        onClear = onClearSearch,
+                    )
+                }
                 item {
                     SearchResultsSection(
                         query = searchQuery,
@@ -155,66 +157,83 @@ fun HomeDashboardScreen(
                         onOpenFile = onOpenFile,
                     )
                 }
-            } else {
-                item {
-                    QuickActionsRow(
-                        onBrowseAll = onBrowseAll,
-                        onOpenZips = onOpenZips,
-                        onOpenFavorites = onOpenFavorites,
-                    )
-                }
+            }
+        } else {
+            Column(
+                modifier = pageModifier.padding(bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                StorageCard(storageInfo = storageInfo, compact = true)
 
-                item {
-                    RecentPhotosSection(
-                        photos = recentFiles,
-                        loading = isLoading,
-                        onOpenPhoto = onOpenFile,
-                        onViewAll = onViewAllPhotos,
-                    )
-                }
+                SearchBar(
+                    query = searchQuery,
+                    onQueryChange = onSearchQueryChange,
+                    onClear = onClearSearch,
+                )
 
-                item {
-                    Column {
-                        Text(
-                            text = "Kategori",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = "Pilih jenis file yang ingin dibuka",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                QuickActionsRow(
+                    onBrowseAll = onBrowseAll,
+                    onOpenZips = onOpenZips,
+                    onOpenFavorites = onOpenFavorites,
+                )
+
+                RecentPhotosSection(
+                    photos = recentFiles,
+                    loading = isLoading,
+                    onOpenPhoto = onOpenFile,
+                    onViewAll = onViewAllPhotos,
+                    compact = true,
+                )
+
+                Column {
+                    Text(
+                        text = "Kategori",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "Pilih jenis file yang ingin dibuka",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
 
                 if (isLoading && categories.isEmpty()) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(120.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text("Memuat kategori…", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("Memuat kategori…", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 } else {
                     val visibleCategories = categories.filter { it.category != FileCategory.ARCHIVES }
-                    items(visibleCategories.chunked(2), key = { row -> row.first().category.name }) { row ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            row.forEach { summary ->
-                                CategoryCard(
-                                    summary = summary,
-                                    onClick = { onOpenCategory(summary.category) },
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                            if (row.size == 1) {
-                                Spacer(modifier = Modifier.weight(1f))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        visibleCategories.chunked(2).forEach { row ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                row.forEach { summary ->
+                                    CategoryCard(
+                                        summary = summary,
+                                        onClick = { onOpenCategory(summary.category) },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxSize(),
+                                    )
+                                }
+                                if (row.size == 1) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
                             }
                         }
                     }
@@ -302,8 +321,10 @@ private fun RecentPhotosSection(
     loading: Boolean,
     onOpenPhoto: (FileItem) -> Unit,
     onViewAll: () -> Unit,
+    compact: Boolean = false,
 ) {
     val samplePhotos = photos.take(6)
+    val thumbSize = if (compact) 72.dp else 108.dp
 
     Column {
         Row(
@@ -316,20 +337,26 @@ private fun RecentPhotosSection(
                     Icons.Default.Image,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(if (compact) 18.dp else 20.dp),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
                     Text(
                         text = "Foto Terbaru",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = if (compact) {
+                            MaterialTheme.typography.titleSmall
+                        } else {
+                            MaterialTheme.typography.titleMedium
+                        },
                         fontWeight = FontWeight.SemiBold,
                     )
-                    Text(
-                        text = "Sample foto dari perangkat Anda",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (!compact) {
+                        Text(
+                            text = "Sample foto dari perangkat Anda",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             TextButton(onClick = onViewAll) {
@@ -337,38 +364,33 @@ private fun RecentPhotosSection(
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(if (compact) 6.dp else 10.dp))
 
         when {
             loading && samplePhotos.isEmpty() -> {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(4) {
-                        PhotoPlaceholderTile(modifier = Modifier.size(108.dp))
+                        PhotoPlaceholderTile(modifier = Modifier.size(thumbSize))
                     }
                 }
             }
             samplePhotos.isEmpty() -> {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(4) {
-                        PhotoPlaceholderTile(modifier = Modifier.size(108.dp))
+                        PhotoPlaceholderTile(modifier = Modifier.size(thumbSize))
                     }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Belum ada foto ditemukan. Tap Lihat semua untuk membuka folder gambar.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
             else -> {
                 LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(end = 4.dp),
                 ) {
                     items(samplePhotos, key = { it.path }) { photo ->
                         PhotoThumbnail(
                             photo = photo,
                             onClick = { onOpenPhoto(photo) },
+                            size = thumbSize,
                         )
                     }
                 }
@@ -381,13 +403,14 @@ private fun RecentPhotosSection(
 private fun PhotoThumbnail(
     photo: FileItem,
     onClick: () -> Unit,
+    size: Dp = 108.dp,
 ) {
     Surface(
         modifier = Modifier
-            .size(108.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .size(size)
+            .clip(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(14.dp),
         tonalElevation = 2.dp,
     ) {
         SubcomposeAsyncImage(
@@ -496,20 +519,23 @@ private fun iconForItem(item: FileItem): ImageVector {
 }
 
 @Composable
-private fun StorageCard(storageInfo: StorageInfo?) {
+private fun StorageCard(
+    storageInfo: StorageInfo?,
+    compact: Boolean = false,
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(if (compact) 16.dp else 20.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
-        Column(modifier = Modifier.padding(18.dp)) {
+        Column(modifier = Modifier.padding(if (compact) 12.dp else 18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(if (compact) 36.dp else 44.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
                     contentAlignment = Alignment.Center,
@@ -518,13 +544,18 @@ private fun StorageCard(storageInfo: StorageInfo?) {
                         imageVector = Icons.Default.Storage,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(if (compact) 18.dp else 24.dp),
                     )
                 }
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Penyimpanan Internal",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = if (compact) {
+                            MaterialTheme.typography.titleSmall
+                        } else {
+                            MaterialTheme.typography.titleMedium
+                        },
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
@@ -535,31 +566,34 @@ private fun StorageCard(storageInfo: StorageInfo?) {
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(if (compact) 8.dp else 14.dp))
 
             LinearProgressIndicator(
                 progress = { storageInfo?.usedFraction ?: 0f },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(8.dp)
+                    .height(if (compact) 6.dp else 8.dp)
                     .clip(RoundedCornerShape(8.dp)),
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = if (storageInfo != null) {
-                    "Tersedia ${FileItem.formatBytes(storageInfo.freeBytes)}"
-                } else {
-                    "—"
-                },
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-            )
+            if (!compact) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = if (storageInfo != null) {
+                        "Tersedia ${FileItem.formatBytes(storageInfo.freeBytes)}"
+                    } else {
+                        "—"
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
     }
 }
@@ -570,28 +604,26 @@ private fun QuickActionsRow(
     onOpenZips: () -> Unit,
     onOpenFavorites: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            QuickActionChip(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Default.FolderOpen,
-                label = "Semua File",
-                container = MaterialTheme.colorScheme.secondaryContainer,
-                onClick = onBrowseAll,
-            )
-            QuickActionChip(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Default.Archive,
-                label = "File ZIP",
-                container = MaterialTheme.colorScheme.tertiaryContainer,
-                onClick = onOpenZips,
-            )
-        }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         QuickActionChip(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.weight(1f),
+            icon = Icons.Default.FolderOpen,
+            label = "Semua",
+            container = MaterialTheme.colorScheme.secondaryContainer,
+            onClick = onBrowseAll,
+        )
+        QuickActionChip(
+            modifier = Modifier.weight(1f),
+            icon = Icons.Default.Archive,
+            label = "ZIP",
+            container = MaterialTheme.colorScheme.tertiaryContainer,
+            onClick = onOpenZips,
+        )
+        QuickActionChip(
+            modifier = Modifier.weight(1f),
             icon = Icons.Default.Star,
             label = "Favorit",
             container = MaterialTheme.colorScheme.primaryContainer,
@@ -610,16 +642,22 @@ private fun QuickActionChip(
 ) {
     Surface(
         modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(14.dp),
         color = container,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
         ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(text = label, style = MaterialTheme.typography.labelLarge)
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -634,20 +672,23 @@ private fun CategoryCard(
 
     Card(
         modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(20.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        shape = RoundedCornerShape(14.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
     ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
                 .background(Brush.linearGradient(colors = listOf(style.start, style.end)))
-                .padding(16.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
         ) {
-            Column {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.SpaceBetween,
+            ) {
                 Box(
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(30.dp)
                         .clip(CircleShape)
                         .background(Color.White.copy(alpha = 0.22f)),
                     contentAlignment = Alignment.Center,
@@ -656,39 +697,25 @@ private fun CategoryCard(
                         imageVector = style.icon,
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(24.dp),
+                        modifier = Modifier.size(18.dp),
                     )
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Text(
-                    text = summary.category.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = summary.category.subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.88f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Surface(
-                    shape = RoundedCornerShape(999.dp),
-                    color = Color.White.copy(alpha = 0.2f),
-                ) {
+                Column {
+                    Text(
+                        text = summary.category.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     Text(
                         text = "${summary.itemCount} item",
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = Color.White,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White.copy(alpha = 0.9f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
