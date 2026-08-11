@@ -9,6 +9,7 @@ import com.zipextract.app.data.FileCategory
 import com.zipextract.app.data.FileFilter
 import com.zipextract.app.data.FileItem
 import com.zipextract.app.data.FileOperations
+import com.zipextract.app.data.MediaLibrary
 import com.zipextract.app.data.OperationResult
 import com.zipextract.app.data.ProgressState
 import com.zipextract.app.data.StorageInfo
@@ -30,6 +31,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.zip.Deflater
+import kotlin.jvm.Volatile
 
 sealed class ViewerContent {
     abstract val file: File
@@ -88,6 +90,9 @@ class FileBrowserViewModel : ViewModel() {
 
     private val root = FileOperations.defaultRoot()
     private var searchJob: Job? = null
+    private var libraryJob: Job? = null
+    @Volatile
+    private var mediaLibraryCache: MediaLibrary? = null
 
     fun setStorageGranted(granted: Boolean) {
         _uiState.update { it.copy(storageGranted = granted) }
@@ -100,11 +105,11 @@ class FileBrowserViewModel : ViewModel() {
         }
     }
 
-    fun loadHomeData() {
+    fun loadHomeData(forceRefresh: Boolean = false) {
         viewModelScope.launch {
-            _uiState.update { it.copy(homeLoading = true) }
+            _uiState.update { it.copy(homeLoading = mediaLibraryCache == null || forceRefresh) }
             val data = withContext(Dispatchers.IO) {
-                val library = FileOperations.scanMediaLibrary()
+                val library = obtainMediaLibrary(forceRefresh)
                 HomeDashboardData(
                     storageInfo = FileOperations.getStorageInfo(),
                     categories = FileOperations.getCategorySummaries(library),
@@ -123,12 +128,41 @@ class FileBrowserViewModel : ViewModel() {
     }
 
     fun openCategory(category: FileCategory) {
-        openCategoryLibrary(category)
+        openCategoryLibrary(category, forceRefresh = false)
     }
 
-    fun openCategoryLibrary(category: FileCategory) {
+    fun openCategoryLibrary(category: FileCategory, forceRefresh: Boolean = false) {
         val folder = category.resolveFolder()
         if (!folder.exists()) folder.mkdirs()
+
+        val cachedFiles = if (!forceRefresh) {
+            mediaLibraryCache?.forCategory(category)
+        } else {
+            null
+        }
+
+        if (cachedFiles != null) {
+            val sorted = sortLibraryFiles(cachedFiles)
+            _uiState.update {
+                it.copy(
+                    showHome = false,
+                    activeCategory = category,
+                    categoryRoot = folder,
+                    currentDir = folder,
+                    fileFilter = FileFilter.forCategory(category),
+                    libraryMode = true,
+                    selectionMode = false,
+                    selectedPaths = emptySet(),
+                    searchQuery = "",
+                    searchResults = emptyList(),
+                    items = sorted,
+                    canGoUp = true,
+                    progress = null,
+                )
+            }
+            return
+        }
+
         _uiState.update {
             it.copy(
                 showHome = false,
@@ -150,15 +184,16 @@ class FileBrowserViewModel : ViewModel() {
                 ),
             )
         }
-        viewModelScope.launch {
-            val files = withContext(Dispatchers.IO) {
-                FileOperations.getFilesForCategory(category)
+
+        libraryJob?.cancel()
+        libraryJob = viewModelScope.launch {
+            val library = withContext(Dispatchers.IO) {
+                obtainMediaLibrary(forceRefresh = true)
             }
-            val sorted = if (_uiState.value.sortNewestFirst) {
-                files.sortedByDescending { it.lastModified }
-            } else {
-                files.sortedByDescending { it.lastModified }
+            if (_uiState.value.activeCategory != category || !_uiState.value.libraryMode) {
+                return@launch
             }
+            val sorted = sortLibraryFiles(library.forCategory(category))
             _uiState.update {
                 it.copy(
                     items = sorted,
@@ -170,6 +205,21 @@ class FileBrowserViewModel : ViewModel() {
                 )
             }
         }
+    }
+
+    private fun sortLibraryFiles(files: List<FileItem>): List<FileItem> {
+        return files.sortedByDescending { it.lastModified }
+    }
+
+    private fun obtainMediaLibrary(forceRefresh: Boolean): MediaLibrary {
+        if (!forceRefresh) {
+            mediaLibraryCache?.let { return it }
+        }
+        return FileOperations.scanMediaLibrary().also { mediaLibraryCache = it }
+    }
+
+    private fun invalidateMediaLibraryCache() {
+        mediaLibraryCache = null
     }
 
     fun updateSearchQuery(query: String) {
@@ -268,6 +318,7 @@ class FileBrowserViewModel : ViewModel() {
 
     fun goHome() {
         searchJob?.cancel()
+        libraryJob?.cancel()
         _uiState.update {
             it.copy(
                 showHome = true,
@@ -285,17 +336,19 @@ class FileBrowserViewModel : ViewModel() {
                 progress = null,
             )
         }
-        loadHomeData()
+        loadHomeData(forceRefresh = false)
     }
 
     fun refresh() {
         if (_uiState.value.showHome) {
-            loadHomeData()
+            invalidateMediaLibraryCache()
+            loadHomeData(forceRefresh = true)
             return
         }
         if (_uiState.value.libraryMode) {
             val category = _uiState.value.activeCategory ?: return
-            openCategoryLibrary(category)
+            invalidateMediaLibraryCache()
+            openCategoryLibrary(category, forceRefresh = true)
             return
         }
         val dir = _uiState.value.currentDir
@@ -558,7 +611,9 @@ class FileBrowserViewModel : ViewModel() {
                     }
                 }
                 val suffix = if (deleteOriginal) " (ZIP asli dihapus)" else ""
+                invalidateMediaLibraryCache()
                 emit("Extract selesai ke ${destination.name}$suffix")
+                refresh()
             } catch (e: Exception) {
                 emit("Gagal extract: ${e.message ?: "error"}")
             }
@@ -731,7 +786,9 @@ class FileBrowserViewModel : ViewModel() {
                     updateProgress("Membuat ZIP…", name, progress)
                 }
                 _uiState.update { it.copy(selectionMode = false, selectedPaths = emptySet()) }
+                invalidateMediaLibraryCache()
                 emit("ZIP berhasil: ${destination.name}")
+                refresh()
             } catch (e: Exception) {
                 emit("Gagal membuat ZIP: ${e.message ?: "error"}")
             }
@@ -798,7 +855,10 @@ class FileBrowserViewModel : ViewModel() {
 
     private fun handleResult(result: OperationResult) {
         when (result) {
-            is OperationResult.Success -> emit(result.message)
+            is OperationResult.Success -> {
+                invalidateMediaLibraryCache()
+                emit(result.message)
+            }
             is OperationResult.Error -> emit(result.message)
         }
     }
