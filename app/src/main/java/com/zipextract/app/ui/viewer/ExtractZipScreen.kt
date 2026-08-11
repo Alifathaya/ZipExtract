@@ -8,22 +8,25 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -40,8 +43,14 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.max
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.zipextract.app.data.ZipEntryItem
 import com.zipextract.app.ui.ExtractZipState
 import java.io.File
@@ -62,11 +71,14 @@ fun ExtractZipScreen(
 
     val allSelected = state.entries.isNotEmpty() &&
         state.selectedPaths.size == state.entries.size
+    val bottomInset = systemBottomInset(minimum = 48.dp)
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
+                windowInsets = WindowInsets.statusBars,
                 title = {
                     Column {
                         Text(
@@ -95,7 +107,7 @@ fun ExtractZipScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .navigationBarsPadding()
+                            .padding(bottom = bottomInset)
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                     ) {
                         Row(
@@ -202,12 +214,38 @@ fun ExtractZipScreen(
                                 onToggle = { onToggleEntry(entry.path) },
                             )
                         }
-                        item { Spacer(modifier = Modifier.height(96.dp)) }
+                        item { Spacer(modifier = Modifier.height(24.dp)) }
                     }
                 }
             }
         }
     }
+}
+
+/**
+ * Bottom inset that stays above the system gesture/navigation bar.
+ * Uses Compose insets, View root insets, and a hard minimum so the
+ * Extract button never sits under the system UI.
+ */
+@Composable
+private fun systemBottomInset(minimum: Dp): Dp {
+    val view = LocalView.current
+    val density = LocalDensity.current
+    val composeNavBottom = WindowInsets.navigationBars
+        .asPaddingValues()
+        .calculateBottomPadding()
+
+    val rootInsets = ViewCompat.getRootWindowInsets(view)
+    val fromViewPx = rootInsets?.let { insets ->
+        maxOf(
+            insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom,
+            insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom,
+            insets.getInsets(WindowInsetsCompat.Type.tappableElement()).bottom,
+        )
+    } ?: 0
+    val fromViewDp = with(density) { fromViewPx.toDp() }
+
+    return max(max(composeNavBottom, fromViewDp), minimum)
 }
 
 @Composable

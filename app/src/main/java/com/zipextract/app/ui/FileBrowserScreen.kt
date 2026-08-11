@@ -93,8 +93,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import com.zipextract.app.data.ClipboardMode
@@ -196,6 +194,20 @@ fun FileBrowserScreen(
             state.showDuplicates -> onCloseDuplicates()
             !state.showHome -> onGoUp()
         }
+    }
+
+    if (state.extractDialog != null) {
+        ExtractZipScreen(
+            state = state.extractDialog,
+            onClose = onCloseExtract,
+            onToggleEntry = onToggleExtractEntry,
+            onSelectAll = onSelectAllExtractEntries,
+            onDeselectAll = onDeselectAllExtractEntries,
+            onDeleteOriginalChange = onDeleteOriginalZipChange,
+            onExtract = onConfirmExtract,
+            onSetDestination = onSetExtractDestination,
+        )
+        return
     }
 
     if (state.viewer != null) {
@@ -538,34 +550,6 @@ fun FileBrowserScreen(
 
             state.progress?.let { progress ->
                 ProgressOverlay(progress = progress, onCancel = onCancelProgress)
-            }
-        }
-    }
-
-    state.extractDialog?.let { extractState ->
-        Dialog(
-            onDismissRequest = onCloseExtract,
-            properties = DialogProperties(
-                dismissOnBackPress = true,
-                dismissOnClickOutside = false,
-                usePlatformDefaultWidth = false,
-                decorFitsSystemWindows = false,
-            ),
-        ) {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = MaterialTheme.colorScheme.background,
-            ) {
-                ExtractZipScreen(
-                    state = extractState,
-                    onClose = onCloseExtract,
-                    onToggleEntry = onToggleExtractEntry,
-                    onSelectAll = onSelectAllExtractEntries,
-                    onDeselectAll = onDeselectAllExtractEntries,
-                    onDeleteOriginalChange = onDeleteOriginalZipChange,
-                    onExtract = onConfirmExtract,
-                    onSetDestination = onSetExtractDestination,
-                )
             }
         }
     }
