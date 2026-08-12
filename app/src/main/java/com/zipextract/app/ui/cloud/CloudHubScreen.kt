@@ -64,7 +64,6 @@ import androidx.compose.ui.unit.dp
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.common.api.ApiException
 import com.zipextract.app.data.FileActions
-import com.zipextract.app.data.FileItem
 import com.zipextract.app.data.cloud.CloudAuthState
 import com.zipextract.app.data.cloud.CloudFileItem
 import com.zipextract.app.data.cloud.DriveBrowseState
@@ -129,41 +128,64 @@ fun CloudHubScreen(
         }
     }
 
-    val openDocumentLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        SafCloudAccess.takePersistableReadWrite(context, uri, write = false)
+    fun importCloudUri(uri: Uri, tryPersist: Boolean = true) {
         busyMessage = "Mengimpor file…"
         scope.launch {
-            val file = SafCloudAccess.copyUriToCache(context, uri)
+            val (file, error) = SafCloudAccess.copyUriToCache(
+                context,
+                uri,
+                tryPersist = tryPersist,
+            )
             busyMessage = null
             if (file == null) {
-                Toast.makeText(context, "Gagal membuka file cloud", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, error ?: "Gagal membuka file cloud", Toast.LENGTH_LONG).show()
             } else {
                 onOpenImportedFile(file)
             }
         }
     }
 
-    val openTreeLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocumentTree(),
+    val openDocumentLauncher = rememberLauncherForActivityResult(
+        SafCloudAccess.OpenCloudDocument(),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        SafCloudAccess.takePersistableReadWrite(context, uri, write = true)
+        importCloudUri(uri, tryPersist = true)
+    }
+
+    val getContentLauncher = rememberLauncherForActivityResult(
+        SafCloudAccess.GetCloudContent(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        // GET_CONTENT is one-shot; skip persistable take (Drive often blocks it as "system protected").
+        importCloudUri(uri, tryPersist = false)
+    }
+
+    val openTreeLauncher = rememberLauncherForActivityResult(
+        SafCloudAccess.OpenCloudTree(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val persisted = SafCloudAccess.tryTakePersistable(context, uri, allowWrite = true)
         val label = SafCloudAccess.labelForTree(context, uri)
+        if (!persisted) {
+            Toast.makeText(
+                context,
+                "Folder terbuka sementara. Provider ini membatasi tautan permanen (umum di Google Drive).",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
         val next = (bookmarks.filterNot { it.uri == uri.toString() } + SafBookmark(uri.toString(), label))
             .distinctBy { it.uri }
         onBookmarksChanged(next)
         refreshSafChildren(uri.toString())
-        Toast.makeText(context, "Folder cloud ditautkan: $label", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Folder ditautkan: $label", Toast.LENGTH_SHORT).show()
     }
 
     val createDocumentLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("*/*"),
+        SafCloudAccess.CreateCloudDocument(),
     ) { uri ->
         val source = onExportLocalFile
         if (uri == null || source == null) return@rememberLauncherForActivityResult
+        SafCloudAccess.tryTakePersistable(context, uri, allowWrite = true)
         busyMessage = "Menyimpan ke cloud…"
         scope.launch {
             val ok = runCatching {
@@ -174,8 +196,8 @@ fun CloudHubScreen(
             busyMessage = null
             Toast.makeText(
                 context,
-                if (ok) "Berhasil disimpan ke cloud" else "Gagal menyimpan ke cloud",
-                Toast.LENGTH_SHORT,
+                if (ok) "Berhasil disimpan ke cloud" else "Gagal menyimpan. Coba lokasi lain (Download/Files).",
+                Toast.LENGTH_LONG,
             ).show()
         }
     }
@@ -236,15 +258,35 @@ fun CloudHubScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                SectionCard(title = "Cloud via sistem (SAF)", subtitle = "Drive, Dropbox, OneDrive, dll.") {
+                SectionCard(
+                    title = "Cloud via sistem (SAF)",
+                    subtitle = "Untuk Google Drive, pakai tombol Get Content dulu",
+                ) {
+                    Button(
+                        onClick = { getContentLauncher.launch("*/*") },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Default.CloudDownload, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Buka file cloud (disarankan)")
+                    }
+                    Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = { openDocumentLauncher.launch(arrayOf("*/*")) },
+                        OutlinedButton(
+                            onClick = {
+                                openDocumentLauncher.launch(
+                                    arrayOf(
+                                        "*/*",
+                                        "application/pdf",
+                                        "image/*",
+                                        "application/zip",
+                                        "application/vnd.android.package-archive",
+                                    ),
+                                )
+                            },
                             modifier = Modifier.weight(1f),
                         ) {
-                            Icon(Icons.Default.CloudDownload, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Buka file")
+                            Text("Documents")
                         }
                         OutlinedButton(
                             onClick = { openTreeLauncher.launch(null) },
@@ -252,9 +294,15 @@ fun CloudHubScreen(
                         ) {
                             Icon(Icons.Default.FolderOpen, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Tautkan folder")
+                            Text("Folder")
                         }
                     }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "Catatan: beberapa file Drive dilindungi sistem. Jika gagal, unduh dulu di app Drive atau pakai Login Google Drive native.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     if (onExportLocalFile != null) {
                         Spacer(Modifier.height(8.dp))
                         OutlinedButton(
@@ -325,10 +373,14 @@ fun CloudHubScreen(
                             if (child.isFolder) return@CloudRow
                             busyMessage = "Mengimpor ${child.name}…"
                             scope.launch {
-                                val file = SafCloudAccess.copyUriToCache(context, Uri.parse(child.id), child.name)
+                                val (file, error) = SafCloudAccess.copyUriToCache(
+                                    context,
+                                    Uri.parse(child.id),
+                                    child.name,
+                                )
                                 busyMessage = null
                                 if (file != null) onOpenImportedFile(file)
-                                else Toast.makeText(context, "Gagal impor", Toast.LENGTH_SHORT).show()
+                                else Toast.makeText(context, error ?: "Gagal impor", Toast.LENGTH_LONG).show()
                             }
                         },
                     )
