@@ -16,6 +16,19 @@ val googleWebClientId: String = localProperties.getProperty("GOOGLE_WEB_CLIENT_I
     ?: System.getenv("GOOGLE_WEB_CLIENT_ID")
     ?: ""
 
+// Stable upload keystore so CI/user APKs can update in-place (same signature).
+// Override via env/local.properties if needed; defaults match app/filenest-upload.jks.
+val uploadStorePassword: String = localProperties.getProperty("FILENEST_STORE_PASSWORD")
+    ?: System.getenv("FILENEST_STORE_PASSWORD")
+    ?: "filenest-upload"
+val uploadKeyPassword: String = localProperties.getProperty("FILENEST_KEY_PASSWORD")
+    ?: System.getenv("FILENEST_KEY_PASSWORD")
+    ?: "filenest-upload"
+val uploadKeyAlias: String = localProperties.getProperty("FILENEST_KEY_ALIAS")
+    ?: System.getenv("FILENEST_KEY_ALIAS")
+    ?: "filenest"
+val uploadStoreFile = rootProject.file("app/filenest-upload.jks")
+
 android {
     namespace = "com.zipextract.app"
     compileSdk = 35
@@ -24,18 +37,32 @@ android {
         applicationId = "com.zipextract.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 27
-        versionName = "2.2.2"
+        versionCode = 28
+        versionName = "2.2.3"
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
     }
 
+    signingConfigs {
+        create("filenest") {
+            storeFile = uploadStoreFile
+            storePassword = uploadStorePassword
+            keyAlias = uploadKeyAlias
+            keyPassword = uploadKeyPassword
+        }
+    }
+
     buildTypes {
+        debug {
+            // Same key as release so GitHub APKs update over each other without uninstall.
+            signingConfig = signingConfigs.getByName("filenest")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("filenest")
         }
     }
 

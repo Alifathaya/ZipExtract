@@ -28,12 +28,18 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build debug APK
+      - name: Build signed debug APK
         run: ./gradlew assembleDebug --stacktrace
+
+      - name: Verify APK signature fingerprint
+        run: |
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          echo "APK=$APK"
+          keytool -printcert -jarfile "$APK" | sed -n 's/.*SHA1: //p; s/.*SHA256: //p'
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZipExtract-debug
+          name: FileNest-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
