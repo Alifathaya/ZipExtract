@@ -93,8 +93,9 @@ object FileOperations {
             }
         }
 
-        fun addLimited(map: MutableMap<String, FileItem>, item: FileItem) {
-            if (map.size >= maxPerCategory) return
+        fun addItem(map: MutableMap<String, FileItem>, item: FileItem) {
+            // Collect everything first; limiting mid-walk drops newer files when older folders
+            // are visited earlier (common with large photo libraries).
             map[item.path] = item
         }
 
@@ -103,21 +104,23 @@ object FileOperations {
                 val item = FileItem(file)
                 val path = runCatching { file.canonicalPath }.getOrDefault(file.absolutePath)
                 if (underDownload(path)) {
-                    addLimited(downloads, item)
+                    addItem(downloads, item)
                 }
                 when {
-                    item.isImage -> addLimited(images, item)
-                    item.isVideo -> addLimited(videos, item)
-                    item.isApp -> addLimited(apps, item)
-                    item.isArchive -> addLimited(archives, item)
-                    item.isDocument -> addLimited(documents, item)
-                    item.isAudio -> addLimited(others, item)
+                    item.isImage -> addItem(images, item)
+                    item.isVideo -> addItem(videos, item)
+                    item.isApp -> addItem(apps, item)
+                    item.isArchive -> addItem(archives, item)
+                    item.isDocument -> addItem(documents, item)
+                    item.isAudio -> addItem(others, item)
                 }
             }
         }
 
         fun newest(map: Map<String, FileItem>): List<FileItem> {
-            return map.values.sortedByDescending { it.lastModified }
+            return map.values
+                .sortedByDescending { it.lastModified }
+                .take(maxPerCategory)
         }
 
         return MediaLibrary(
@@ -135,7 +138,10 @@ object FileOperations {
         val storage = Environment.getExternalStorageDirectory()
         val candidates = listOf(
             File(storage, "DCIM"),
+            File(storage, "DCIM/Camera"),
             File(storage, "Pictures"),
+            File(storage, "Pictures/Camera"),
+            File(storage, "Pictures/Screenshots"),
             File(storage, "Movies"),
             File(storage, "Video"),
             File(storage, "Download"),
