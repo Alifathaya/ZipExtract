@@ -74,6 +74,7 @@ import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -98,6 +99,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
@@ -410,6 +412,21 @@ fun FileBrowserScreen(
                     }
                 },
                 actions = {
+                    if (state.selectionMode && selectedCount == 1) {
+                        IconButton(onClick = onToggleFavoriteSelected) {
+                            val path = singleSelected?.path
+                            val isFav = path != null && path in state.favoritePaths
+                            Icon(
+                                imageVector = if (isFav) Icons.Default.Star else Icons.Default.StarBorder,
+                                contentDescription = stringResource(R.string.favorites),
+                                tint = if (isFav) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                    }
                     IconButton(onClick = onRefresh) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
@@ -601,9 +618,11 @@ fun FileBrowserScreen(
                     ImageGalleryGrid(
                         items = state.items.filter { it.isImage },
                         selectedPaths = state.selectedPaths,
+                        favoritePaths = state.favoritePaths,
                         selectionMode = state.selectionMode,
                         onOpenItem = onOpenItem,
                         onToggleSelect = onToggleSelect,
+                        onToggleFavorite = onToggleFavoritePath,
                     )
                 }
                 state.libraryMode -> {
@@ -617,10 +636,12 @@ fun FileBrowserScreen(
                         CategoryLibraryList(
                             items = state.items,
                             selectedPaths = state.selectedPaths,
+                            favoritePaths = state.favoritePaths,
                             selectionMode = state.selectionMode,
                             onOpenItem = onOpenItem,
                             onOpenExtract = onOpenExtract,
                             onToggleSelect = onToggleSelect,
+                            onToggleFavorite = onToggleFavoritePath,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -643,6 +664,7 @@ fun FileBrowserScreen(
                                     item = item,
                                     selected = item.path in state.selectedPaths,
                                     selectionMode = state.selectionMode,
+                                    isFavorite = item.path in state.favoritePaths,
                                     showFolder = state.showFavoritesOnly,
                                     onClick = {
                                         when {
@@ -652,6 +674,7 @@ fun FileBrowserScreen(
                                         }
                                     },
                                     onLongClick = { onToggleSelect(item) },
+                                    onToggleFavorite = { onToggleFavoritePath(item.path) },
                                 )
                             }
                             item { Spacer(modifier = Modifier.height(88.dp)) }
@@ -779,26 +802,32 @@ private fun ActionBar(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ActionIcon(Icons.Default.ContentCopy, "Copy", onCopy)
-            ActionIcon(Icons.Default.ContentCut, "Cut", onCut)
+            // Favorit & Detail first so they are not cut off / off-screen on the right.
+            ActionIcon(
+                Icons.Default.Star,
+                stringResource(R.string.favorites),
+                onFavorite,
+                enabled = canFavoriteOrDetails,
+            )
+            ActionIcon(Icons.Default.Info, "Detail", onDetails, enabled = canFavoriteOrDetails)
+            ActionIcon(Icons.Default.Share, "Bagikan", onShare)
+            ActionIcon(Icons.Default.OpenInNew, "Buka", onOpenWith)
+            ActionIcon(Icons.Default.ContentCopy, "Salin", onCopy)
+            ActionIcon(Icons.Default.ContentCut, "Potong", onCut)
             ActionIcon(
                 icon = Icons.Default.ContentPaste,
                 label = when (clipboardMode) {
-                    ClipboardMode.COPY -> "Paste"
-                    ClipboardMode.CUT -> "Move"
-                    null -> "Paste"
+                    ClipboardMode.COPY -> "Tempel"
+                    ClipboardMode.CUT -> "Pindah"
+                    null -> "Tempel"
                 },
                 enabled = hasClipboard,
                 onClick = onPaste,
             )
-            ActionIcon(Icons.Default.Share, "Share", onShare)
-            ActionIcon(Icons.Default.OpenInNew, "Open with", onOpenWith)
-            ActionIcon(Icons.Default.Star, "Favorite", onFavorite, enabled = canFavoriteOrDetails)
-            ActionIcon(Icons.Default.Info, "Detail", onDetails, enabled = canFavoriteOrDetails)
             ActionIcon(Icons.Default.FolderZip, "Zip", onZip)
             ActionIcon(Icons.Default.Unarchive, "Extract", onExtract, enabled = canExtract)
             ActionIcon(Icons.Default.DriveFileRenameOutline, "Rename", onRename, enabled = canRename)
-            ActionIcon(Icons.Default.Delete, "Delete", onDelete)
+            ActionIcon(Icons.Default.Delete, "Hapus", onDelete)
         }
     }
 }
@@ -903,9 +932,11 @@ private fun DuplicateGroupsPane(
 private fun ImageGalleryGrid(
     items: List<FileItem>,
     selectedPaths: Set<String>,
+    favoritePaths: Set<String>,
     selectionMode: Boolean,
     onOpenItem: (FileItem) -> Unit,
     onToggleSelect: (FileItem) -> Unit,
+    onToggleFavorite: (String) -> Unit,
 ) {
     if (items.isEmpty()) {
         EmptyPane(message = "Tidak ada foto ditemukan di perangkat")
@@ -923,11 +954,13 @@ private fun ImageGalleryGrid(
             ImageThumbnailCell(
                 item = item,
                 selected = item.path in selectedPaths,
+                isFavorite = item.path in favoritePaths,
                 selectionMode = selectionMode,
                 onClick = {
                     if (selectionMode) onToggleSelect(item) else onOpenItem(item)
                 },
                 onLongClick = { onToggleSelect(item) },
+                onToggleFavorite = { onToggleFavorite(item.path) },
             )
         }
     }
@@ -938,9 +971,11 @@ private fun ImageGalleryGrid(
 private fun ImageThumbnailCell(
     item: FileItem,
     selected: Boolean,
+    isFavorite: Boolean,
     selectionMode: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    onToggleFavorite: () -> Unit,
 ) {
     Box(
         modifier = Modifier
@@ -982,6 +1017,23 @@ private fun ImageThumbnailCell(
             },
         )
 
+        IconButton(
+            onClick = onToggleFavorite,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .size(34.dp),
+        ) {
+            Icon(
+                imageVector = if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
+                contentDescription = stringResource(R.string.favorites),
+                tint = if (isFavorite) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    Color.White
+                },
+            )
+        }
+
         if (selected || selectionMode) {
             Box(
                 modifier = Modifier
@@ -1007,10 +1059,12 @@ private fun ImageThumbnailCell(
 private fun CategoryLibraryList(
     items: List<FileItem>,
     selectedPaths: Set<String>,
+    favoritePaths: Set<String>,
     selectionMode: Boolean,
     onOpenItem: (FileItem) -> Unit,
     onOpenExtract: (FileItem) -> Unit,
     onToggleSelect: (FileItem) -> Unit,
+    onToggleFavorite: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -1023,6 +1077,7 @@ private fun CategoryLibraryList(
                 item = item,
                 selected = item.path in selectedPaths,
                 selectionMode = selectionMode,
+                isFavorite = item.path in favoritePaths,
                 showFolder = true,
                 onClick = {
                     when {
@@ -1032,6 +1087,7 @@ private fun CategoryLibraryList(
                     }
                 },
                 onLongClick = { onToggleSelect(item) },
+                onToggleFavorite = { onToggleFavorite(item.path) },
             )
         }
         item { Spacer(modifier = Modifier.height(88.dp)) }
@@ -1044,9 +1100,11 @@ private fun FileRow(
     item: FileItem,
     selected: Boolean,
     selectionMode: Boolean,
+    isFavorite: Boolean,
     showFolder: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    onToggleFavorite: () -> Unit,
 ) {
     val container = if (selected) {
         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
@@ -1060,7 +1118,7 @@ private fun FileRow(
             .clip(RoundedCornerShape(14.dp))
             .background(container)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (selectionMode) {
@@ -1069,7 +1127,7 @@ private fun FileRow(
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
             )
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(8.dp))
         }
 
         Icon(
@@ -1096,7 +1154,7 @@ private fun FileRow(
             modifier = Modifier.size(28.dp),
         )
 
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(10.dp))
 
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -1119,6 +1177,20 @@ private fun FileRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        if (!item.isDirectory) {
+            IconButton(onClick = onToggleFavorite) {
+                Icon(
+                    imageVector = if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
+                    contentDescription = stringResource(R.string.favorites),
+                    tint = if (isFavorite) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                 )
             }
         }
