@@ -268,6 +268,11 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         val folder = category.resolveFolder()
         if (!folder.exists()) folder.mkdirs()
 
+        // Hydrate memory from disk cache first so category open stays instant after reopen.
+        if (!forceRefresh && mediaLibraryCache == null) {
+            mediaLibraryCache = MediaLibraryCache.load(appContext)
+        }
+
         val cachedFiles = if (!forceRefresh) {
             mediaLibraryCache?.forCategory(category)
         } else {
@@ -334,7 +339,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         libraryJob?.cancel()
         libraryJob = viewModelScope.launch {
             val library = withContext(Dispatchers.IO) {
-                obtainMediaLibrary(forceRefresh = true)
+                obtainMediaLibrary(forceRefresh = forceRefresh)
             }
             if (_uiState.value.activeCategory != category || !_uiState.value.libraryMode) {
                 return@launch
@@ -356,6 +361,14 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     selectedPaths = it.selectedPaths.filter { path ->
                         sorted.any { item -> item.path == path }
                     }.toSet(),
+                )
+            }
+            withContext(Dispatchers.IO) {
+                persistHomeSnapshot(
+                    library = library,
+                    categories = FileOperations.getCategorySummaries(library),
+                    recentFiles = library.images.take(12),
+                    storage = _uiState.value.storageInfo ?: FileOperations.getStorageInfo(),
                 )
             }
         }
