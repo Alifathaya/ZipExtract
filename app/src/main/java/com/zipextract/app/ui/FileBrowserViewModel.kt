@@ -585,6 +585,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 searchResults = emptyList(),
                 searchLoading = false,
                 progress = null,
+                viewer = null,
+                viewerReturnTarget = ViewerReturnTarget.STAY,
+                extractDialog = null,
             )
         }
         loadHomeData(forceRefresh = false)
