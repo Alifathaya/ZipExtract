@@ -37,8 +37,8 @@ android {
         applicationId = "com.zipextract.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 28
-        versionName = "2.2.3"
+        versionCode = 29
+        versionName = "2.2.4"
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
     }
 

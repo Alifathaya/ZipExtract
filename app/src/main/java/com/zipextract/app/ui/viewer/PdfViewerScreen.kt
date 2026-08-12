@@ -2,6 +2,7 @@ package com.zipextract.app.ui.viewer
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -60,7 +61,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.LinkedHashMap
-
+import androidx.compose.ui.graphics.Color as ComposeColor
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PdfViewerScreen(
@@ -292,7 +293,8 @@ private fun PdfPage(
     Box(
         Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface)
+            // Paper-white placeholder so dark theme never shows a black "blank" page frame.
+            .background(ComposeColor.White)
             .then(
                 if (bitmap == null && aspect != null) {
                     Modifier.height((900.dp * aspect))
@@ -396,12 +398,19 @@ private class PdfRendererHolder private constructor(
 
     private fun renderPageLocked(index: Int, targetWidthPx: Int): Bitmap {
         renderer.openPage(index).use { page ->
-            val width = targetWidthPx.coerceAtLeast(1)
-            val height = ((page.height.toFloat() / page.width.toFloat()) * width)
+            val pageWidth = page.width.coerceAtLeast(1)
+            val pageHeight = page.height.coerceAtLeast(1)
+            // Cap size to avoid OOM on very large pages while keeping readable detail.
+            val width = targetWidthPx.coerceIn(1, 4096)
+            val height = ((pageHeight.toFloat() / pageWidth.toFloat()) * width)
                 .toInt()
-                .coerceAtLeast(1)
-            aspectCache[index] = page.height.toFloat() / page.width.toFloat().coerceAtLeast(1f)
+                .coerceIn(1, 8192)
+            aspectCache[index] = pageHeight.toFloat() / pageWidth.toFloat()
+
             val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            // Critical: PdfRenderer composites onto transparent pixels. Many PDFs do not paint an
+            // opaque page background, so unfilled pixels stay transparent and appear black/blank.
+            bitmap.eraseColor(Color.WHITE)
             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             return bitmap
         }
