@@ -158,18 +158,23 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     private var mediaLibraryCache: MediaLibrary? = null
     @Volatile
     private var homeLoadedOnce: Boolean = false
+    @Volatile
+    private var lastSoftRefreshAtMs: Long = 0L
 
     fun setStorageGranted(granted: Boolean) {
         val wasGranted = _uiState.value.storageGranted
         _uiState.update { it.copy(storageGranted = granted) }
         if (!granted) return
         if (_uiState.value.showHome) {
-            // Re-open / onResume: reuse cache; only full-load when first grant or never loaded.
+            // First open / first grant: load (cache ok). Later resumes: always soft-rescan
+            // so newly taken photos appear without waiting 15+ minutes.
             if (!wasGranted || !homeLoadedOnce || mediaLibraryCache == null) {
                 loadHomeData(forceRefresh = false)
-            } else if (MediaLibraryCache.isSoftStale(appContext)) {
-                softRefreshHomeInBackground()
+            } else {
+                softRefreshMediaInBackground(reason = "resume-home")
             }
+        } else if (_uiState.value.libraryMode) {
+            softRefreshMediaInBackground(reason = "resume-library")
         } else if (!wasGranted) {
             refresh()
         }
@@ -225,9 +230,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 )
             }
 
-            // If we restored from disk and it's getting old, quietly rescan without spinner.
-            if (!forceRefresh && MediaLibraryCache.isSoftStale(appContext)) {
-                softRefreshHomeInBackground()
+            // Quietly rescan so brand-new camera shots show up soon after.
+            if (!forceRefresh) {
+                softRefreshMediaInBackground(reason = "after-home-load")
             }
         }
     }
@@ -248,26 +253,56 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    private fun softRefreshHomeInBackground() {
+    private fun softRefreshMediaInBackground(reason: String = "soft") {
+        val now = System.currentTimeMillis()
+        if (now - lastSoftRefreshAtMs < MediaLibraryCache.RESUME_REFRESH_DEBOUNCE_MS) return
         if (softRefreshJob?.isActive == true) return
+        lastSoftRefreshAtMs = now
         softRefreshJob = viewModelScope.launch(Dispatchers.IO) {
             runCatching {
-                val library = FileOperations.scanMediaLibrary().also { mediaLibraryCache = it }
+                // reason kept for future logging / diagnostics.
+                @Suppress("UNUSED_EXPRESSION")
+                reason
+                val library = FileOperations.scanMediaLibrary(
+                    contentResolver = appContext.contentResolver,
+                ).also { mediaLibraryCache = it }
                 val categories = FileOperations.getCategorySummaries(library)
                 val recentFiles = library.images.take(12)
                 val storage = FileOperations.getStorageInfo()
                 persistHomeSnapshot(library, categories, recentFiles, storage)
                 _uiState.update { state ->
-                    if (!state.showHome) state
-                    else state.copy(
+                    val base = state.copy(
                         homeLoading = false,
                         storageInfo = storage,
                         categorySummaries = categories,
                         recentFiles = recentFiles,
                     )
+                    if (state.libraryMode && state.activeCategory != null) {
+                        val category = state.activeCategory
+                        val files = library.forCategory(category)
+                        val filtered = if (category == FileCategory.DOCUMENTS) {
+                            files.filter { state.librarySubFilter.matches(it) }
+                        } else {
+                            files
+                        }
+                        val sorted = sortLibraryFiles(filtered)
+                        base.copy(
+                            items = sorted,
+                            selectedPaths = state.selectedPaths.filter { path ->
+                                sorted.any { item -> item.path == path }
+                            }.toSet(),
+                            progress = null,
+                        )
+                    } else {
+                        base
+                    }
                 }
             }
         }
+    }
+
+    private fun softRefreshHomeInBackground() {
+        softRefreshMediaInBackground(reason = "legacy-home")
     }
 
     private fun persistHomeSnapshot(
@@ -333,6 +368,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     progress = null,
                 )
             }
+            // Show cache instantly, then rescan so newly added photos/videos appear.
+            softRefreshMediaInBackground(reason = "open-category")
             return
         }
 
@@ -408,7 +445,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 return disk
             }
         }
-        return FileOperations.scanMediaLibrary().also { mediaLibraryCache = it }
+        return FileOperations.scanMediaLibrary(
+            contentResolver = appContext.contentResolver,
+        ).also { mediaLibraryCache = it }
     }
 
     private fun invalidateMediaLibraryCache() {

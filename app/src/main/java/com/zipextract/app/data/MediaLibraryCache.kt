@@ -17,10 +17,13 @@ object MediaLibraryCache {
     private const val FORMAT_VERSION = 1
 
     /** Soft refresh threshold: still show cache instantly, rescan in background after this. */
-    const val SOFT_REFRESH_AFTER_MS = 15 * 60 * 1000L
+    const val SOFT_REFRESH_AFTER_MS = 30 * 1000L
 
     /** Hard expiry: ignore disk cache and force rescan. */
     const val HARD_EXPIRE_MS = 7 * 24 * 60 * 60 * 1000L
+
+    /** Minimum gap between automatic background rescans (onResume / open category). */
+    const val RESUME_REFRESH_DEBOUNCE_MS = 5 * 1000L
 
     fun cacheFile(context: Context): File =
         File(context.applicationContext.filesDir, CACHE_FILE)

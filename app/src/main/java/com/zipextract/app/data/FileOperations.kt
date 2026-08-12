@@ -1,7 +1,10 @@
 package com.zipextract.app.data
 
+import android.content.ContentResolver
+import android.net.Uri
 import android.os.Environment
 import android.os.StatFs
+import android.provider.MediaStore
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -73,8 +76,15 @@ object FileOperations {
 
     /**
      * One-pass scan of common storage locations, then classify files into categories.
+     * When [contentResolver] is provided, MediaStore images/videos are merged in so
+     * newly taken camera shots (already indexed by the system) are not missed even if
+     * a filesystem walk is slow or skips an OEM-specific folder.
      */
-    fun scanMediaLibrary(maxPerCategory: Int = 2500, maxDepth: Int = 8): MediaLibrary {
+    fun scanMediaLibrary(
+        maxPerCategory: Int = 2500,
+        maxDepth: Int = 8,
+        contentResolver: ContentResolver? = null,
+    ): MediaLibrary {
         val downloads = LinkedHashMap<String, FileItem>()
         val images = LinkedHashMap<String, FileItem>()
         val videos = LinkedHashMap<String, FileItem>()
@@ -93,8 +103,9 @@ object FileOperations {
             }
         }
 
-        fun addLimited(map: MutableMap<String, FileItem>, item: FileItem) {
-            if (map.size >= maxPerCategory) return
+        fun addItem(map: MutableMap<String, FileItem>, item: FileItem) {
+            // Collect everything first; limiting mid-walk drops newer files when older folders
+            // are visited earlier (common with large photo libraries).
             map[item.path] = item
         }
 
@@ -103,21 +114,36 @@ object FileOperations {
                 val item = FileItem(file)
                 val path = runCatching { file.canonicalPath }.getOrDefault(file.absolutePath)
                 if (underDownload(path)) {
-                    addLimited(downloads, item)
+                    addItem(downloads, item)
                 }
                 when {
-                    item.isImage -> addLimited(images, item)
-                    item.isVideo -> addLimited(videos, item)
-                    item.isApp -> addLimited(apps, item)
-                    item.isArchive -> addLimited(archives, item)
-                    item.isDocument -> addLimited(documents, item)
-                    item.isAudio -> addLimited(others, item)
+                    item.isImage -> addItem(images, item)
+                    item.isVideo -> addItem(videos, item)
+                    item.isApp -> addItem(apps, item)
+                    item.isArchive -> addItem(archives, item)
+                    item.isDocument -> addItem(documents, item)
+                    item.isAudio -> addItem(others, item)
                 }
             }
         }
 
+        contentResolver?.let { resolver ->
+            mergeMediaStoreFiles(
+                resolver = resolver,
+                collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                into = images,
+            )
+            mergeMediaStoreFiles(
+                resolver = resolver,
+                collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                into = videos,
+            )
+        }
+
         fun newest(map: Map<String, FileItem>): List<FileItem> {
-            return map.values.sortedByDescending { it.lastModified }
+            return map.values
+                .sortedByDescending { it.lastModified }
+                .take(maxPerCategory)
         }
 
         return MediaLibrary(
@@ -131,11 +157,71 @@ object FileOperations {
         )
     }
 
+    /**
+     * Pull paths from MediaStore so camera / gallery apps' newest files appear even when
+     * they live outside the folders we walk first.
+     */
+    @Suppress("DEPRECATION")
+    private fun mergeMediaStoreFiles(
+        resolver: ContentResolver,
+        collection: Uri,
+        into: MutableMap<String, FileItem>,
+    ) {
+        val projection = arrayOf(
+            MediaStore.MediaColumns.DATA,
+            MediaStore.MediaColumns.SIZE,
+            MediaStore.MediaColumns.DATE_MODIFIED,
+        )
+        runCatching {
+            resolver.query(
+                collection,
+                projection,
+                null,
+                null,
+                "${MediaStore.MediaColumns.DATE_MODIFIED} DESC",
+            )?.use { cursor ->
+                val dataIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
+                val sizeIdx = cursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
+                val modIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
+                if (dataIdx < 0) return
+                while (cursor.moveToNext()) {
+                    val path = cursor.getString(dataIdx)?.takeIf { it.isNotBlank() } ?: continue
+                    if (into.containsKey(path)) continue
+                    val file = File(path)
+                    if (!file.isFile) continue
+                    val size = if (sizeIdx >= 0) {
+                        cursor.getLong(sizeIdx).takeIf { it > 0L } ?: file.length()
+                    } else {
+                        file.length()
+                    }
+                    val modified = if (modIdx >= 0) {
+                        val raw = cursor.getLong(modIdx)
+                        // MediaStore DATE_MODIFIED is seconds; File.lastModified is millis.
+                        if (raw in 1 until 10_000_000_000L) raw * 1000L else raw
+                    } else {
+                        file.lastModified()
+                    }
+                    into[path] = FileItem(
+                        file = file,
+                        name = file.name,
+                        path = file.absolutePath,
+                        isDirectory = false,
+                        sizeBytes = size,
+                        lastModified = modified,
+                    )
+                }
+            }
+        }
+    }
+
     private fun mediaScanRoots(): List<File> {
         val storage = Environment.getExternalStorageDirectory()
         val candidates = listOf(
             File(storage, "DCIM"),
+            File(storage, "DCIM/Camera"),
             File(storage, "Pictures"),
+            File(storage, "Pictures/Camera"),
+            File(storage, "Pictures/Screenshots"),
             File(storage, "Movies"),
             File(storage, "Video"),
             File(storage, "Download"),
