@@ -566,8 +566,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             closeCloud()
             kotlinx.coroutines.yield()
             when {
-                item.isImage -> openViewer(ViewerContent.Image(file), ViewerReturnTarget.CLOUD)
-                item.isPdf -> openViewer(ViewerContent.Pdf(file), ViewerReturnTarget.CLOUD)
+                item.isImage -> openViewer(ViewerContent.Image(file), ViewerReturnTarget.HOME)
+                item.isPdf -> openViewer(ViewerContent.Pdf(file), ViewerReturnTarget.HOME)
                 item.isArchive -> {
                     // Archives open extract UI; return home/cloud via normal flow after.
                     openExtractDialog(file)
@@ -779,11 +779,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             return true
         }
         when (returnTarget) {
-            ViewerReturnTarget.HOME -> restoreHomeAfterViewer()
-            ViewerReturnTarget.CLOUD -> {
-                restoreHomeAfterViewer()
-                openCloud()
-            }
+            ViewerReturnTarget.HOME,
+            ViewerReturnTarget.CLOUD,
+            -> restoreHomeAfterViewer()
             ViewerReturnTarget.STAY -> Unit
         }
         return false

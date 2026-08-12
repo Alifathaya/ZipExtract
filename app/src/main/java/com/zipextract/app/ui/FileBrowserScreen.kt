@@ -1,6 +1,8 @@
 package com.zipextract.app.ui
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -48,6 +50,17 @@ import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import com.zipextract.app.data.cloud.SafCloudAccess
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
@@ -80,11 +93,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -175,6 +183,48 @@ fun FileBrowserScreen(
     var dialog by remember { mutableStateOf<DialogType?>(null) }
     var inputText by remember { mutableStateOf("") }
     var bestCompression by remember { mutableStateOf(true) }
+    var cloudImporting by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val cloudScope = rememberCoroutineScope()
+
+    val cloudPickerLauncher = rememberLauncherForActivityResult(
+        SafCloudAccess.GetCloudContent(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        if (cloudImporting) {
+            Toast.makeText(context, "Sedang membuka file, tunggu sebentar…", Toast.LENGTH_SHORT).show()
+            return@rememberLauncherForActivityResult
+        }
+        cloudImporting = true
+        cloudScope.launch {
+            try {
+                val (file, error) = withContext(Dispatchers.IO) {
+                    SafCloudAccess.copyUriToCache(
+                        context = context,
+                        uri = uri,
+                        tryPersist = false,
+                    )
+                }
+                if (file == null) {
+                    Toast.makeText(
+                        context,
+                        error ?: "Gagal membuka file cloud",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                } else {
+                    onOpenImportedCloudFile(file)
+                }
+            } catch (t: Throwable) {
+                Toast.makeText(
+                    context,
+                    t.message ?: "Gagal membuka file cloud",
+                    Toast.LENGTH_LONG,
+                ).show()
+            } finally {
+                cloudImporting = false
+            }
+        }
+    }
 
     val selectedCount = state.selectedPaths.size
     val selectedItems = state.items.filter { it.path in state.selectedPaths }
@@ -186,7 +236,6 @@ fun FileBrowserScreen(
     BackHandler(
         enabled = state.extractDialog != null ||
             state.viewer != null ||
-            state.showCloud ||
             state.fileDetails != null ||
             state.selectionMode ||
             !state.showHome,
@@ -194,23 +243,11 @@ fun FileBrowserScreen(
         when {
             state.extractDialog != null -> onCloseExtract()
             state.viewer != null -> onCloseViewer()
-            state.showCloud -> onCloseCloud()
             state.fileDetails != null -> onCloseFileDetails()
             state.selectionMode -> onClearSelection()
             state.showDuplicates -> onCloseDuplicates()
             !state.showHome -> onGoUp()
         }
-    }
-
-    if (state.showCloud) {
-        com.zipextract.app.ui.cloud.CloudHubScreen(
-            bookmarks = state.safBookmarks,
-            onClose = onCloseCloud,
-            onOpenImportedFile = onOpenImportedCloudFile,
-            onBookmarksChanged = onUpdateSafBookmarks,
-            onExportLocalFile = state.cloudExportFile,
-        )
-        return
     }
 
     if (state.extractDialog != null) {
@@ -260,7 +297,17 @@ fun FileBrowserScreen(
             onBrowseAll = onBrowseAll,
             onOpenZips = { onOpenCategory(FileCategory.ARCHIVES) },
             onOpenFavorites = onOpenFavorites,
-            onOpenCloud = onOpenCloud,
+            onOpenCloud = {
+                if (cloudImporting) {
+                    Toast.makeText(
+                        context,
+                        "Sedang membuka file, tunggu sebentar…",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                } else {
+                    cloudPickerLauncher.launch("*/*")
+                }
+            },
             onOpenFile = onOpenFileAnywhere,
             onViewAllPhotos = { onOpenCategory(FileCategory.IMAGES) },
         )
