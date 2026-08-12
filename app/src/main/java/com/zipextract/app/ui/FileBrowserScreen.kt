@@ -166,6 +166,10 @@ fun FileBrowserScreen(
     onCancelProgress: () -> Unit,
     onToggleFavoritePath: (String) -> Unit,
     onShowFileDetails: (FileItem) -> Unit,
+    onOpenCloud: () -> Unit,
+    onCloseCloud: () -> Unit,
+    onUpdateSafBookmarks: (List<com.zipextract.app.data.cloud.SafBookmark>) -> Unit,
+    onOpenImportedCloudFile: (java.io.File) -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var dialog by remember { mutableStateOf<DialogType?>(null) }
@@ -182,6 +186,7 @@ fun FileBrowserScreen(
     BackHandler(
         enabled = state.extractDialog != null ||
             state.viewer != null ||
+            state.showCloud ||
             state.fileDetails != null ||
             state.selectionMode ||
             !state.showHome,
@@ -189,11 +194,23 @@ fun FileBrowserScreen(
         when {
             state.extractDialog != null -> onCloseExtract()
             state.viewer != null -> onCloseViewer()
+            state.showCloud -> onCloseCloud()
             state.fileDetails != null -> onCloseFileDetails()
             state.selectionMode -> onClearSelection()
             state.showDuplicates -> onCloseDuplicates()
             !state.showHome -> onGoUp()
         }
+    }
+
+    if (state.showCloud) {
+        com.zipextract.app.ui.cloud.CloudHubScreen(
+            bookmarks = state.safBookmarks,
+            onClose = onCloseCloud,
+            onOpenImportedFile = onOpenImportedCloudFile,
+            onBookmarksChanged = onUpdateSafBookmarks,
+            onExportLocalFile = state.cloudExportFile,
+        )
+        return
     }
 
     if (state.extractDialog != null) {
@@ -243,6 +260,7 @@ fun FileBrowserScreen(
             onBrowseAll = onBrowseAll,
             onOpenZips = { onOpenCategory(FileCategory.ARCHIVES) },
             onOpenFavorites = onOpenFavorites,
+            onOpenCloud = onOpenCloud,
             onOpenFile = onOpenFileAnywhere,
             onViewAllPhotos = { onOpenCategory(FileCategory.IMAGES) },
         )

@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
@@ -92,6 +93,7 @@ fun HomeDashboardScreen(
     onBrowseAll: () -> Unit,
     onOpenZips: () -> Unit,
     onOpenFavorites: () -> Unit,
+    onOpenCloud: () -> Unit,
     onOpenFile: (FileItem) -> Unit,
     onViewAllPhotos: () -> Unit,
 ) {
@@ -181,6 +183,7 @@ fun HomeDashboardScreen(
                     onBrowseAll = onBrowseAll,
                     onOpenZips = onOpenZips,
                     onOpenFavorites = onOpenFavorites,
+                    onOpenCloud = onOpenCloud,
                 )
 
                 RecentPhotosSection(
@@ -612,31 +615,41 @@ private fun QuickActionsRow(
     onBrowseAll: () -> Unit,
     onOpenZips: () -> Unit,
     onOpenFavorites: () -> Unit,
+    onOpenCloud: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            QuickActionChip(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.FolderOpen,
+                label = "Semua",
+                container = MaterialTheme.colorScheme.secondaryContainer,
+                onClick = onBrowseAll,
+            )
+            QuickActionChip(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.Archive,
+                label = "ZIP",
+                container = MaterialTheme.colorScheme.tertiaryContainer,
+                onClick = onOpenZips,
+            )
+            QuickActionChip(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.Star,
+                label = "Favorit",
+                container = MaterialTheme.colorScheme.primaryContainer,
+                onClick = onOpenFavorites,
+            )
+        }
         QuickActionChip(
-            modifier = Modifier.weight(1f),
-            icon = Icons.Default.FolderOpen,
-            label = "Semua",
-            container = MaterialTheme.colorScheme.secondaryContainer,
-            onClick = onBrowseAll,
-        )
-        QuickActionChip(
-            modifier = Modifier.weight(1f),
-            icon = Icons.Default.Archive,
-            label = "ZIP",
-            container = MaterialTheme.colorScheme.tertiaryContainer,
-            onClick = onOpenZips,
-        )
-        QuickActionChip(
-            modifier = Modifier.weight(1f),
-            icon = Icons.Default.Star,
-            label = "Favorit",
-            container = MaterialTheme.colorScheme.primaryContainer,
-            onClick = onOpenFavorites,
+            modifier = Modifier.fillMaxWidth(),
+            icon = Icons.Default.Cloud,
+            label = "Cloud (Drive & lainnya)",
+            container = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f),
+            onClick = onOpenCloud,
         )
     }
 }

@@ -146,6 +146,10 @@ class MainActivity : ComponentActivity() {
                         onCancelProgress = viewModel::cancelActiveJob,
                         onToggleFavoritePath = viewModel::toggleFavorite,
                         onShowFileDetails = viewModel::showFileDetails,
+                        onOpenCloud = { viewModel.openCloud() },
+                        onCloseCloud = viewModel::closeCloud,
+                        onUpdateSafBookmarks = viewModel::updateSafBookmarks,
+                        onOpenImportedCloudFile = viewModel::openImportedCloudFile,
                     )
                 }
             }

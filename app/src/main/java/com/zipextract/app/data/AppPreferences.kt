@@ -93,11 +93,27 @@ class AppPreferences(context: Context) {
         }
     }
 
+    fun getSafBookmarks(): List<com.zipextract.app.data.cloud.SafBookmark> {
+        val raw = prefs.getString(KEY_SAF_BOOKMARKS, "").orEmpty()
+        if (raw.isBlank()) return emptyList()
+        return raw.split('\n').mapNotNull { line ->
+            val parts = line.split('\t', limit = 2)
+            if (parts.size != 2) return@mapNotNull null
+            com.zipextract.app.data.cloud.SafBookmark(uri = parts[0], label = parts[1])
+        }
+    }
+
+    fun saveSafBookmarks(bookmarks: List<com.zipextract.app.data.cloud.SafBookmark>) {
+        val encoded = bookmarks.joinToString("\n") { "${it.uri}\t${it.label}" }
+        prefs.edit().putString(KEY_SAF_BOOKMARKS, encoded).apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "filenest_prefs"
         private const val KEY_THEME = "theme_mode"
         private const val KEY_FAVORITES = "favorite_paths"
         private const val KEY_CATEGORY_COUNTS = "category_counts_v1"
         private const val KEY_RECENT_PHOTOS = "recent_photo_paths_v1"
+        private const val KEY_SAF_BOOKMARKS = "saf_bookmarks_v1"
     }
 }

@@ -90,6 +90,9 @@ data class BrowserUiState(
     val fileDetails: FileItem? = null,
     val duplicateGroups: List<DuplicateGroup> = emptyList(),
     val showDuplicates: Boolean = false,
+    val showCloud: Boolean = false,
+    val safBookmarks: List<com.zipextract.app.data.cloud.SafBookmark> = emptyList(),
+    val cloudExportFile: File? = null,
     val viewer: ViewerContent? = null,
     val launchedFromExternalIntent: Boolean = false,
     val extractDialog: ExtractZipState? = null,
@@ -105,6 +108,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             categorySummaries = prefs.loadCachedCategorySummaries()
                 .ifEmpty { FileOperations.getEmptyCategorySummaries() },
             recentFiles = prefs.loadCachedRecentPhotos(),
+            safBookmarks = prefs.getSafBookmarks(),
             homeLoading = true,
         )
     )
@@ -393,12 +397,43 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         refresh()
     }
 
+    fun openCloud(exportFile: File? = null) {
+        _uiState.update {
+            it.copy(
+                showCloud = true,
+                cloudExportFile = exportFile,
+                safBookmarks = prefs.getSafBookmarks(),
+            )
+        }
+    }
+
+    fun closeCloud() {
+        _uiState.update {
+            it.copy(
+                showCloud = false,
+                cloudExportFile = null,
+            )
+        }
+    }
+
+    fun updateSafBookmarks(bookmarks: List<com.zipextract.app.data.cloud.SafBookmark>) {
+        prefs.saveSafBookmarks(bookmarks)
+        _uiState.update { it.copy(safBookmarks = bookmarks) }
+    }
+
+    fun openImportedCloudFile(file: File) {
+        closeCloud()
+        openFileFromAnywhere(FileItem(file))
+    }
+
     fun goHome() {
         searchJob?.cancel()
         libraryJob?.cancel()
         _uiState.update {
             it.copy(
                 showHome = true,
+                showCloud = false,
+                cloudExportFile = null,
                 activeCategory = null,
                 categoryRoot = null,
                 fileFilter = FileFilter.ALL,
