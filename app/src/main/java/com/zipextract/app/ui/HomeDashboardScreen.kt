@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PictureAsPdf
@@ -64,6 +65,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -71,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
+import com.zipextract.app.R
 import com.zipextract.app.data.CategorySummary
 import com.zipextract.app.data.FileCategory
 import com.zipextract.app.data.FileItem
@@ -94,6 +97,7 @@ fun HomeDashboardScreen(
     onOpenZips: () -> Unit,
     onOpenFavorites: () -> Unit,
     onOpenCloud: () -> Unit,
+    onOpenLanguage: () -> Unit,
     onOpenFile: (FileItem) -> Unit,
     onViewAllPhotos: () -> Unit,
 ) {
@@ -105,20 +109,29 @@ fun HomeDashboardScreen(
                 title = {
                     Column {
                         Text(
-                            text = "FileNest",
+                            text = stringResource(R.string.app_name),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                         )
                         Text(
-                            text = "Kelola file & arsip dengan mudah",
+                            text = stringResource(R.string.app_tagline),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 },
                 actions = {
+                    IconButton(onClick = onOpenLanguage) {
+                        Icon(
+                            Icons.Default.Language,
+                            contentDescription = stringResource(R.string.language_menu),
+                        )
+                    }
                     IconButton(onClick = onRefresh) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = stringResource(R.string.refresh),
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
@@ -198,12 +211,12 @@ fun HomeDashboardScreen(
 
                 Column {
                     Text(
-                        text = "Kategori",
+                        text = stringResource(R.string.categories),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        text = "Pilih jenis file yang ingin dibuka",
+                        text = stringResource(R.string.categories_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -261,12 +274,15 @@ private fun SearchBar(
         onValueChange = onQueryChange,
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        placeholder = { Text("Cari file di penyimpanan…") },
+        placeholder = { Text(stringResource(R.string.search_files_hint)) },
         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
         trailingIcon = {
             if (query.isNotEmpty()) {
                 IconButton(onClick = onClear) {
-                    Icon(Icons.Default.Clear, contentDescription = "Hapus pencarian")
+                    Icon(
+                        Icons.Default.Clear,
+                        contentDescription = stringResource(R.string.clear_search),
+                    )
                 }
             }
         },
@@ -283,7 +299,7 @@ private fun SearchResultsSection(
 ) {
     Column {
         Text(
-            text = "Hasil pencarian",
+            text = stringResource(R.string.search_results),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
         )
@@ -307,7 +323,7 @@ private fun SearchResultsSection(
             }
             results.isEmpty() -> {
                 Text(
-                    text = "Tidak ada file ditemukan",
+                    text = stringResource(R.string.search_none_found),
                     modifier = Modifier.padding(vertical = 16.dp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -347,13 +363,13 @@ private fun RecentPhotosSection(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Foto Terbaru",
+                    text = stringResource(R.string.recent_photos),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
             TextButton(onClick = onViewAll) {
-                Text("Lihat semua")
+                Text(stringResource(R.string.view_all))
             }
         }
 
@@ -562,7 +578,7 @@ private fun StorageCard(
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Penyimpanan Internal",
+                        text = stringResource(R.string.storage_internal),
                         style = if (compact) {
                             MaterialTheme.typography.titleSmall
                         } else {
@@ -572,9 +588,13 @@ private fun StorageCard(
                     )
                     Text(
                         text = if (storageInfo != null) {
-                            "${FileItem.formatBytes(storageInfo.usedBytes)} terpakai dari ${FileItem.formatBytes(storageInfo.totalBytes)}"
+                            stringResource(
+                                R.string.storage_used_of,
+                                FileItem.formatBytes(storageInfo.usedBytes),
+                                FileItem.formatBytes(storageInfo.totalBytes),
+                            )
                         } else {
-                            "Menghitung kapasitas…"
+                            stringResource(R.string.storage_calculating)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -598,7 +618,10 @@ private fun StorageCard(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = if (storageInfo != null) {
-                        "Tersedia ${FileItem.formatBytes(storageInfo.freeBytes)}"
+                        stringResource(
+                            R.string.storage_available,
+                            FileItem.formatBytes(storageInfo.freeBytes),
+                        )
                     } else {
                         "—"
                     },
@@ -625,21 +648,21 @@ private fun QuickActionsRow(
             QuickActionChip(
                 modifier = Modifier.weight(1f),
                 icon = Icons.Default.FolderOpen,
-                label = "Semua",
+                label = stringResource(R.string.all_files),
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onClick = onBrowseAll,
             )
             QuickActionChip(
                 modifier = Modifier.weight(1f),
                 icon = Icons.Default.Archive,
-                label = "ZIP",
+                label = stringResource(R.string.zips),
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onClick = onOpenZips,
             )
             QuickActionChip(
                 modifier = Modifier.weight(1f),
                 icon = Icons.Default.Star,
-                label = "Favorit",
+                label = stringResource(R.string.favorites),
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onClick = onOpenFavorites,
             )
@@ -647,7 +670,7 @@ private fun QuickActionsRow(
         QuickActionChip(
             modifier = Modifier.fillMaxWidth(),
             icon = Icons.Default.Cloud,
-            label = "Cloud",
+            label = stringResource(R.string.cloud),
             container = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f),
             onClick = onOpenCloud,
         )
@@ -725,7 +748,7 @@ private fun CategoryCard(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = summary.category.title,
+                    text = stringResource(summary.category.titleRes),
                     style = MaterialTheme.typography.labelLarge,
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
@@ -733,7 +756,7 @@ private fun CategoryCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "${summary.itemCount} item",
+                    text = stringResource(R.string.items_count, summary.itemCount),
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White.copy(alpha = 0.88f),
                     maxLines = 1,

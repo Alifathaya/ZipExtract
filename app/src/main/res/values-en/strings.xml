@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FileNest</string>
+    <string name="app_tagline">Manage files &amp; archives with ease</string>
+
+    <string name="language">Language</string>
+    <string name="language_title">Choose language</string>
+    <string name="language_subtitle">Pick a language for FileNest. You can change it anytime from the menu.</string>
+    <string name="language_indonesian">Bahasa Indonesia</string>
+    <string name="language_english">English</string>
+    <string name="language_system">Follow system</string>
+    <string name="continue_label">Continue</string>
+    <string name="cancel">Cancel</string>
+    <string name="save">Save</string>
+    <string name="refresh">Refresh</string>
+    <string name="menu">Menu</string>
+    <string name="back">Back</string>
+    <string name="search">Search</string>
+    <string name="search_files_hint">Search files…</string>
+    <string name="clear_search">Clear search</string>
+    <string name="cloud">Cloud</string>
+    <string name="favorites">Favorites</string>
+    <string name="all_files">All</string>
+    <string name="zips">ZIP</string>
+    <string name="view_all">View all</string>
+    <string name="recent_photos">Recent photos</string>
+    <string name="categories">Categories</string>
+    <string name="storage">Storage</string>
+    <string name="storage_calculating">Calculating capacity…</string>
+    <string name="storage_available">%1$s available</string>
+    <string name="no_recent_photos">No recent photos yet</string>
+    <string name="search_no_results">No results</string>
+    <string name="search_min_chars">Type at least 2 characters</string>
+    <string name="searching">Searching…</string>
+    <string name="permission_title">Storage permission required</string>
+    <string name="permission_body">FileNest needs all-files access to show, open, and manage files on this device.</string>
+    <string name="permission_action">Grant permission</string>
+
+    <string name="theme">Theme</string>
+    <string name="theme_system">System</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="theme_with_label">Theme: %1$s</string>
+
+    <string name="category_downloads">Downloads</string>
+    <string name="category_downloads_sub">Downloaded files</string>
+    <string name="category_images">Images</string>
+    <string name="category_images_sub">Photos &amp; images</string>
+    <string name="category_videos">Videos</string>
+    <string name="category_videos_sub">Movies &amp; recordings</string>
+    <string name="category_documents">Documents</string>
+    <string name="category_documents_sub">PDF, Word, Excel</string>
+    <string name="category_archives">ZIP</string>
+    <string name="category_archives_sub">ZIP &amp; archive files</string>
+    <string name="category_apps">Apps</string>
+    <string name="category_apps_sub">APK &amp; installer files</string>
+    <string name="category_others">Other</string>
+    <string name="category_others_sub">Music &amp; other files</string>
+
+    <string name="items_count">%1$d items</string>
+    <string name="opening_cloud">Opening file, please wait…</string>
+    <string name="cloud_open_failed">Failed to open cloud file</string>
+    <string name="cloud_busy">Opening file, please wait…</string>
+    <string name="categories_hint">Choose the file type to open</string>
+    <string name="storage_internal">Internal storage</string>
+    <string name="storage_used_of">%1$s used of %2$s</string>
+    <string name="search_results">Search results</string>
+    <string name="search_none_found">No files found</string>
+    <string name="language_menu">Language</string>
+</resources>

@@ -22,6 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.zipextract.app.data.AppPreferences
+import com.zipextract.app.data.LocaleHelper
 import com.zipextract.app.data.ThemeMode
 import com.zipextract.app.ui.FileBrowserScreen
 import com.zipextract.app.ui.FileBrowserViewModel
@@ -32,6 +34,8 @@ class MainActivity : ComponentActivity() {
     private val viewModel: FileBrowserViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Apply saved locale before Compose inflates UI.
+        LocaleHelper.applyFromPreferences(AppPreferences(this))
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
@@ -139,6 +143,7 @@ class MainActivity : ComponentActivity() {
                         onOpenParentOfDetails = viewModel::openParentOfDetails,
                         onOpenFavorites = viewModel::openFavorites,
                         onSetThemeMode = viewModel::setThemeMode,
+                        onSetAppLanguage = viewModel::setAppLanguage,
                         onSetLibrarySubFilter = viewModel::setLibrarySubFilter,
                         onFindDuplicates = viewModel::findDuplicates,
                         onCloseDuplicates = viewModel::closeDuplicates,

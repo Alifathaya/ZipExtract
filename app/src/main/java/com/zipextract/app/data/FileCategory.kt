@@ -1,20 +1,45 @@
 package com.zipextract.app.data
 
 import android.os.Environment
+import androidx.annotation.StringRes
+import com.zipextract.app.R
 import java.io.File
 
 enum class FileCategory(
-    val title: String,
-    val subtitle: String,
+    @StringRes val titleRes: Int,
+    @StringRes val subtitleRes: Int,
 ) {
-    DOWNLOADS("Download", "File unduhan"),
-    IMAGES("Gambar", "Foto & gambar"),
-    VIDEOS("Video", "Film & rekaman"),
-    DOCUMENTS("Dokumen", "PDF, Word, Excel"),
-    ARCHIVES("ZIP", "File ZIP & arsip"),
-    APPS("Aplikasi", "File APK & installer"),
-    OTHERS("Lainnya", "Musik & file lain"),
+    DOWNLOADS(R.string.category_downloads, R.string.category_downloads_sub),
+    IMAGES(R.string.category_images, R.string.category_images_sub),
+    VIDEOS(R.string.category_videos, R.string.category_videos_sub),
+    DOCUMENTS(R.string.category_documents, R.string.category_documents_sub),
+    ARCHIVES(R.string.category_archives, R.string.category_archives_sub),
+    APPS(R.string.category_apps, R.string.category_apps_sub),
+    OTHERS(R.string.category_others, R.string.category_others_sub),
     ;
+
+    /** Fallback Indonesian labels for non-Compose call sites. */
+    val title: String
+        get() = when (this) {
+            DOWNLOADS -> "Download"
+            IMAGES -> "Gambar"
+            VIDEOS -> "Video"
+            DOCUMENTS -> "Dokumen"
+            ARCHIVES -> "ZIP"
+            APPS -> "Aplikasi"
+            OTHERS -> "Lainnya"
+        }
+
+    val subtitle: String
+        get() = when (this) {
+            DOWNLOADS -> "File unduhan"
+            IMAGES -> "Foto & gambar"
+            VIDEOS -> "Film & rekaman"
+            DOCUMENTS -> "PDF, Word, Excel"
+            ARCHIVES -> "File ZIP & arsip"
+            APPS -> "File APK & installer"
+            OTHERS -> "Musik & file lain"
+        }
 
     fun resolveFolder(): File {
         val storage = Environment.getExternalStorageDirectory()

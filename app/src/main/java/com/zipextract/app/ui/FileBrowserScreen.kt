@@ -61,6 +61,7 @@ import com.zipextract.app.data.cloud.SafCloudAccess
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
@@ -99,10 +100,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
+import com.zipextract.app.R
+import com.zipextract.app.data.AppLanguage
 import com.zipextract.app.data.ClipboardMode
 import com.zipextract.app.data.DuplicateGroup
 import com.zipextract.app.data.FileFilter
@@ -167,6 +171,7 @@ fun FileBrowserScreen(
     onOpenParentOfDetails: () -> Unit,
     onOpenFavorites: () -> Unit,
     onSetThemeMode: (ThemeMode) -> Unit,
+    onSetAppLanguage: (AppLanguage) -> Unit,
     onSetLibrarySubFilter: (LibrarySubFilter) -> Unit,
     onFindDuplicates: () -> Unit,
     onCloseDuplicates: () -> Unit,
@@ -184,15 +189,39 @@ fun FileBrowserScreen(
     var inputText by remember { mutableStateOf("") }
     var bestCompression by remember { mutableStateOf(true) }
     var cloudImporting by remember { mutableStateOf(false) }
+    var showLanguagePicker by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val cloudScope = rememberCoroutineScope()
+
+    // First launch: force language choice once.
+    if (!state.languageChosen) {
+        LanguagePickerDialog(
+            selected = state.appLanguage,
+            dismissible = false,
+            onConfirm = onSetAppLanguage,
+        )
+    } else if (showLanguagePicker) {
+        LanguagePickerDialog(
+            selected = state.appLanguage,
+            dismissible = true,
+            onDismiss = { showLanguagePicker = false },
+            onConfirm = {
+                showLanguagePicker = false
+                onSetAppLanguage(it)
+            },
+        )
+    }
 
     val cloudPickerLauncher = rememberLauncherForActivityResult(
         SafCloudAccess.GetCloudContent(),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         if (cloudImporting) {
-            Toast.makeText(context, "Sedang membuka file, tunggu sebentar…", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                context,
+                context.getString(R.string.cloud_busy),
+                Toast.LENGTH_SHORT,
+            ).show()
             return@rememberLauncherForActivityResult
         }
         cloudImporting = true
@@ -208,7 +237,7 @@ fun FileBrowserScreen(
                 if (file == null) {
                     Toast.makeText(
                         context,
-                        error ?: "Gagal membuka file cloud",
+                        error ?: context.getString(R.string.cloud_open_failed),
                         Toast.LENGTH_LONG,
                     ).show()
                 } else {
@@ -217,7 +246,7 @@ fun FileBrowserScreen(
             } catch (t: Throwable) {
                 Toast.makeText(
                     context,
-                    t.message ?: "Gagal membuka file cloud",
+                    t.message ?: context.getString(R.string.cloud_open_failed),
                     Toast.LENGTH_LONG,
                 ).show()
             } finally {
@@ -301,13 +330,14 @@ fun FileBrowserScreen(
                 if (cloudImporting) {
                     Toast.makeText(
                         context,
-                        "Sedang membuka file, tunggu sebentar…",
+                        context.getString(R.string.cloud_busy),
                         Toast.LENGTH_SHORT,
                     ).show()
                 } else {
                     cloudPickerLauncher.launch("*/*")
                 }
             },
+            onOpenLanguage = { showLanguagePicker = true },
             onOpenFile = onOpenFileAnywhere,
             onViewAllPhotos = { onOpenCategory(FileCategory.IMAGES) },
         )
@@ -324,10 +354,12 @@ fun FileBrowserScreen(
                             text = when {
                                 state.selectionMode -> "$selectedCount dipilih"
                                 state.showDuplicates -> "Duplikat"
-                                state.showFavoritesOnly -> "Favorit"
-                                state.libraryMode && state.activeCategory != null -> state.activeCategory.title
-                                state.activeCategory != null -> state.activeCategory.title
-                                else -> "Semua File"
+                                state.showFavoritesOnly -> stringResource(R.string.favorites)
+                                state.libraryMode && state.activeCategory != null ->
+                                    stringResource(state.activeCategory.titleRes)
+                                state.activeCategory != null ->
+                                    stringResource(state.activeCategory.titleRes)
+                                else -> stringResource(R.string.all_files)
                             },
                             style = MaterialTheme.typography.titleLarge,
                             maxLines = 1,
@@ -428,14 +460,23 @@ fun FileBrowserScreen(
                             },
                             leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
                         )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.language_menu)) },
+                            onClick = {
+                                menuExpanded = false
+                                showLanguagePicker = true
+                            },
+                            leadingIcon = { Icon(Icons.Default.Language, contentDescription = null) },
+                        )
                         ThemeMode.entries.forEach { mode ->
+                            val modeLabel = stringResource(mode.labelRes)
                             DropdownMenuItem(
                                 text = {
                                     Text(
                                         if (state.themeMode == mode) {
-                                            "Tema: ${mode.label} ✓"
+                                            stringResource(R.string.theme_with_label, "$modeLabel ✓")
                                         } else {
-                                            "Tema: ${mode.label}"
+                                            stringResource(R.string.theme_with_label, modeLabel)
                                         },
                                     )
                                 },
@@ -1087,16 +1128,16 @@ private fun PermissionPane(onRequestPermission: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("FileNest", style = MaterialTheme.typography.headlineMedium)
+        Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineMedium)
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Izinkan akses penyimpanan untuk browse, zip, extract, copy, dan paste file.",
+            text = stringResource(R.string.permission_body),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(modifier = Modifier.height(20.dp))
         TextButton(onClick = onRequestPermission) {
-            Text("Berikan izin penyimpanan")
+            Text(stringResource(R.string.permission_action))
         }
     }
 }

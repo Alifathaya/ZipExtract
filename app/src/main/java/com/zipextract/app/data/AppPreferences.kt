@@ -2,12 +2,22 @@ package com.zipextract.app.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.zipextract.app.R
 import java.io.File
 
-enum class ThemeMode(val label: String) {
-    SYSTEM("Sistem"),
-    LIGHT("Terang"),
-    DARK("Gelap"),
+enum class ThemeMode {
+    SYSTEM,
+    LIGHT,
+    DARK,
+    ;
+
+    @get:androidx.annotation.StringRes
+    val labelRes: Int
+        get() = when (this) {
+            SYSTEM -> R.string.theme_system
+            LIGHT -> R.string.theme_light
+            DARK -> R.string.theme_dark
+        }
 }
 
 class AppPreferences(context: Context) {
@@ -21,6 +31,21 @@ class AppPreferences(context: Context) {
 
     fun setThemeMode(mode: ThemeMode) {
         prefs.edit().putString(KEY_THEME, mode.name).apply()
+    }
+
+    fun getAppLanguage(): AppLanguage {
+        val raw = prefs.getString(KEY_LANGUAGE, AppLanguage.SYSTEM.tag)
+        return AppLanguage.fromTag(raw)
+    }
+
+    fun setAppLanguage(language: AppLanguage) {
+        prefs.edit().putString(KEY_LANGUAGE, language.tag.ifBlank { "system" }).apply()
+    }
+
+    fun hasLanguageChosen(): Boolean = prefs.getBoolean(KEY_LANGUAGE_CHOSEN, false)
+
+    fun setLanguageChosen(chosen: Boolean) {
+        prefs.edit().putBoolean(KEY_LANGUAGE_CHOSEN, chosen).apply()
     }
 
     fun getFavoritePaths(): Set<String> {
@@ -133,6 +158,8 @@ class AppPreferences(context: Context) {
     companion object {
         private const val PREFS_NAME = "filenest_prefs"
         private const val KEY_THEME = "theme_mode"
+        private const val KEY_LANGUAGE = "app_language_v1"
+        private const val KEY_LANGUAGE_CHOSEN = "app_language_chosen_v1"
         private const val KEY_FAVORITES = "favorite_paths"
         private const val KEY_CATEGORY_COUNTS = "category_counts_v1"
         private const val KEY_RECENT_PHOTOS = "recent_photo_paths_v1"
