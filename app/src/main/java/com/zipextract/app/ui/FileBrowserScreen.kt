@@ -616,6 +616,18 @@ fun FileBrowserScreen(
                         else -> "Folder kosong"
                     },
                 )
+                state.showFavoritesOnly -> {
+                    FavoritesGalleryGrid(
+                        items = state.items,
+                        selectedPaths = state.selectedPaths,
+                        favoritePaths = state.favoritePaths,
+                        selectionMode = state.selectionMode,
+                        onOpenItem = onOpenItem,
+                        onOpenExtract = onOpenExtract,
+                        onToggleSelect = onToggleSelect,
+                        onToggleFavorite = onToggleFavoritePath,
+                    )
+                }
                 state.libraryMode && (
                     state.activeCategory == FileCategory.IMAGES ||
                         state.fileFilter == FileFilter.IMAGES
@@ -941,6 +953,170 @@ private fun DuplicateGroupsPane(
                     .padding(12.dp),
             ) {
                 Text("Hapus salinan")
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun FavoritesGalleryGrid(
+    items: List<FileItem>,
+    selectedPaths: Set<String>,
+    favoritePaths: Set<String>,
+    selectionMode: Boolean,
+    onOpenItem: (FileItem) -> Unit,
+    onOpenExtract: (FileItem) -> Unit,
+    onToggleSelect: (FileItem) -> Unit,
+    onToggleFavorite: (String) -> Unit,
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(3),
+        contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 96.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        gridItems(items, key = { it.path }) { item ->
+            when {
+                item.isImage -> {
+                    ImageThumbnailCell(
+                        item = item,
+                        selected = item.path in selectedPaths,
+                        isFavorite = item.path in favoritePaths,
+                        selectionMode = selectionMode,
+                        onClick = {
+                            if (selectionMode) onToggleSelect(item) else onOpenItem(item)
+                        },
+                        onLongClick = { onToggleSelect(item) },
+                        onToggleFavorite = { onToggleFavorite(item.path) },
+                    )
+                }
+                item.isVideo -> {
+                    VideoThumbnailCell(
+                        item = item,
+                        selected = item.path in selectedPaths,
+                        isFavorite = item.path in favoritePaths,
+                        selectionMode = selectionMode,
+                        onClick = {
+                            if (selectionMode) onToggleSelect(item) else onOpenItem(item)
+                        },
+                        onLongClick = { onToggleSelect(item) },
+                        onToggleFavorite = { onToggleFavorite(item.path) },
+                    )
+                }
+                else -> {
+                    FavoriteFileCell(
+                        item = item,
+                        selected = item.path in selectedPaths,
+                        isFavorite = item.path in favoritePaths,
+                        selectionMode = selectionMode,
+                        onClick = {
+                            when {
+                                item.isArchive -> onOpenExtract(item)
+                                selectionMode -> onToggleSelect(item)
+                                else -> onOpenItem(item)
+                            }
+                        },
+                        onLongClick = { onToggleSelect(item) },
+                        onToggleFavorite = { onToggleFavorite(item.path) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun FavoriteFileCell(
+    item: FileItem,
+    selected: Boolean,
+    isFavorite: Boolean,
+    selectionMode: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onToggleFavorite: () -> Unit,
+) {
+    val icon = when {
+        item.isDirectory -> Icons.Default.Folder
+        item.isArchive -> Icons.Default.Archive
+        item.isApp -> Icons.Default.Android
+        item.isPdf -> Icons.Default.PictureAsPdf
+        item.isAudio -> Icons.Default.MusicNote
+        else -> Icons.AutoMirrored.Filled.InsertDriveFile
+    }
+    val tint = when {
+        item.isDirectory -> MaterialTheme.colorScheme.primary
+        item.isArchive -> MaterialTheme.colorScheme.secondary
+        item.isApp -> MaterialTheme.colorScheme.tertiary
+        item.isPdf -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Box(
+        modifier = Modifier
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(10.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(36.dp),
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = item.name,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+
+        IconButton(
+            onClick = onToggleFavorite,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .size(34.dp),
+        ) {
+            Icon(
+                imageVector = if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
+                contentDescription = stringResource(R.string.favorites),
+                tint = if (isFavorite) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
+
+        if (selected || selectionMode) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = if (selected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
             }
         }
     }
