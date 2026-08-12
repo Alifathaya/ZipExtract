@@ -1,5 +1,6 @@
 package com.zipextract.app.ui.viewer
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -8,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material.icons.filled.ZoomOutMap
@@ -20,12 +23,18 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
+import com.zipextract.app.data.FileActions
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -35,7 +44,18 @@ fun ImageViewerScreen(
     onClose: () -> Unit,
 ) {
     BackHandler(onBack = onClose)
+    val context = LocalContext.current
     val zoomState = rememberZoomState()
+    var editing by remember { mutableStateOf(false) }
+
+    if (editing) {
+        MediaEditorScreen(
+            title = file.name,
+            sourceFile = file,
+            onClose = { editing = false },
+        )
+        return
+    }
 
     Scaffold(
         topBar = {
@@ -48,7 +68,7 @@ fun ImageViewerScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = "Cubit / double-tap untuk zoom",
+                            text = "Cubit / double-tap zoom · Edit crop & pen",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -60,6 +80,18 @@ fun ImageViewerScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { editing = true }) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit")
+                    }
+                    IconButton(
+                        onClick = {
+                            if (!FileActions.shareFile(context, file)) {
+                                Toast.makeText(context, "Gagal membagikan foto", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = "Bagikan")
+                    }
                     IconButton(onClick = { zoomState.zoomOut() }) {
                         Icon(Icons.Default.ZoomOut, contentDescription = "Perkecil")
                     }

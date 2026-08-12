@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -21,6 +22,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material.icons.filled.ZoomOutMap
@@ -38,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,7 +51,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.zipextract.app.data.FileActions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -60,6 +66,7 @@ fun PdfViewerScreen(
 ) {
     BackHandler(onBack = onClose)
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val zoomState = rememberZoomState()
 
     var pageCount by remember { mutableStateOf(0) }
@@ -68,6 +75,10 @@ fun PdfViewerScreen(
     var rendererHolder by remember { mutableStateOf<PdfRendererHolder?>(null) }
     val listState = rememberLazyListState()
     val openKey = sourceUri?.toString() ?: file.absolutePath
+
+    var editBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var editTitle by remember { mutableStateOf("") }
+    var preparingEdit by remember { mutableStateOf(false) }
 
     DisposableEffect(openKey) {
         val holder = runCatching {
@@ -86,6 +97,37 @@ fun PdfViewerScreen(
         }
     }
 
+    if (editBitmap != null) {
+        MediaEditorScreen(
+            title = editTitle,
+            sourceBitmap = editBitmap,
+            onClose = {
+                editBitmap?.recycle()
+                editBitmap = null
+            },
+        )
+        return
+    }
+
+    fun openEditorForVisiblePage() {
+        val holder = rendererHolder ?: return
+        if (pageCount <= 0) return
+        val page = listState.firstVisibleItemIndex.coerceIn(0, pageCount - 1)
+        preparingEdit = true
+        scope.launch {
+            val bitmap = withContext(Dispatchers.IO) {
+                runCatching { holder.renderPage(page, targetWidthPx = 1600) }.getOrNull()
+            }
+            preparingEdit = false
+            if (bitmap == null) {
+                Toast.makeText(context, "Gagal menyiapkan halaman untuk diedit", Toast.LENGTH_SHORT).show()
+            } else {
+                editTitle = "${file.name} · halaman ${page + 1}"
+                editBitmap = bitmap
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -98,7 +140,7 @@ fun PdfViewerScreen(
                         )
                         Text(
                             text = if (pageCount > 0) {
-                                "$pageCount halaman · cubit / double-tap zoom"
+                                "$pageCount halaman · Edit crop & pen · Share"
                             } else {
                                 "Cubit / double-tap untuk zoom"
                             },
@@ -115,6 +157,21 @@ fun PdfViewerScreen(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = { openEditorForVisiblePage() },
+                        enabled = !preparingEdit && pageCount > 0,
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit halaman")
+                    }
+                    IconButton(
+                        onClick = {
+                            if (!FileActions.shareFile(context, file)) {
+                                Toast.makeText(context, "Gagal membagikan PDF", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = "Bagikan")
+                    }
                     IconButton(onClick = { zoomState.zoomOut() }) {
                         Icon(Icons.Default.ZoomOut, contentDescription = "Perkecil")
                     }
@@ -136,7 +193,7 @@ fun PdfViewerScreen(
             contentAlignment = Alignment.Center,
         ) {
             when {
-                loading -> CircularProgressIndicator()
+                loading || preparingEdit -> CircularProgressIndicator()
                 error != null -> Text(error ?: "Error", color = MaterialTheme.colorScheme.error)
                 rendererHolder == null || pageCount == 0 -> {
                     Text("PDF kosong atau tidak bisa dibaca")

@@ -1,0 +1,575 @@
+package com.zipextract.app.ui.viewer
+
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.zipextract.app.data.BitmapEditor
+import com.zipextract.app.data.FileActions
+import com.zipextract.app.data.StrokeData
+import com.zipextract.app.data.StrokePoint
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import kotlin.math.max
+import kotlin.math.min
+
+private enum class EditorTool { NONE, CROP, PEN }
+
+private data class PenColor(val color: Color, val argb: Int)
+
+private val penColors = listOf(
+    PenColor(Color(0xFFE11D48), 0xFFE11D48.toInt()),
+    PenColor(Color(0xFF2563EB), 0xFF2563EB.toInt()),
+    PenColor(Color(0xFF111827), 0xFF111827.toInt()),
+    PenColor(Color(0xFFF59E0B), 0xFFF59E0B.toInt()),
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MediaEditorScreen(
+    title: String,
+    sourceFile: File? = null,
+    sourceBitmap: Bitmap? = null,
+    onClose: () -> Unit,
+) {
+    BackHandler(onBack = onClose)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var working by remember { mutableStateOf<Bitmap?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var tool by remember { mutableStateOf(EditorTool.NONE) }
+    var selectedPen by remember { mutableStateOf(penColors.first()) }
+    var strokeWidth by remember { mutableFloatStateOf(8f) }
+
+    var cropLeft by remember { mutableFloatStateOf(0.1f) }
+    var cropTop by remember { mutableFloatStateOf(0.1f) }
+    var cropRight by remember { mutableFloatStateOf(0.9f) }
+    var cropBottom by remember { mutableFloatStateOf(0.9f) }
+
+    val strokes = remember { mutableStateListOf<StrokeData>() }
+    var currentStroke by remember { mutableStateOf<List<StrokePoint>?>(null) }
+
+    LaunchedEffect(sourceFile, sourceBitmap) {
+        loading = true
+        error = null
+        val loaded = withContext(Dispatchers.IO) {
+            when {
+                sourceBitmap != null -> BitmapEditor.scaleForEditing(sourceBitmap)
+                sourceFile != null && sourceFile.exists() -> {
+                    val decoded = BitmapFactory.decodeFile(sourceFile.absolutePath)
+                        ?: return@withContext null
+                    BitmapEditor.scaleForEditing(decoded)
+                }
+                else -> null
+            }
+        }
+        if (loaded == null) {
+            error = "Gagal memuat media untuk diedit"
+        } else {
+            working = loaded
+        }
+        loading = false
+    }
+
+    fun exportBitmap(): Bitmap? {
+        val base = working ?: return null
+        return BitmapEditor.drawStrokes(base, strokes.toList())
+    }
+
+    fun applyCrop() {
+        val base = working ?: return
+        val withInk = BitmapEditor.drawStrokes(base, strokes.toList())
+        val cropped = BitmapEditor.crop(withInk, cropLeft, cropTop, cropRight, cropBottom)
+        if (withInk !== base && withInk !== cropped) withInk.recycle()
+        working = cropped
+        strokes.clear()
+        currentStroke = null
+        cropLeft = 0.08f
+        cropTop = 0.08f
+        cropRight = 0.92f
+        cropBottom = 0.92f
+        tool = EditorTool.NONE
+        Toast.makeText(context, "Crop diterapkan", Toast.LENGTH_SHORT).show()
+    }
+
+    fun saveAndMaybeShare(share: Boolean) {
+        val bitmap = exportBitmap() ?: return
+        busy = true
+        scope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                BitmapEditor.saveToPictures(context, bitmap, title)
+            }
+            busy = false
+            if (saved == null) {
+                Toast.makeText(context, "Gagal menyimpan hasil edit", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            Toast.makeText(context, "Disimpan: ${saved.name}", Toast.LENGTH_SHORT).show()
+            if (share) FileActions.shareFile(context, saved)
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text(text = "Edit", style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onClose) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { saveAndMaybeShare(share = false) },
+                        enabled = working != null && !busy,
+                    ) {
+                        Icon(Icons.Default.Save, contentDescription = "Simpan")
+                    }
+                    IconButton(
+                        onClick = { saveAndMaybeShare(share = true) },
+                        enabled = working != null && !busy,
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = "Bagikan")
+                    }
+                },
+            )
+        },
+        bottomBar = {
+            Surface(tonalElevation = 3.dp) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        FilterChip(
+                            selected = tool == EditorTool.CROP,
+                            onClick = {
+                                tool = if (tool == EditorTool.CROP) EditorTool.NONE else EditorTool.CROP
+                            },
+                            label = { Text("Crop") },
+                            leadingIcon = { Icon(Icons.Default.Crop, null, Modifier.size(18.dp)) },
+                        )
+                        FilterChip(
+                            selected = tool == EditorTool.PEN,
+                            onClick = {
+                                tool = if (tool == EditorTool.PEN) EditorTool.NONE else EditorTool.PEN
+                            },
+                            label = { Text("Pen") },
+                            leadingIcon = { Icon(Icons.Default.Edit, null, Modifier.size(18.dp)) },
+                        )
+                        IconButton(
+                            onClick = {
+                                if (currentStroke != null) currentStroke = null
+                                else if (strokes.isNotEmpty()) strokes.removeAt(strokes.lastIndex)
+                            },
+                            enabled = strokes.isNotEmpty() || currentStroke != null,
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
+                        }
+                    }
+
+                    if (tool == EditorTool.PEN) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            penColors.forEach { option ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(if (selectedPen == option) 30.dp else 24.dp)
+                                        .clip(CircleShape)
+                                        .background(option.color)
+                                        .border(
+                                            width = if (selectedPen == option) 2.dp else 0.dp,
+                                            color = Color.White,
+                                            shape = CircleShape,
+                                        )
+                                        .clickable { selectedPen = option },
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                            TextButton(onClick = { strokeWidth = 5f }) { Text("Tipis") }
+                            TextButton(onClick = { strokeWidth = 8f }) { Text("Sedang") }
+                            TextButton(onClick = { strokeWidth = 14f }) { Text("Tebal") }
+                        }
+                    }
+
+                    if (tool == EditorTool.CROP) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    cropLeft = 0.1f
+                                    cropTop = 0.1f
+                                    cropRight = 0.9f
+                                    cropBottom = 0.9f
+                                },
+                                modifier = Modifier.weight(1f),
+                            ) { Text("Reset crop") }
+                            Button(
+                                onClick = { applyCrop() },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Icon(Icons.Default.Check, contentDescription = null)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Terapkan")
+                            }
+                        }
+                        Text(
+                            text = "Geser sudut biru untuk mengatur area crop",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        },
+    ) { padding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.9f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            when {
+                loading || busy -> CircularProgressIndicator()
+                error != null -> Text(error ?: "Error", color = MaterialTheme.colorScheme.error)
+                working != null -> {
+                    EditorCanvas(
+                        bitmap = working!!,
+                        tool = tool,
+                        strokes = strokes,
+                        currentStroke = currentStroke,
+                        penColor = selectedPen.color,
+                        strokeWidth = strokeWidth,
+                        cropLeft = cropLeft,
+                        cropTop = cropTop,
+                        cropRight = cropRight,
+                        cropBottom = cropBottom,
+                        onCropChange = { l, t, r, b ->
+                            cropLeft = l
+                            cropTop = t
+                            cropRight = r
+                            cropBottom = b
+                        },
+                        onStrokeStart = { point -> currentStroke = listOf(point) },
+                        onStrokeMove = { point ->
+                            currentStroke = (currentStroke ?: emptyList()) + point
+                        },
+                        onStrokeEnd = { canvasWidth ->
+                            val pts = currentStroke
+                            currentStroke = null
+                            if (pts != null && pts.size >= 2) {
+                                strokes += StrokeData(
+                                    points = pts,
+                                    colorArgb = selectedPen.argb,
+                                    widthPx = strokeWidth,
+                                    canvasWidth = canvasWidth,
+                                )
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditorCanvas(
+    bitmap: Bitmap,
+    tool: EditorTool,
+    strokes: List<StrokeData>,
+    currentStroke: List<StrokePoint>?,
+    penColor: Color,
+    strokeWidth: Float,
+    cropLeft: Float,
+    cropTop: Float,
+    cropRight: Float,
+    cropBottom: Float,
+    onCropChange: (Float, Float, Float, Float) -> Unit,
+    onStrokeStart: (StrokePoint) -> Unit,
+    onStrokeMove: (StrokePoint) -> Unit,
+    onStrokeEnd: (canvasWidth: Float) -> Unit,
+) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        val maxW = constraints.maxWidth.toFloat().coerceAtLeast(1f)
+        val maxH = constraints.maxHeight.toFloat().coerceAtLeast(1f)
+        val imageAspect = bitmap.width.toFloat() / bitmap.height.toFloat().coerceAtLeast(1f)
+        val boxAspect = maxW / maxH
+        val drawW: Float
+        val drawH: Float
+        if (imageAspect > boxAspect) {
+            drawW = maxW
+            drawH = maxW / imageAspect
+        } else {
+            drawH = maxH
+            drawW = maxH * imageAspect
+        }
+        val density = LocalDensity.current
+        val drawWdp = with(density) { drawW.toDp() }
+        val drawHdp = with(density) { drawH.toDp() }
+
+        fun toNorm(offset: Offset): StrokePoint? {
+            if (offset.x < 0f || offset.x > drawW || offset.y < 0f || offset.y > drawH) return null
+            return StrokePoint(
+                x = (offset.x / drawW).coerceIn(0f, 1f),
+                y = (offset.y / drawH).coerceIn(0f, 1f),
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .width(drawWdp)
+                .height(drawHdp)
+                .then(
+                    if (tool == EditorTool.PEN) {
+                        Modifier.pointerInput(tool, penColor, strokeWidth, drawW, drawH) {
+                            detectDragGestures(
+                                onDragStart = { start -> toNorm(start)?.let(onStrokeStart) },
+                                onDrag = { change, _ ->
+                                    change.consume()
+                                    toNorm(change.position)?.let(onStrokeMove)
+                                },
+                                onDragEnd = { onStrokeEnd(drawW) },
+                                onDragCancel = { onStrokeEnd(drawW) },
+                            )
+                        }
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.FillBounds,
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                fun strokePath(points: List<StrokePoint>): Path {
+                    val path = Path()
+                    if (points.isEmpty()) return path
+                    path.moveTo(points.first().x * drawW, points.first().y * drawH)
+                    for (i in 1 until points.size) {
+                        path.lineTo(points[i].x * drawW, points[i].y * drawH)
+                    }
+                    return path
+                }
+
+                strokes.forEach { stroke ->
+                    drawPath(
+                        path = strokePath(stroke.points),
+                        color = Color(stroke.colorArgb),
+                        style = Stroke(
+                            width = stroke.widthPx * (drawW / stroke.canvasWidth.coerceAtLeast(1f)),
+                            cap = StrokeCap.Round,
+                            join = StrokeJoin.Round,
+                        ),
+                    )
+                }
+                currentStroke?.let { pts ->
+                    drawPath(
+                        path = strokePath(pts),
+                        color = penColor,
+                        style = Stroke(
+                            width = strokeWidth,
+                            cap = StrokeCap.Round,
+                            join = StrokeJoin.Round,
+                        ),
+                    )
+                }
+
+                if (tool == EditorTool.CROP) {
+                    val cropRect = Rect(
+                        cropLeft * drawW,
+                        cropTop * drawH,
+                        cropRight * drawW,
+                        cropBottom * drawH,
+                    )
+                    drawRect(Color.Black.copy(alpha = 0.55f), Offset(0f, 0f), Size(drawW, max(0f, cropRect.top)))
+                    drawRect(
+                        Color.Black.copy(alpha = 0.55f),
+                        Offset(0f, cropRect.bottom),
+                        Size(drawW, max(0f, drawH - cropRect.bottom)),
+                    )
+                    drawRect(
+                        Color.Black.copy(alpha = 0.55f),
+                        Offset(0f, cropRect.top),
+                        Size(max(0f, cropRect.left), cropRect.height),
+                    )
+                    drawRect(
+                        Color.Black.copy(alpha = 0.55f),
+                        Offset(cropRect.right, cropRect.top),
+                        Size(max(0f, drawW - cropRect.right), cropRect.height),
+                    )
+                    drawRect(Color.White, cropRect.topLeft, cropRect.size, style = Stroke(width = 3f))
+                    listOf(
+                        cropRect.topLeft,
+                        Offset(cropRect.right, cropRect.top),
+                        Offset(cropRect.left, cropRect.bottom),
+                        cropRect.bottomRight,
+                    ).forEach { corner ->
+                        drawCircle(Color.White, radius = 11f, center = corner)
+                        drawCircle(Color(0xFF2563EB), radius = 7f, center = corner)
+                    }
+                }
+            }
+
+            if (tool == EditorTool.CROP) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(cropLeft, cropTop, cropRight, cropBottom, drawW, drawH) {
+                            var activeCorner = -1
+                            detectDragGestures(
+                                onDragStart = { start ->
+                                    val corners = listOf(
+                                        Offset(cropLeft * drawW, cropTop * drawH),
+                                        Offset(cropRight * drawW, cropTop * drawH),
+                                        Offset(cropLeft * drawW, cropBottom * drawH),
+                                        Offset(cropRight * drawW, cropBottom * drawH),
+                                    )
+                                    activeCorner = corners.indices.minByOrNull { i ->
+                                        (corners[i] - start).getDistance()
+                                    }?.takeIf { i -> (corners[i] - start).getDistance() < 90f } ?: -1
+                                },
+                                onDragEnd = { activeCorner = -1 },
+                                onDragCancel = { activeCorner = -1 },
+                                onDrag = { change, _ ->
+                                    val which = activeCorner
+                                    if (which < 0) return@detectDragGestures
+                                    change.consume()
+                                    val nx = (change.position.x / drawW).coerceIn(0f, 1f)
+                                    val ny = (change.position.y / drawH).coerceIn(0f, 1f)
+                                    var l = cropLeft
+                                    var t = cropTop
+                                    var r = cropRight
+                                    var b = cropBottom
+                                    when (which) {
+                                        0 -> {
+                                            l = min(nx, r - 0.05f)
+                                            t = min(ny, b - 0.05f)
+                                        }
+                                        1 -> {
+                                            r = max(nx, l + 0.05f)
+                                            t = min(ny, b - 0.05f)
+                                        }
+                                        2 -> {
+                                            l = min(nx, r - 0.05f)
+                                            b = max(ny, t + 0.05f)
+                                        }
+                                        3 -> {
+                                            r = max(nx, l + 0.05f)
+                                            b = max(ny, t + 0.05f)
+                                        }
+                                    }
+                                    onCropChange(l, t, r, b)
+                                },
+                            )
+                        },
+                )
+            }
+        }
+    }
+}
