@@ -10,8 +10,14 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -41,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -48,20 +55,32 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.zipextract.app.data.FileActions
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.LinkedHashMap
 import androidx.compose.ui.graphics.Color as ComposeColor
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PdfViewerScreen(
@@ -74,7 +93,17 @@ fun PdfViewerScreen(
     val scope = rememberCoroutineScope()
     val zoomState = rememberZoomState()
     val density = LocalDensity.current
-    val displayWidthPx = with(density) { 900.dp.roundToPx() }
+    val baseWidthPx = with(density) { 900.dp.roundToPx() }
+
+    // Debounced render scale so pinch stays smooth; bitmaps refresh after zoom settles.
+    var renderScale by remember { mutableFloatStateOf(1f) }
+    LaunchedEffect(zoomState.scale) {
+        delay(120)
+        renderScale = zoomState.scale.coerceIn(1f, 3f)
+    }
+    val displayWidthPx = remember(baseWidthPx, renderScale) {
+        (baseWidthPx * renderScale).roundToInt().coerceIn(1, 4096)
+    }
 
     var pageCount by remember { mutableStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -172,7 +201,7 @@ fun PdfViewerScreen(
                         )
                         Text(
                             text = if (pageCount > 0) {
-                                "$pageCount halaman · Edit crop & pen · Share"
+                                "$pageCount halaman · Zoom tetap saat gulir"
                             } else {
                                 "Cubit / double-tap untuk zoom"
                             },
@@ -231,14 +260,63 @@ fun PdfViewerScreen(
                     Text("PDF kosong atau tidak bisa dibaca")
                 }
                 else -> {
-                    ZoomableBox(
-                        zoomState = zoomState,
-                        modifier = Modifier.fillMaxSize(),
-                        preserveScrollGestures = true,
+                    BoxWithConstraints(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(zoomState) {
+                                awaitEachGesture {
+                                    awaitFirstDown(requireUnconsumed = false)
+                                    do {
+                                        val event = awaitPointerEvent()
+                                        val pressedCount = event.changes.count { it.pressed }
+                                        val zoomChange = event.calculateZoom()
+                                        val panChange = event.calculatePan()
+                                        when {
+                                            pressedCount >= 2 &&
+                                                (abs(zoomChange - 1f) > 0.001f || panChange != Offset.Zero) -> {
+                                                if (abs(zoomChange - 1f) > 0.001f) {
+                                                    zoomState.onZoom(zoomChange)
+                                                }
+                                                if (zoomState.isZoomed && panChange != Offset.Zero) {
+                                                    // Pinch-pan stays horizontal; vertical page scroll uses one finger.
+                                                    zoomState.onTransform(Offset(panChange.x, 0f), 1f)
+                                                }
+                                                val maxPan = size.width * (zoomState.scale - 1f) / 2f
+                                                zoomState.clampOffset(maxX = maxPan.coerceAtLeast(0f), maxY = 0f)
+                                                event.changes.forEach {
+                                                    if (it.positionChanged()) it.consume()
+                                                }
+                                            }
+                                            pressedCount == 1 &&
+                                                zoomState.isZoomed &&
+                                                abs(panChange.x) > abs(panChange.y) &&
+                                                abs(panChange.x) > 0.5f -> {
+                                                zoomState.onTransform(Offset(panChange.x, 0f), 1f)
+                                                val maxPan = size.width * (zoomState.scale - 1f) / 2f
+                                                zoomState.clampOffset(maxX = maxPan.coerceAtLeast(0f), maxY = 0f)
+                                                event.changes.forEach {
+                                                    if (it.positionChanged()) it.consume()
+                                                }
+                                            }
+                                        }
+                                    } while (event.changes.any { it.pressed })
+                                }
+                            }
+                            .pointerInput(zoomState) {
+                                detectTapGestures(
+                                    onDoubleTap = { zoomState.toggleDoubleTapZoom() },
+                                )
+                            },
                     ) {
+                        val viewportWidth = maxWidth
+                        LaunchedEffect(zoomState.scale, constraints.maxWidth) {
+                            val maxPan = constraints.maxWidth * (zoomState.scale - 1f) / 2f
+                            zoomState.clampOffset(maxX = maxPan.coerceAtLeast(0f), maxY = 0f)
+                        }
+
                         LazyColumn(
                             state = listState,
-                            userScrollEnabled = !zoomState.isZoomed,
+                            userScrollEnabled = true,
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                             contentPadding = PaddingValues(12.dp),
                             modifier = Modifier.fillMaxSize(),
@@ -247,17 +325,20 @@ fun PdfViewerScreen(
                                 items = (0 until pageCount).toList(),
                                 key = { _, page -> page },
                             ) { index, _ ->
-                                Column {
+                                Column(modifier = Modifier.fillMaxWidth()) {
                                     Text(
                                         text = "Halaman ${index + 1} / $pageCount",
                                         style = MaterialTheme.typography.labelLarge,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(bottom = 6.dp),
                                     )
-                                    PdfPage(
+                                    ZoomedPdfPage(
                                         holder = rendererHolder!!,
                                         pageIndex = index,
                                         targetWidthPx = displayWidthPx,
+                                        scale = zoomState.scale,
+                                        panX = zoomState.offset.x,
+                                        viewportWidth = viewportWidth,
                                     )
                                 }
                             }
@@ -270,17 +351,60 @@ fun PdfViewerScreen(
 }
 
 @Composable
+private fun ZoomedPdfPage(
+    holder: PdfRendererHolder,
+    pageIndex: Int,
+    targetWidthPx: Int,
+    scale: Float,
+    panX: Float,
+    viewportWidth: Dp,
+    aspectFallback: Float = 1.414f,
+) {
+    val aspect = remember(pageIndex, holder) {
+        holder.pageAspectRatio(pageIndex) ?: aspectFallback
+    }
+    val layoutHeight = viewportWidth * aspect * scale
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(layoutHeight)
+            .clip(RectangleShape)
+            .background(ComposeColor.White),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = panX
+                    transformOrigin = TransformOrigin(0.5f, 0f)
+                },
+        ) {
+            PdfPage(
+                holder = holder,
+                pageIndex = pageIndex,
+                targetWidthPx = targetWidthPx,
+                placeholderHeight = viewportWidth * aspect,
+            )
+        }
+    }
+}
+
+@Composable
 private fun PdfPage(
     holder: PdfRendererHolder,
     pageIndex: Int,
     targetWidthPx: Int,
+    placeholderHeight: Dp,
 ) {
     // Show cached bitmap immediately when revisiting a page.
     var bitmap by remember(pageIndex, holder, targetWidthPx) {
         mutableStateOf(holder.peekPage(pageIndex, targetWidthPx))
     }
     var failed by remember(pageIndex, holder, targetWidthPx) { mutableStateOf(false) }
-    val aspect = remember(pageIndex, holder) { holder.pageAspectRatio(pageIndex) }
 
     LaunchedEffect(pageIndex, holder, targetWidthPx) {
         if (bitmap != null) return@LaunchedEffect
@@ -293,15 +417,8 @@ private fun PdfPage(
     Box(
         Modifier
             .fillMaxWidth()
-            // Paper-white placeholder so dark theme never shows a black "blank" page frame.
-            .background(ComposeColor.White)
-            .then(
-                if (bitmap == null && aspect != null) {
-                    Modifier.height((900.dp * aspect))
-                } else {
-                    Modifier
-                },
-            ),
+            .height(placeholderHeight)
+            .background(ComposeColor.White),
         contentAlignment = Alignment.Center,
     ) {
         when {
