@@ -57,10 +57,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
-import com.zipextract.app.data.cloud.SafCloudAccess
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Image
@@ -68,6 +64,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SelectAll
@@ -107,6 +104,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
+import coil.request.ImageRequest
+import coil.request.videoFrameMillis
 import com.zipextract.app.R
 import com.zipextract.app.data.AppLanguage
 import com.zipextract.app.data.ClipboardMode
@@ -116,11 +115,15 @@ import com.zipextract.app.data.FileCategory
 import com.zipextract.app.data.FileItem
 import com.zipextract.app.data.LibrarySubFilter
 import com.zipextract.app.data.ThemeMode
+import com.zipextract.app.data.cloud.SafCloudAccess
 import com.zipextract.app.ui.viewer.ExtractZipScreen
 import com.zipextract.app.ui.viewer.ImageViewerScreen
 import com.zipextract.app.ui.viewer.PdfViewerScreen
 import com.zipextract.app.ui.viewer.VideoPlayerScreen
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class DialogType {
     CREATE_FOLDER,
@@ -625,6 +628,20 @@ fun FileBrowserScreen(
                         onToggleFavorite = onToggleFavoritePath,
                     )
                 }
+                state.libraryMode && (
+                    state.activeCategory == FileCategory.VIDEOS ||
+                        state.fileFilter == FileFilter.VIDEOS
+                    ) -> {
+                    VideoGalleryGrid(
+                        items = state.items.filter { it.isVideo },
+                        selectedPaths = state.selectedPaths,
+                        favoritePaths = state.favoritePaths,
+                        selectionMode = state.selectionMode,
+                        onOpenItem = onOpenItem,
+                        onToggleSelect = onToggleSelect,
+                        onToggleFavorite = onToggleFavoritePath,
+                    )
+                }
                 state.libraryMode -> {
                     Column(modifier = Modifier.fillMaxSize()) {
                         if (state.activeCategory == FileCategory.DOCUMENTS) {
@@ -922,6 +939,172 @@ private fun DuplicateGroupsPane(
                     .padding(12.dp),
             ) {
                 Text("Hapus salinan")
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun VideoGalleryGrid(
+    items: List<FileItem>,
+    selectedPaths: Set<String>,
+    favoritePaths: Set<String>,
+    selectionMode: Boolean,
+    onOpenItem: (FileItem) -> Unit,
+    onToggleSelect: (FileItem) -> Unit,
+    onToggleFavorite: (String) -> Unit,
+) {
+    if (items.isEmpty()) {
+        EmptyPane(message = "Tidak ada video ditemukan di perangkat")
+        return
+    }
+
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(3),
+        contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 96.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        gridItems(items, key = { it.path }) { item ->
+            VideoThumbnailCell(
+                item = item,
+                selected = item.path in selectedPaths,
+                isFavorite = item.path in favoritePaths,
+                selectionMode = selectionMode,
+                onClick = {
+                    if (selectionMode) onToggleSelect(item) else onOpenItem(item)
+                },
+                onLongClick = { onToggleSelect(item) },
+                onToggleFavorite = { onToggleFavorite(item.path) },
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun VideoThumbnailCell(
+    item: FileItem,
+    selected: Boolean,
+    isFavorite: Boolean,
+    selectionMode: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onToggleFavorite: () -> Unit,
+) {
+    val context = LocalContext.current
+    val thumbRequest = remember(item.path, item.sizeBytes, item.lastModified) {
+        ImageRequest.Builder(context)
+            .data(item.file)
+            .videoFrameMillis(1_000L)
+            .crossfade(true)
+            .build()
+    }
+
+    Box(
+        modifier = Modifier
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+    ) {
+        SubcomposeAsyncImage(
+            model = thumbRequest,
+            contentDescription = item.name,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            loading = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp))
+                }
+            },
+            error = {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Movie,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
+            },
+            success = {
+                SubcomposeAsyncImageContent()
+            },
+        )
+
+        // Dark scrim + play badge so video thumbs are distinct from photos.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.18f)),
+        )
+        Icon(
+            imageVector = Icons.Default.PlayCircle,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.92f),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(36.dp),
+        )
+
+        Text(
+            text = item.formattedSize,
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(6.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color.Black.copy(alpha = 0.55f))
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+
+        IconButton(
+            onClick = onToggleFavorite,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .size(34.dp),
+        ) {
+            Icon(
+                imageVector = if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
+                contentDescription = stringResource(R.string.favorites),
+                tint = if (isFavorite) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    Color.White
+                },
+            )
+        }
+
+        if (selected || selectionMode) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = if (selected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
             }
         }
     }
