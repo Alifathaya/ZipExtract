@@ -81,4 +81,11 @@
     <string name="language_thai" translatable="false">ไทย</string>
     <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
     <string name="language_filipino" translatable="false">Filipino</string>
+
+    <string name="video_player_hint">Ketuk untuk kontrol putar · geser untuk seek</string>
+    <string name="video_play_failed">Gagal memutar video: %1$s</string>
+    <string name="video_share">Bagikan</string>
+    <string name="video_share_failed">Gagal membagikan video</string>
+    <string name="video_open_external">Buka dengan aplikasi lain</string>
+    <string name="video_open_external_failed">Tidak ada aplikasi yang bisa membuka video</string>
 </resources>

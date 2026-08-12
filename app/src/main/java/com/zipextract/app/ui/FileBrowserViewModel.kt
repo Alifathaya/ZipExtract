@@ -52,6 +52,10 @@ sealed class ViewerContent {
         override val file: File,
         val sourceUri: Uri? = null,
     ) : ViewerContent()
+    data class Video(
+        override val file: File,
+        val sourceUri: Uri? = null,
+    ) : ViewerContent()
 }
 
 /** Where to land after closing the in-app viewer. */
@@ -480,9 +484,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         // From home search / cloud: never jump into an empty parent folder list.
         if (fromHomeOrCloud) {
             when {
-                item.isPdf || item.isImage -> openItem(item)
+                item.isPdf || item.isImage || item.isVideo -> openItem(item)
                 item.isArchive -> openExtractDialog(item.file.canonicalFile)
-                item.isVideo || item.isAudio -> {
+                item.isAudio -> {
                     if (!FileActions.playMedia(getApplication(), item.file)) {
                         emit("Tidak bisa memutar media")
                     }
@@ -574,6 +578,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             when {
                 item.isImage -> openViewer(ViewerContent.Image(file), ViewerReturnTarget.HOME)
                 item.isPdf -> openViewer(ViewerContent.Pdf(file), ViewerReturnTarget.HOME)
+                item.isVideo -> openViewer(ViewerContent.Video(file), ViewerReturnTarget.HOME)
                 item.isArchive -> {
                     // Archives open extract UI; return home/cloud via normal flow after.
                     openExtractDialog(file)
@@ -673,7 +678,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             item.isArchive -> openExtractDialog(item.file.canonicalFile)
             item.isPdf -> openViewer(ViewerContent.Pdf(item.file))
             item.isImage -> openViewer(ViewerContent.Image(item.file))
-            item.isVideo || item.isAudio -> {
+            item.isVideo -> openViewer(ViewerContent.Video(item.file))
+            item.isAudio -> {
                 if (!FileActions.playMedia(getApplication(), item.file)) {
                     emit("Tidak bisa memutar media")
                 }
@@ -692,6 +698,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     (content.file.exists() && content.file.isFile)
             }
             is ViewerContent.Image -> content.file.exists() && content.file.isFile
+            is ViewerContent.Video -> {
+                content.sourceUri != null ||
+                    (content.file.exists() && content.file.isFile && content.file.length() > 0L)
+            }
         }
         if (!canOpen) {
             emit("File tidak ditemukan")
@@ -752,6 +762,14 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 SharedFileResolver.isImage(resolved.file, resolved.mimeType) -> {
                     openViewer(ViewerContent.Image(resolved.file))
                 }
+                SharedFileResolver.isVideo(resolved.file, resolved.mimeType) -> {
+                    openViewer(
+                        ViewerContent.Video(
+                            file = resolved.file,
+                            sourceUri = resolved.sourceUri,
+                        )
+                    )
+                }
                 else -> {
                     _uiState.update { it.copy(launchedFromExternalIntent = false, showHome = true) }
                     emit("Format file tidak didukung untuk dibuka")
@@ -765,6 +783,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         when {
             item.isPdf -> openViewer(ViewerContent.Pdf(file))
             item.isImage -> openViewer(ViewerContent.Image(file))
+            item.isVideo -> openViewer(ViewerContent.Video(file))
             else -> emit("Format file tidak didukung untuk dibuka")
         }
     }

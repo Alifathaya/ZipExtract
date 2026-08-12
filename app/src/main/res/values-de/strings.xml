@@ -81,4 +81,11 @@
     <string name="language_thai" translatable="false">ไทย</string>
     <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
     <string name="language_filipino" translatable="false">Filipino</string>
+
+    <string name="video_player_hint">Tippen für Steuerung · ziehen zum Spulen</string>
+    <string name="video_play_failed">Video konnte nicht abgespielt werden: %1$s</string>
+    <string name="video_share">Teilen</string>
+    <string name="video_share_failed">Video konnte nicht geteilt werden</string>
+    <string name="video_open_external">Mit anderer App öffnen</string>
+    <string name="video_open_external_failed">Keine App kann dieses Video öffnen</string>
 </resources>

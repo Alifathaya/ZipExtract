@@ -117,6 +117,7 @@ import com.zipextract.app.data.ThemeMode
 import com.zipextract.app.ui.viewer.ExtractZipScreen
 import com.zipextract.app.ui.viewer.ImageViewerScreen
 import com.zipextract.app.ui.viewer.PdfViewerScreen
+import com.zipextract.app.ui.viewer.VideoPlayerScreen
 import java.io.File
 
 private enum class DialogType {
@@ -301,6 +302,11 @@ fun FileBrowserScreen(
                 onClose = onCloseViewer,
             )
             is ViewerContent.Image -> ImageViewerScreen(file = viewer.file, onClose = onCloseViewer)
+            is ViewerContent.Video -> VideoPlayerScreen(
+                file = viewer.file,
+                sourceUri = viewer.sourceUri,
+                onClose = onCloseViewer,
+            )
             null -> Unit
         }
         return

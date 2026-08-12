@@ -42,7 +42,7 @@ data class FileItem(
         get() = extension in APP_EXTENSIONS
 
     val isViewable: Boolean
-        get() = isPdf || isImage
+        get() = isPdf || isImage || isVideo
 
     fun matchesFilter(filter: FileFilter): Boolean {
         return when (filter) {
