@@ -202,8 +202,6 @@ object SafCloudAccess {
                 type = input.ifBlank { "*/*" }
                 putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                // Helps some OEMs keep the temporary grant when handing back to the caller.
-                addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
             }
         }
 
