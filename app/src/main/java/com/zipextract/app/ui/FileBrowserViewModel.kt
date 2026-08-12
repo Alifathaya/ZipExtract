@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.zipextract.app.data.AppLanguage
 import com.zipextract.app.data.AppPreferences
 import com.zipextract.app.data.ClipboardMode
 import com.zipextract.app.data.ClipboardState
@@ -17,6 +18,7 @@ import com.zipextract.app.data.FileFilter
 import com.zipextract.app.data.FileItem
 import com.zipextract.app.data.FileOperations
 import com.zipextract.app.data.LibrarySubFilter
+import com.zipextract.app.data.LocaleHelper
 import com.zipextract.app.data.MediaLibrary
 import com.zipextract.app.data.MediaLibraryCache
 import com.zipextract.app.data.OperationResult
@@ -97,6 +99,8 @@ data class BrowserUiState(
     val librarySubFilter: LibrarySubFilter = LibrarySubFilter.ALL,
     val favoritePaths: Set<String> = emptySet(),
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val appLanguage: AppLanguage = AppLanguage.SYSTEM,
+    val languageChosen: Boolean = false,
     val showFavoritesOnly: Boolean = false,
     val fileDetails: FileItem? = null,
     val duplicateGroups: List<DuplicateGroup> = emptyList(),
@@ -124,6 +128,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         BrowserUiState(
             favoritePaths = prefs.getFavoritePaths(),
             themeMode = prefs.getThemeMode(),
+            appLanguage = prefs.getAppLanguage(),
+            languageChosen = prefs.hasLanguageChosen(),
             categorySummaries = initialCachedCategories,
             recentFiles = initialCachedPhotos,
             storageInfo = prefs.loadCachedStorageInfo(),
@@ -1322,6 +1328,18 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     fun setThemeMode(mode: ThemeMode) {
         prefs.setThemeMode(mode)
         _uiState.update { it.copy(themeMode = mode) }
+    }
+
+    fun setAppLanguage(language: AppLanguage) {
+        prefs.setAppLanguage(language)
+        prefs.setLanguageChosen(true)
+        _uiState.update {
+            it.copy(
+                appLanguage = language,
+                languageChosen = true,
+            )
+        }
+        LocaleHelper.apply(language)
     }
 
     fun setLibrarySubFilter(filter: LibrarySubFilter) {

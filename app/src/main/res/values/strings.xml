@@ -1,4 +1,70 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">FileNest</string>
+    <string name="app_tagline">Kelola file &amp; arsip dengan mudah</string>
+
+    <string name="language">Bahasa</string>
+    <string name="language_title">Pilih bahasa</string>
+    <string name="language_subtitle">Pilih bahasa untuk FileNest. Bisa diubah lagi kapan saja dari menu.</string>
+    <string name="language_indonesian">Bahasa Indonesia</string>
+    <string name="language_english">English</string>
+    <string name="language_system">Ikuti sistem</string>
+    <string name="continue_label">Lanjut</string>
+    <string name="cancel">Batal</string>
+    <string name="save">Simpan</string>
+    <string name="refresh">Muat ulang</string>
+    <string name="menu">Menu</string>
+    <string name="back">Kembali</string>
+    <string name="search">Cari</string>
+    <string name="search_files_hint">Cari file…</string>
+    <string name="clear_search">Hapus pencarian</string>
+    <string name="cloud">Cloud</string>
+    <string name="favorites">Favorit</string>
+    <string name="all_files">Semua</string>
+    <string name="zips">ZIP</string>
+    <string name="view_all">Lihat semua</string>
+    <string name="recent_photos">Foto terbaru</string>
+    <string name="categories">Kategori</string>
+    <string name="storage">Penyimpanan</string>
+    <string name="storage_calculating">Menghitung kapasitas…</string>
+    <string name="storage_available">Tersedia %1$s</string>
+    <string name="no_recent_photos">Belum ada foto terbaru</string>
+    <string name="search_no_results">Tidak ada hasil</string>
+    <string name="search_min_chars">Ketik minimal 2 huruf</string>
+    <string name="searching">Mencari…</string>
+    <string name="permission_title">Izin penyimpanan diperlukan</string>
+    <string name="permission_body">FileNest membutuhkan akses semua file agar bisa menampilkan, membuka, dan mengelola file di perangkat.</string>
+    <string name="permission_action">Berikan izin</string>
+
+    <string name="theme">Tema</string>
+    <string name="theme_system">Sistem</string>
+    <string name="theme_light">Terang</string>
+    <string name="theme_dark">Gelap</string>
+    <string name="theme_with_label">Tema: %1$s</string>
+
+    <string name="category_downloads">Download</string>
+    <string name="category_downloads_sub">File unduhan</string>
+    <string name="category_images">Gambar</string>
+    <string name="category_images_sub">Foto &amp; gambar</string>
+    <string name="category_videos">Video</string>
+    <string name="category_videos_sub">Film &amp; rekaman</string>
+    <string name="category_documents">Dokumen</string>
+    <string name="category_documents_sub">PDF, Word, Excel</string>
+    <string name="category_archives">ZIP</string>
+    <string name="category_archives_sub">File ZIP &amp; arsip</string>
+    <string name="category_apps">Aplikasi</string>
+    <string name="category_apps_sub">File APK &amp; installer</string>
+    <string name="category_others">Lainnya</string>
+    <string name="category_others_sub">Musik &amp; file lain</string>
+
+    <string name="items_count">%1$d item</string>
+    <string name="opening_cloud">Sedang membuka file, tunggu sebentar…</string>
+    <string name="cloud_open_failed">Gagal membuka file cloud</string>
+    <string name="cloud_busy">Sedang membuka file, tunggu sebentar…</string>
+    <string name="categories_hint">Pilih jenis file yang ingin dibuka</string>
+    <string name="storage_internal">Penyimpanan Internal</string>
+    <string name="storage_used_of">%1$s terpakai dari %2$s</string>
+    <string name="search_results">Hasil pencarian</string>
+    <string name="search_none_found">Tidak ada file ditemukan</string>
+    <string name="language_menu">Bahasa</string>
 </resources>
