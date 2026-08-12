@@ -52,6 +52,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,7 +81,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.max
-import kotlin.math.min
 
 private enum class EditorTool { NONE, CROP, PEN }
 
@@ -309,7 +309,7 @@ fun MediaEditorScreen(
                             }
                         }
                         Text(
-                            text = "Geser sudut biru untuk mengatur area crop",
+                            text = "Geser 6 titik besar, atau geser area tengah untuk memindahkan crop",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
