@@ -263,7 +263,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 // reason kept for future logging / diagnostics.
                 @Suppress("UNUSED_EXPRESSION")
                 reason
-                val library = FileOperations.scanMediaLibrary().also { mediaLibraryCache = it }
+                val library = FileOperations.scanMediaLibrary(
+                    contentResolver = appContext.contentResolver,
+                ).also { mediaLibraryCache = it }
                 val categories = FileOperations.getCategorySummaries(library)
                 val recentFiles = library.images.take(12)
                 val storage = FileOperations.getStorageInfo()
@@ -443,7 +445,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 return disk
             }
         }
-        return FileOperations.scanMediaLibrary().also { mediaLibraryCache = it }
+        return FileOperations.scanMediaLibrary(
+            contentResolver = appContext.contentResolver,
+        ).also { mediaLibraryCache = it }
     }
 
     private fun invalidateMediaLibraryCache() {
