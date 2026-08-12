@@ -16,8 +16,10 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -43,6 +45,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
@@ -53,9 +56,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zipextract.app.data.FileActions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.LinkedHashMap
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,6 +73,8 @@ fun PdfViewerScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val zoomState = rememberZoomState()
+    val density = LocalDensity.current
+    val displayWidthPx = with(density) { 900.dp.roundToPx() }
 
     var pageCount by remember { mutableStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -97,6 +104,28 @@ fun PdfViewerScreen(
         }
     }
 
+    // Prefetch nearby pages so scrolling back is instant.
+    LaunchedEffect(rendererHolder, pageCount, displayWidthPx, listState) {
+        val holder = rendererHolder ?: return@LaunchedEffect
+        if (pageCount <= 0) return@LaunchedEffect
+        snapshotFlow {
+            val info = listState.layoutInfo
+            val first = info.visibleItemsInfo.firstOrNull()?.index ?: listState.firstVisibleItemIndex
+            val last = info.visibleItemsInfo.lastOrNull()?.index ?: first
+            first to last
+        }
+            .distinctUntilChanged()
+            .collect { (first, last) ->
+                val start = (first - 1).coerceAtLeast(0)
+                val end = (last + 1).coerceAtMost(pageCount - 1)
+                withContext(Dispatchers.IO) {
+                    for (page in start..end) {
+                        runCatching { holder.getPage(page, displayWidthPx) }
+                    }
+                }
+            }
+    }
+
     if (editBitmap != null) {
         MediaEditorScreen(
             title = editTitle,
@@ -116,7 +145,10 @@ fun PdfViewerScreen(
         preparingEdit = true
         scope.launch {
             val bitmap = withContext(Dispatchers.IO) {
-                runCatching { holder.renderPage(page, targetWidthPx = 1600) }.getOrNull()
+                runCatching {
+                    // Independent copy so editor can recycle without touching the page cache.
+                    holder.getPage(page, targetWidthPx = 1600).copy(Bitmap.Config.ARGB_8888, false)
+                }.getOrNull()
             }
             preparingEdit = false
             if (bitmap == null) {
@@ -211,7 +243,10 @@ fun PdfViewerScreen(
                             contentPadding = PaddingValues(12.dp),
                             modifier = Modifier.fillMaxSize(),
                         ) {
-                            itemsIndexed((0 until pageCount).toList()) { index, _ ->
+                            itemsIndexed(
+                                items = (0 until pageCount).toList(),
+                                key = { _, page -> page },
+                            ) { index, _ ->
                                 Column {
                                     Text(
                                         text = "Halaman ${index + 1} / $pageCount",
@@ -222,6 +257,7 @@ fun PdfViewerScreen(
                                     PdfPage(
                                         holder = rendererHolder!!,
                                         pageIndex = index,
+                                        targetWidthPx = displayWidthPx,
                                     )
                                 }
                             }
@@ -237,16 +273,19 @@ fun PdfViewerScreen(
 private fun PdfPage(
     holder: PdfRendererHolder,
     pageIndex: Int,
+    targetWidthPx: Int,
 ) {
-    val density = LocalDensity.current
-    var bitmap by remember(pageIndex, holder) { mutableStateOf<Bitmap?>(null) }
-    var failed by remember(pageIndex) { mutableStateOf(false) }
+    // Show cached bitmap immediately when revisiting a page.
+    var bitmap by remember(pageIndex, holder, targetWidthPx) {
+        mutableStateOf(holder.peekPage(pageIndex, targetWidthPx))
+    }
+    var failed by remember(pageIndex, holder, targetWidthPx) { mutableStateOf(false) }
+    val aspect = remember(pageIndex, holder) { holder.pageAspectRatio(pageIndex) }
 
-    LaunchedEffect(pageIndex, holder) {
+    LaunchedEffect(pageIndex, holder, targetWidthPx) {
+        if (bitmap != null) return@LaunchedEffect
         val rendered = withContext(Dispatchers.IO) {
-            runCatching {
-                holder.renderPage(pageIndex, targetWidthPx = with(density) { 900.dp.roundToPx() })
-            }.getOrNull()
+            runCatching { holder.getPage(pageIndex, targetWidthPx) }.getOrNull()
         }
         if (rendered == null) failed = true else bitmap = rendered
     }
@@ -254,7 +293,14 @@ private fun PdfPage(
     Box(
         Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface),
+            .background(MaterialTheme.colorScheme.surface)
+            .then(
+                if (bitmap == null && aspect != null) {
+                    Modifier.height((900.dp * aspect))
+                } else {
+                    Modifier
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
         when {
@@ -284,10 +330,22 @@ private class PdfRendererHolder private constructor(
 ) {
     private val renderer = PdfRenderer(pfd)
     private val lock = Any()
+    private val aspectCache = HashMap<Int, Float>()
+
+    // Access-order LRU cache so revisiting pages does not re-render.
+    private val pageCache = object : LinkedHashMap<CacheKey, Bitmap>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<CacheKey, Bitmap>?): Boolean {
+            if (size <= MAX_CACHED_PAGES) return false
+            eldest?.value?.recycle()
+            return true
+        }
+    }
 
     val pageCount: Int get() = renderer.pageCount
 
     companion object {
+        private const val MAX_CACHED_PAGES = 16
+
         fun open(context: Context, file: File, sourceUri: Uri? = null): PdfRendererHolder {
             val descriptor = when {
                 file.exists() && file.isFile && file.length() > 0L -> {
@@ -302,24 +360,63 @@ private class PdfRendererHolder private constructor(
         }
     }
 
+    fun pageAspectRatio(index: Int): Float? {
+        synchronized(lock) {
+            aspectCache[index]?.let { return it }
+            return runCatching {
+                renderer.openPage(index).use { page ->
+                    val ratio = page.height.toFloat() / page.width.toFloat().coerceAtLeast(1f)
+                    aspectCache[index] = ratio
+                    ratio
+                }
+            }.getOrNull()
+        }
+    }
+
+    fun peekPage(index: Int, targetWidthPx: Int): Bitmap? {
+        synchronized(lock) {
+            return pageCache[CacheKey(index, targetWidthPx)]
+        }
+    }
+
+    fun getPage(index: Int, targetWidthPx: Int): Bitmap {
+        synchronized(lock) {
+            pageCache[CacheKey(index, targetWidthPx)]?.let { return it }
+            val bitmap = renderPageLocked(index, targetWidthPx)
+            pageCache[CacheKey(index, targetWidthPx)] = bitmap
+            return bitmap
+        }
+    }
+
+    /** Kept for callers that need a fresh uncached render. */
     fun renderPage(index: Int, targetWidthPx: Int): Bitmap {
         synchronized(lock) {
-            renderer.openPage(index).use { page ->
-                val width = targetWidthPx.coerceAtLeast(1)
-                val height = ((page.height.toFloat() / page.width.toFloat()) * width)
-                    .toInt()
-                    .coerceAtLeast(1)
-                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                return bitmap
-            }
+            return renderPageLocked(index, targetWidthPx)
+        }
+    }
+
+    private fun renderPageLocked(index: Int, targetWidthPx: Int): Bitmap {
+        renderer.openPage(index).use { page ->
+            val width = targetWidthPx.coerceAtLeast(1)
+            val height = ((page.height.toFloat() / page.width.toFloat()) * width)
+                .toInt()
+                .coerceAtLeast(1)
+            aspectCache[index] = page.height.toFloat() / page.width.toFloat().coerceAtLeast(1f)
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+            return bitmap
         }
     }
 
     fun close() {
         synchronized(lock) {
+            pageCache.values.forEach { bmp -> runCatching { bmp.recycle() } }
+            pageCache.clear()
+            aspectCache.clear()
             runCatching { renderer.close() }
             runCatching { pfd.close() }
         }
     }
+
+    private data class CacheKey(val page: Int, val width: Int)
 }
