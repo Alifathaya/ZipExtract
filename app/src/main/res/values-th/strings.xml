@@ -81,4 +81,11 @@
     <string name="language_thai" translatable="false">ไทย</string>
     <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
     <string name="language_filipino" translatable="false">Filipino</string>
+
+    <string name="video_player_hint">แตะเพื่อควบคุม · ลากเพื่อเลื่อน</string>
+    <string name="video_play_failed">เล่นวิดีโอไม่สำเร็จ: %1$s</string>
+    <string name="video_share">แชร์</string>
+    <string name="video_share_failed">แชร์วิดีโอไม่สำเร็จ</string>
+    <string name="video_open_external">เปิดด้วยแอปอื่น</string>
+    <string name="video_open_external_failed">ไม่มีแอปที่เปิดวิดีโอนี้ได้</string>
 </resources>

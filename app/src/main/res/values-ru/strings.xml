@@ -81,4 +81,11 @@
     <string name="language_thai" translatable="false">ไทย</string>
     <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
     <string name="language_filipino" translatable="false">Filipino</string>
+
+    <string name="video_player_hint">Нажмите для управления · перетащите для перемотки</string>
+    <string name="video_play_failed">Не удалось воспроизвести видео: %1$s</string>
+    <string name="video_share">Поделиться</string>
+    <string name="video_share_failed">Не удалось поделиться видео</string>
+    <string name="video_open_external">Открыть в другом приложении</string>
+    <string name="video_open_external_failed">Нет приложения для открытия этого видео</string>
 </resources>

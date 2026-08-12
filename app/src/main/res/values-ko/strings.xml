@@ -81,4 +81,11 @@
     <string name="language_thai" translatable="false">ไทย</string>
     <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
     <string name="language_filipino" translatable="false">Filipino</string>
+
+    <string name="video_player_hint">탭하여 조작 · 드래그하여 탐색</string>
+    <string name="video_play_failed">동영상을 재생하지 못했습니다: %1$s</string>
+    <string name="video_share">공유</string>
+    <string name="video_share_failed">동영상을 공유하지 못했습니다</string>
+    <string name="video_open_external">다른 앱으로 열기</string>
+    <string name="video_open_external_failed">이 동영상을 열 앱이 없습니다</string>
 </resources>

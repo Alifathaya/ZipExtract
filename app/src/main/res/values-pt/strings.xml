@@ -81,4 +81,11 @@
     <string name="language_thai" translatable="false">ไทย</string>
     <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
     <string name="language_filipino" translatable="false">Filipino</string>
+
+    <string name="video_player_hint">Toque para controles · arraste para buscar</string>
+    <string name="video_play_failed">Falha ao reproduzir o vídeo: %1$s</string>
+    <string name="video_share">Compartilhar</string>
+    <string name="video_share_failed">Falha ao compartilhar o vídeo</string>
+    <string name="video_open_external">Abrir com outro app</string>
+    <string name="video_open_external_failed">Nenhum app pode abrir este vídeo</string>
 </resources>

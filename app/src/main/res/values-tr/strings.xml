@@ -81,4 +81,11 @@
     <string name="language_thai" translatable="false">ไทย</string>
     <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
     <string name="language_filipino" translatable="false">Filipino</string>
+
+    <string name="video_player_hint">Kontroller için dokunun · sarma için sürükleyin</string>
+    <string name="video_play_failed">Video oynatılamadı: %1$s</string>
+    <string name="video_share">Paylaş</string>
+    <string name="video_share_failed">Video paylaşılamadı</string>
+    <string name="video_open_external">Başka uygulamayla aç</string>
+    <string name="video_open_external_failed">Bu videoyu açabilecek uygulama yok</string>
 </resources>

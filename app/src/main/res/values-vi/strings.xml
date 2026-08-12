@@ -81,4 +81,11 @@
     <string name="language_thai" translatable="false">ไทย</string>
     <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
     <string name="language_filipino" translatable="false">Filipino</string>
+
+    <string name="video_player_hint">Chạm để điều khiển · kéo để tua</string>
+    <string name="video_play_failed">Không phát được video: %1$s</string>
+    <string name="video_share">Chia sẻ</string>
+    <string name="video_share_failed">Không chia sẻ được video</string>
+    <string name="video_open_external">Mở bằng ứng dụng khác</string>
+    <string name="video_open_external_failed">Không có ứng dụng nào mở được video này</string>
 </resources>

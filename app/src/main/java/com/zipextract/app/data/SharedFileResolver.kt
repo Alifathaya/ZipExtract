@@ -94,6 +94,12 @@ object SharedFileResolver {
         return false
     }
 
+    fun isVideo(file: File, mimeType: String? = null): Boolean {
+        if (FileItem(file).isVideo) return true
+        if (mimeType?.startsWith("video/", ignoreCase = true) == true) return true
+        return false
+    }
+
     private fun copyContentUriToCache(
         context: Context,
         uri: Uri,
