@@ -41,6 +41,17 @@ object FileOperations {
         }
     }
 
+    /** Instant placeholders so the home category grid can render before scanning finishes. */
+    fun getEmptyCategorySummaries(): List<CategorySummary> {
+        return FileCategory.entries.map { category ->
+            CategorySummary(
+                category = category,
+                itemCount = 0,
+                folder = category.resolveFolder(),
+            )
+        }
+    }
+
     fun countTopLevelItems(directory: File): Int {
         if (!directory.exists() || !directory.isDirectory) return 0
         return directory.listFiles()?.size ?: 0

@@ -102,6 +102,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         BrowserUiState(
             favoritePaths = prefs.getFavoritePaths(),
             themeMode = prefs.getThemeMode(),
+            categorySummaries = prefs.loadCachedCategorySummaries()
+                .ifEmpty { FileOperations.getEmptyCategorySummaries() },
+            recentFiles = prefs.loadCachedRecentPhotos(),
+            homeLoading = true,
         )
     )
     val uiState: StateFlow<BrowserUiState> = _uiState.asStateFlow()
@@ -112,6 +116,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     private val root = FileOperations.defaultRoot()
     private var searchJob: Job? = null
     private var libraryJob: Job? = null
+    private var homeJob: Job? = null
     private var activeJob: Job? = null
     @Volatile
     private var mediaLibraryCache: MediaLibrary? = null
@@ -128,14 +133,43 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun loadHomeData(forceRefresh: Boolean = false) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(homeLoading = mediaLibraryCache == null || forceRefresh) }
+        homeJob?.cancel()
+        homeJob = viewModelScope.launch {
+            // Show category buttons + cached photos immediately (no wait for full scan).
+            val hasMemoryCache = mediaLibraryCache != null && !forceRefresh
+            if (!hasMemoryCache) {
+                val cachedCategories = prefs.loadCachedCategorySummaries()
+                    .ifEmpty { FileOperations.getEmptyCategorySummaries() }
+                val cachedPhotos = prefs.loadCachedRecentPhotos()
+                val storage = withContext(Dispatchers.IO) { FileOperations.getStorageInfo() }
+                _uiState.update { state ->
+                    state.copy(
+                        homeLoading = cachedPhotos.isEmpty(),
+                        storageInfo = state.storageInfo ?: storage,
+                        categorySummaries = if (state.categorySummaries.isNotEmpty()) {
+                            state.categorySummaries
+                        } else {
+                            cachedCategories
+                        },
+                        recentFiles = if (state.recentFiles.isNotEmpty()) {
+                            state.recentFiles
+                        } else {
+                            cachedPhotos
+                        },
+                    )
+                }
+            }
+
             val data = withContext(Dispatchers.IO) {
                 val library = obtainMediaLibrary(forceRefresh)
+                val categories = FileOperations.getCategorySummaries(library)
+                val recentFiles = library.images.take(12)
+                prefs.saveCategoryCounts(categories)
+                prefs.saveRecentPhotoPaths(recentFiles.map { it.path })
                 HomeDashboardData(
                     storageInfo = FileOperations.getStorageInfo(),
-                    categories = FileOperations.getCategorySummaries(library),
-                    recentFiles = library.images.take(12),
+                    categories = categories,
+                    recentFiles = recentFiles,
                 )
             }
             _uiState.update {

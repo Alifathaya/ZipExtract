@@ -55,6 +55,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -205,36 +206,38 @@ fun HomeDashboardScreen(
                     )
                 }
 
-                if (isLoading && categories.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 24.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("Memuat kategori…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val visibleCategories = remember(categories) {
+                    val base = if (categories.isEmpty()) {
+                        FileCategory.entries.map { category ->
+                            CategorySummary(
+                                category = category,
+                                itemCount = 0,
+                                folder = category.resolveFolder(),
+                            )
+                        }
+                    } else {
+                        categories
                     }
-                } else {
-                    val visibleCategories = categories.filter { it.category != FileCategory.ARCHIVES }
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        visibleCategories.chunked(2).forEach { row ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                row.forEach { summary ->
-                                    CategoryCard(
-                                        summary = summary,
-                                        onClick = { onOpenCategory(summary.category) },
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-                                if (row.size == 1) {
-                                    Spacer(modifier = Modifier.weight(1f))
-                                }
+                    base.filter { it.category != FileCategory.ARCHIVES }
+                }
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    visibleCategories.chunked(2).forEach { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            row.forEach { summary ->
+                                CategoryCard(
+                                    summary = summary,
+                                    onClick = { onOpenCategory(summary.category) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            if (row.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
                             }
                         }
                     }
