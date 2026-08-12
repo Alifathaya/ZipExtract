@@ -504,72 +504,130 @@ private fun EditorCanvas(
                         Size(max(0f, drawW - cropRect.right), cropRect.height),
                     )
                     drawRect(Color.White, cropRect.topLeft, cropRect.size, style = Stroke(width = 3f))
-                    listOf(
-                        cropRect.topLeft,
-                        Offset(cropRect.right, cropRect.top),
-                        Offset(cropRect.left, cropRect.bottom),
-                        cropRect.bottomRight,
-                    ).forEach { corner ->
-                        drawCircle(Color.White, radius = 11f, center = corner)
-                        drawCircle(Color(0xFF2563EB), radius = 7f, center = corner)
+                    val handles = cropHandlePositions(cropRect)
+                    handles.forEach { center ->
+                        drawCircle(Color.White.copy(alpha = 0.35f), radius = 28f, center = center)
+                        drawCircle(Color.White, radius = 18f, center = center)
+                        drawCircle(Color(0xFF2563EB), radius = 12f, center = center)
                     }
                 }
             }
 
             if (tool == EditorTool.CROP) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pointerInput(cropLeft, cropTop, cropRight, cropBottom, drawW, drawH) {
-                            var activeCorner = -1
-                            detectDragGestures(
-                                onDragStart = { start ->
-                                    val corners = listOf(
-                                        Offset(cropLeft * drawW, cropTop * drawH),
-                                        Offset(cropRight * drawW, cropTop * drawH),
-                                        Offset(cropLeft * drawW, cropBottom * drawH),
-                                        Offset(cropRight * drawW, cropBottom * drawH),
-                                    )
-                                    activeCorner = corners.indices.minByOrNull { i ->
-                                        (corners[i] - start).getDistance()
-                                    }?.takeIf { i -> (corners[i] - start).getDistance() < 90f } ?: -1
-                                },
-                                onDragEnd = { activeCorner = -1 },
-                                onDragCancel = { activeCorner = -1 },
-                                onDrag = { change, _ ->
-                                    val which = activeCorner
-                                    if (which < 0) return@detectDragGestures
-                                    change.consume()
-                                    val nx = (change.position.x / drawW).coerceIn(0f, 1f)
-                                    val ny = (change.position.y / drawH).coerceIn(0f, 1f)
-                                    var l = cropLeft
-                                    var t = cropTop
-                                    var r = cropRight
-                                    var b = cropBottom
-                                    when (which) {
-                                        0 -> {
-                                            l = min(nx, r - 0.05f)
-                                            t = min(ny, b - 0.05f)
-                                        }
-                                        1 -> {
-                                            r = max(nx, l + 0.05f)
-                                            t = min(ny, b - 0.05f)
-                                        }
-                                        2 -> {
-                                            l = min(nx, r - 0.05f)
-                                            b = max(ny, t + 0.05f)
-                                        }
-                                        3 -> {
-                                            r = max(nx, l + 0.05f)
-                                            b = max(ny, t + 0.05f)
-                                        }
-                                    }
-                                    onCropChange(l, t, r, b)
-                                },
-                            )
-                        },
+                CropGestureLayer(
+                    drawW = drawW,
+                    drawH = drawH,
+                    cropLeft = cropLeft,
+                    cropTop = cropTop,
+                    cropRight = cropRight,
+                    cropBottom = cropBottom,
+                    onCropChange = onCropChange,
                 )
             }
         }
     }
+}
+
+private fun cropHandlePositions(cropRect: Rect): List<Offset> {
+    val midY = (cropRect.top + cropRect.bottom) / 2f
+    return listOf(
+        cropRect.topLeft, // 0 TL
+        Offset(cropRect.right, cropRect.top), // 1 TR
+        Offset(cropRect.left, midY), // 2 mid-left
+        Offset(cropRect.right, midY), // 3 mid-right
+        Offset(cropRect.left, cropRect.bottom), // 4 BL
+        cropRect.bottomRight, // 5 BR
+    )
+}
+
+@Composable
+private fun CropGestureLayer(
+    drawW: Float,
+    drawH: Float,
+    cropLeft: Float,
+    cropTop: Float,
+    cropRight: Float,
+    cropBottom: Float,
+    onCropChange: (Float, Float, Float, Float) -> Unit,
+) {
+    val leftState = rememberUpdatedState(cropLeft)
+    val topState = rememberUpdatedState(cropTop)
+    val rightState = rememberUpdatedState(cropRight)
+    val bottomState = rememberUpdatedState(cropBottom)
+    val minSize = 0.08f
+    val hitRadius = 120f
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(drawW, drawH) {
+                var active = -1 // 0..5 handles, 6 = move whole box
+                var l = leftState.value
+                var t = topState.value
+                var r = rightState.value
+                var b = bottomState.value
+
+                detectDragGestures(
+                    onDragStart = { start ->
+                        l = leftState.value
+                        t = topState.value
+                        r = rightState.value
+                        b = bottomState.value
+                        val cropRect = Rect(l * drawW, t * drawH, r * drawW, b * drawH)
+                        val handles = cropHandlePositions(cropRect)
+                        active = handles.indices.minByOrNull { i ->
+                            (handles[i] - start).getDistance()
+                        }?.takeIf { i -> (handles[i] - start).getDistance() <= hitRadius } ?: -1
+
+                        if (active < 0 && cropRect.contains(start)) {
+                            active = 6
+                        }
+                    },
+                    onDragEnd = { active = -1 },
+                    onDragCancel = { active = -1 },
+                    onDrag = { change, dragAmount ->
+                        if (active < 0) return@detectDragGestures
+                        change.consume()
+                        val dx = dragAmount.x / drawW
+                        val dy = dragAmount.y / drawH
+
+                        when (active) {
+                            0 -> { // TL
+                                l = (l + dx).coerceIn(0f, r - minSize)
+                                t = (t + dy).coerceIn(0f, b - minSize)
+                            }
+                            1 -> { // TR
+                                r = (r + dx).coerceIn(l + minSize, 1f)
+                                t = (t + dy).coerceIn(0f, b - minSize)
+                            }
+                            2 -> { // mid-left
+                                l = (l + dx).coerceIn(0f, r - minSize)
+                            }
+                            3 -> { // mid-right
+                                r = (r + dx).coerceIn(l + minSize, 1f)
+                            }
+                            4 -> { // BL
+                                l = (l + dx).coerceIn(0f, r - minSize)
+                                b = (b + dy).coerceIn(t + minSize, 1f)
+                            }
+                            5 -> { // BR
+                                r = (r + dx).coerceIn(l + minSize, 1f)
+                                b = (b + dy).coerceIn(t + minSize, 1f)
+                            }
+                            6 -> { // move whole crop box
+                                val width = r - l
+                                val height = b - t
+                                val nl = (l + dx).coerceIn(0f, 1f - width)
+                                val nt = (t + dy).coerceIn(0f, 1f - height)
+                                l = nl
+                                t = nt
+                                r = nl + width
+                                b = nt + height
+                            }
+                        }
+                        onCropChange(l, t, r, b)
+                    },
+                )
+            },
+    )
 }
