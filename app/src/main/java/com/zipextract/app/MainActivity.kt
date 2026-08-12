@@ -156,6 +156,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStop() {
+        // Persist home/media snapshot while process is still alive so next open is instant.
+        viewModel.persistHomeCache()
+        super.onStop()
+    }
+
     override fun onResume() {
         super.onResume()
         viewModel.setStorageGranted(hasStorageAccess())

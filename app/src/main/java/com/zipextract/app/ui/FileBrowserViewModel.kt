@@ -18,6 +18,7 @@ import com.zipextract.app.data.FileItem
 import com.zipextract.app.data.FileOperations
 import com.zipextract.app.data.LibrarySubFilter
 import com.zipextract.app.data.MediaLibrary
+import com.zipextract.app.data.MediaLibraryCache
 import com.zipextract.app.data.OperationResult
 import com.zipextract.app.data.ProgressState
 import com.zipextract.app.data.SharedFileResolver
@@ -101,15 +102,23 @@ data class BrowserUiState(
 class FileBrowserViewModel(application: Application) : AndroidViewModel(application) {
 
     private val prefs = AppPreferences(application)
+    private val appContext = application.applicationContext
+    private val initialCachedPhotos = prefs.loadCachedRecentPhotos()
+    private val initialCachedCategories = prefs.loadCachedCategorySummaries()
+        .ifEmpty { FileOperations.getEmptyCategorySummaries() }
+    private val hasStartupCache =
+        prefs.hasHomeUiCache() || MediaLibraryCache.exists(application)
+
     private val _uiState = MutableStateFlow(
         BrowserUiState(
             favoritePaths = prefs.getFavoritePaths(),
             themeMode = prefs.getThemeMode(),
-            categorySummaries = prefs.loadCachedCategorySummaries()
-                .ifEmpty { FileOperations.getEmptyCategorySummaries() },
-            recentFiles = prefs.loadCachedRecentPhotos(),
+            categorySummaries = initialCachedCategories,
+            recentFiles = initialCachedPhotos,
+            storageInfo = prefs.loadCachedStorageInfo(),
             safBookmarks = prefs.getSafBookmarks(),
-            homeLoading = true,
+            // Skip loading spinner when we already have a previous session snapshot.
+            homeLoading = !hasStartupCache,
         )
     )
     val uiState: StateFlow<BrowserUiState> = _uiState.asStateFlow()
@@ -121,61 +130,70 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     private var searchJob: Job? = null
     private var libraryJob: Job? = null
     private var homeJob: Job? = null
+    private var softRefreshJob: Job? = null
     private var activeJob: Job? = null
     @Volatile
     private var mediaLibraryCache: MediaLibrary? = null
+    @Volatile
+    private var homeLoadedOnce: Boolean = false
 
     fun setStorageGranted(granted: Boolean) {
+        val wasGranted = _uiState.value.storageGranted
         _uiState.update { it.copy(storageGranted = granted) }
-        if (granted) {
-            if (_uiState.value.showHome) {
-                loadHomeData()
-            } else {
-                refresh()
+        if (!granted) return
+        if (_uiState.value.showHome) {
+            // Re-open / onResume: reuse cache; only full-load when first grant or never loaded.
+            if (!wasGranted || !homeLoadedOnce || mediaLibraryCache == null) {
+                loadHomeData(forceRefresh = false)
+            } else if (MediaLibraryCache.isSoftStale(appContext)) {
+                softRefreshHomeInBackground()
             }
+        } else if (!wasGranted) {
+            refresh()
         }
     }
 
     fun loadHomeData(forceRefresh: Boolean = false) {
         homeJob?.cancel()
         homeJob = viewModelScope.launch {
-            // Show category buttons + cached photos immediately (no wait for full scan).
-            val hasMemoryCache = mediaLibraryCache != null && !forceRefresh
-            if (!hasMemoryCache) {
+            val hasMemory = mediaLibraryCache != null && !forceRefresh
+            if (!hasMemory) {
                 val cachedCategories = prefs.loadCachedCategorySummaries()
                     .ifEmpty { FileOperations.getEmptyCategorySummaries() }
                 val cachedPhotos = prefs.loadCachedRecentPhotos()
-                val storage = withContext(Dispatchers.IO) { FileOperations.getStorageInfo() }
+                val cachedStorage = prefs.loadCachedStorageInfo()
+                val hasUiCache = prefs.hasHomeUiCache() ||
+                    cachedPhotos.isNotEmpty() ||
+                    MediaLibraryCache.exists(appContext)
                 _uiState.update { state ->
                     state.copy(
-                        homeLoading = cachedPhotos.isEmpty(),
-                        storageInfo = state.storageInfo ?: storage,
-                        categorySummaries = if (state.categorySummaries.isNotEmpty()) {
+                        homeLoading = !hasUiCache,
+                        storageInfo = state.storageInfo ?: cachedStorage,
+                        categorySummaries = if (state.categorySummaries.any { it.itemCount > 0 }) {
                             state.categorySummaries
                         } else {
                             cachedCategories
                         },
-                        recentFiles = if (state.recentFiles.isNotEmpty()) {
-                            state.recentFiles
-                        } else {
-                            cachedPhotos
-                        },
+                        recentFiles = state.recentFiles.ifEmpty { cachedPhotos },
                     )
                 }
+            } else {
+                _uiState.update { it.copy(homeLoading = false) }
             }
 
             val data = withContext(Dispatchers.IO) {
                 val library = obtainMediaLibrary(forceRefresh)
                 val categories = FileOperations.getCategorySummaries(library)
                 val recentFiles = library.images.take(12)
-                prefs.saveCategoryCounts(categories)
-                prefs.saveRecentPhotoPaths(recentFiles.map { it.path })
+                val storage = FileOperations.getStorageInfo()
+                persistHomeSnapshot(library, categories, recentFiles, storage)
                 HomeDashboardData(
-                    storageInfo = FileOperations.getStorageInfo(),
+                    storageInfo = storage,
                     categories = categories,
                     recentFiles = recentFiles,
                 )
             }
+            homeLoadedOnce = true
             _uiState.update {
                 it.copy(
                     homeLoading = false,
@@ -184,7 +202,62 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     recentFiles = data.recentFiles,
                 )
             }
+
+            // If we restored from disk and it's getting old, quietly rescan without spinner.
+            if (!forceRefresh && MediaLibraryCache.isSoftStale(appContext)) {
+                softRefreshHomeInBackground()
+            }
         }
+    }
+
+    /** Flush home/media cache to disk so the next cold start opens instantly. */
+    fun persistHomeCache() {
+        val library = mediaLibraryCache ?: return
+        val state = _uiState.value
+        viewModelScope.launch(Dispatchers.IO) {
+            persistHomeSnapshot(
+                library = library,
+                categories = state.categorySummaries.ifEmpty {
+                    FileOperations.getCategorySummaries(library)
+                },
+                recentFiles = state.recentFiles.ifEmpty { library.images.take(12) },
+                storage = state.storageInfo ?: FileOperations.getStorageInfo(),
+            )
+        }
+    }
+
+    private fun softRefreshHomeInBackground() {
+        if (softRefreshJob?.isActive == true) return
+        softRefreshJob = viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val library = FileOperations.scanMediaLibrary().also { mediaLibraryCache = it }
+                val categories = FileOperations.getCategorySummaries(library)
+                val recentFiles = library.images.take(12)
+                val storage = FileOperations.getStorageInfo()
+                persistHomeSnapshot(library, categories, recentFiles, storage)
+                _uiState.update { state ->
+                    if (!state.showHome) state
+                    else state.copy(
+                        homeLoading = false,
+                        storageInfo = storage,
+                        categorySummaries = categories,
+                        recentFiles = recentFiles,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun persistHomeSnapshot(
+        library: MediaLibrary,
+        categories: List<CategorySummary>,
+        recentFiles: List<FileItem>,
+        storage: StorageInfo,
+    ) {
+        MediaLibraryCache.save(appContext, library)
+        prefs.saveCategoryCounts(categories)
+        prefs.saveRecentPhotoPaths(recentFiles.map { it.path })
+        prefs.saveStorageInfo(storage)
     }
 
     fun openCategory(category: FileCategory) {
@@ -295,12 +368,29 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     private fun obtainMediaLibrary(forceRefresh: Boolean): MediaLibrary {
         if (!forceRefresh) {
             mediaLibraryCache?.let { return it }
+            MediaLibraryCache.load(appContext)?.let { disk ->
+                mediaLibraryCache = disk
+                return disk
+            }
         }
         return FileOperations.scanMediaLibrary().also { mediaLibraryCache = it }
     }
 
     private fun invalidateMediaLibraryCache() {
         mediaLibraryCache = null
+    }
+
+    override fun onCleared() {
+        // Last chance flush before process teardown.
+        mediaLibraryCache?.let { library ->
+            runCatching {
+                MediaLibraryCache.save(appContext, library)
+                prefs.saveCategoryCounts(FileOperations.getCategorySummaries(library))
+                prefs.saveRecentPhotoPaths(library.images.take(12).map { it.path })
+                _uiState.value.storageInfo?.let { prefs.saveStorageInfo(it) }
+            }
+        }
+        super.onCleared()
     }
 
     fun updateSearchQuery(query: String) {

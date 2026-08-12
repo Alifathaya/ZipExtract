@@ -93,6 +93,28 @@ class AppPreferences(context: Context) {
         }
     }
 
+    fun hasHomeUiCache(): Boolean {
+        return prefs.contains(KEY_CATEGORY_COUNTS) ||
+            getCachedRecentPhotoPaths().isNotEmpty() ||
+            prefs.contains(KEY_STORAGE_INFO)
+    }
+
+    fun saveStorageInfo(info: StorageInfo) {
+        prefs.edit()
+            .putString(KEY_STORAGE_INFO, "${info.totalBytes}|${info.freeBytes}")
+            .apply()
+    }
+
+    fun loadCachedStorageInfo(): StorageInfo? {
+        val raw = prefs.getString(KEY_STORAGE_INFO, null) ?: return null
+        val parts = raw.split('|')
+        if (parts.size != 2) return null
+        val total = parts[0].toLongOrNull() ?: return null
+        val free = parts[1].toLongOrNull() ?: return null
+        if (total <= 0L) return null
+        return StorageInfo(totalBytes = total, freeBytes = free.coerceIn(0L, total))
+    }
+
     fun getSafBookmarks(): List<com.zipextract.app.data.cloud.SafBookmark> {
         val raw = prefs.getString(KEY_SAF_BOOKMARKS, "").orEmpty()
         if (raw.isBlank()) return emptyList()
@@ -114,6 +136,7 @@ class AppPreferences(context: Context) {
         private const val KEY_FAVORITES = "favorite_paths"
         private const val KEY_CATEGORY_COUNTS = "category_counts_v1"
         private const val KEY_RECENT_PHOTOS = "recent_photo_paths_v1"
+        private const val KEY_STORAGE_INFO = "storage_info_v1"
         private const val KEY_SAF_BOOKMARKS = "saf_bookmarks_v1"
     }
 }
