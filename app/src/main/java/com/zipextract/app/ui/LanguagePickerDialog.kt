@@ -7,9 +7,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Translate
@@ -42,6 +45,7 @@ fun LanguagePickerDialog(
     dismissible: Boolean = true,
 ) {
     var draft by remember(selected) { mutableStateOf(selected) }
+    val listScroll = rememberScrollState()
 
     AlertDialog(
         onDismissRequest = {
@@ -50,6 +54,7 @@ fun LanguagePickerDialog(
         properties = DialogProperties(
             dismissOnBackPress = dismissible,
             dismissOnClickOutside = dismissible,
+            usePlatformDefaultWidth = true,
         ),
         icon = { Icon(Icons.Default.Translate, contentDescription = null) },
         title = {
@@ -59,19 +64,27 @@ fun LanguagePickerDialog(
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column {
                 Text(
                     text = stringResource(R.string.language_subtitle),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(4.dp))
-                AppLanguage.entries.forEach { language ->
-                    LanguageOptionRow(
-                        label = stringResource(language.labelRes),
-                        selected = draft == language,
-                        onClick = { draft = language },
-                    )
+                Spacer(Modifier.height(8.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 360.dp)
+                        .verticalScroll(listScroll),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    AppLanguage.entries.forEach { language ->
+                        LanguageOptionRow(
+                            label = stringResource(language.labelRes),
+                            selected = draft == language,
+                            onClick = { draft = language },
+                        )
+                    }
                 }
             }
         },

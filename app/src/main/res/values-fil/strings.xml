@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FileNest</string>
+
+    <string name="app_tagline">Madaling pamahalaan ang mga file at archive</string>
+    <string name="language">Wika</string>
+    <string name="language_title">Pumili ng wika</string>
+    <string name="language_subtitle">Pumili ng wika para sa FileNest. Maaari mo itong baguhin anumang oras mula sa menu.</string>
+    <string name="language_system">Sundin ang system</string>
+    <string name="continue_label">Magpatuloy</string>
+    <string name="cancel">Kanselahin</string>
+    <string name="save">I-save</string>
+    <string name="refresh">I-refresh</string>
+    <string name="menu">Menu</string>
+    <string name="back">Bumalik</string>
+    <string name="search">Maghanap</string>
+    <string name="search_files_hint">Maghanap ng file…</string>
+    <string name="clear_search">I-clear ang paghahanap</string>
+    <string name="cloud">Cloud</string>
+    <string name="favorites">Mga Paborito</string>
+    <string name="all_files">Lahat</string>
+    <string name="zips">ZIP</string>
+    <string name="view_all">Tingnan lahat</string>
+    <string name="recent_photos">Mga kamakailang larawan</string>
+    <string name="categories">Mga Kategorya</string>
+    <string name="storage">Storage</string>
+    <string name="storage_calculating">Kinakalkula ang kapasidad…</string>
+    <string name="storage_available">%1$s available</string>
+    <string name="no_recent_photos">Wala pang kamakailang larawan</string>
+    <string name="search_no_results">Walang resulta</string>
+    <string name="search_min_chars">Mag-type ng hindi bababa sa 2 character</string>
+    <string name="searching">Naghahanap…</string>
+    <string name="permission_title">Kailangan ang pahintulot sa storage</string>
+    <string name="permission_body">Kailangan ng FileNest ng access sa lahat ng file para ipakita, buksan, at pamahalaan ang mga file sa device na ito.</string>
+    <string name="permission_action">Bigyan ng pahintulot</string>
+    <string name="theme">Tema</string>
+    <string name="theme_system">System</string>
+    <string name="theme_light">Maliwanag</string>
+    <string name="theme_dark">Madilim</string>
+    <string name="theme_with_label">Tema: %1$s</string>
+    <string name="category_downloads">Mga Download</string>
+    <string name="category_downloads_sub">Mga na-download na file</string>
+    <string name="category_images">Mga Larawan</string>
+    <string name="category_images_sub">Mga litrato at imahe</string>
+    <string name="category_videos">Mga Video</string>
+    <string name="category_videos_sub">Mga pelikula at recording</string>
+    <string name="category_documents">Mga Dokumento</string>
+    <string name="category_documents_sub">PDF, Word, Excel</string>
+    <string name="category_archives">ZIP</string>
+    <string name="category_archives_sub">Mga ZIP at archive</string>
+    <string name="category_apps">Mga App</string>
+    <string name="category_apps_sub">Mga APK at installer</string>
+    <string name="category_others">Iba pa</string>
+    <string name="category_others_sub">Musika at iba pang file</string>
+    <string name="items_count">%1$d item</string>
+    <string name="opening_cloud">Binubuksan ang file, maghintay…</string>
+    <string name="cloud_open_failed">Hindi mabuksan ang cloud file</string>
+    <string name="cloud_busy">Binubuksan ang file, maghintay…</string>
+    <string name="categories_hint">Pumili ng uri ng file na bubuksan</string>
+    <string name="storage_internal">Internal storage</string>
+    <string name="storage_used_of">%1$s ang ginamit sa %2$s</string>
+    <string name="search_results">Mga resulta ng paghahanap</string>
+    <string name="search_none_found">Walang nahanap na file</string>
+    <string name="language_menu">Wika</string>
+
+    <string name="language_indonesian" translatable="false">Bahasa Indonesia</string>
+    <string name="language_english" translatable="false">English</string>
+    <string name="language_malay" translatable="false">Bahasa Melayu</string>
+    <string name="language_arabic" translatable="false">العربية</string>
+    <string name="language_chinese_simplified" translatable="false">简体中文</string>
+    <string name="language_chinese_traditional" translatable="false">繁體中文</string>
+    <string name="language_hindi" translatable="false">हिन्दी</string>
+    <string name="language_spanish" translatable="false">Español</string>
+    <string name="language_portuguese" translatable="false">Português</string>
+    <string name="language_french" translatable="false">Français</string>
+    <string name="language_german" translatable="false">Deutsch</string>
+    <string name="language_russian" translatable="false">Русский</string>
+    <string name="language_japanese" translatable="false">日本語</string>
+    <string name="language_korean" translatable="false">한국어</string>
+    <string name="language_turkish" translatable="false">Türkçe</string>
+    <string name="language_thai" translatable="false">ไทย</string>
+    <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
+    <string name="language_filipino" translatable="false">Filipino</string>
+</resources>

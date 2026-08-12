@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FileNest</string>
+
+    <string name="app_tagline">轻松管理文件与压缩包</string>
+    <string name="language">语言</string>
+    <string name="language_title">选择语言</string>
+    <string name="language_subtitle">为 FileNest 选择语言。可随时在菜单中更改。</string>
+    <string name="language_system">跟随系统</string>
+    <string name="continue_label">继续</string>
+    <string name="cancel">取消</string>
+    <string name="save">保存</string>
+    <string name="refresh">刷新</string>
+    <string name="menu">菜单</string>
+    <string name="back">返回</string>
+    <string name="search">搜索</string>
+    <string name="search_files_hint">搜索文件…</string>
+    <string name="clear_search">清除搜索</string>
+    <string name="cloud">云端</string>
+    <string name="favorites">收藏</string>
+    <string name="all_files">全部</string>
+    <string name="zips">ZIP</string>
+    <string name="view_all">查看全部</string>
+    <string name="recent_photos">最近照片</string>
+    <string name="categories">分类</string>
+    <string name="storage">存储</string>
+    <string name="storage_calculating">正在计算容量…</string>
+    <string name="storage_available">可用 %1$s</string>
+    <string name="no_recent_photos">暂无最近照片</string>
+    <string name="search_no_results">无结果</string>
+    <string name="search_min_chars">请至少输入 2 个字符</string>
+    <string name="searching">正在搜索…</string>
+    <string name="permission_title">需要存储权限</string>
+    <string name="permission_body">FileNest 需要所有文件访问权限，才能在此设备上显示、打开和管理文件。</string>
+    <string name="permission_action">授予权限</string>
+    <string name="theme">主题</string>
+    <string name="theme_system">系统</string>
+    <string name="theme_light">浅色</string>
+    <string name="theme_dark">深色</string>
+    <string name="theme_with_label">主题：%1$s</string>
+    <string name="category_downloads">下载</string>
+    <string name="category_downloads_sub">已下载文件</string>
+    <string name="category_images">图片</string>
+    <string name="category_images_sub">照片与图片</string>
+    <string name="category_videos">视频</string>
+    <string name="category_videos_sub">影片与录像</string>
+    <string name="category_documents">文档</string>
+    <string name="category_documents_sub">PDF、Word、Excel</string>
+    <string name="category_archives">ZIP</string>
+    <string name="category_archives_sub">ZIP 与压缩文件</string>
+    <string name="category_apps">应用</string>
+    <string name="category_apps_sub">APK 与安装包</string>
+    <string name="category_others">其他</string>
+    <string name="category_others_sub">音乐与其他文件</string>
+    <string name="items_count">%1$d 项</string>
+    <string name="opening_cloud">正在打开文件，请稍候…</string>
+    <string name="cloud_open_failed">无法打开云文件</string>
+    <string name="cloud_busy">正在打开文件，请稍候…</string>
+    <string name="categories_hint">选择要打开的文件类型</string>
+    <string name="storage_internal">内部存储</string>
+    <string name="storage_used_of">已用 %1$s / 共 %2$s</string>
+    <string name="search_results">搜索结果</string>
+    <string name="search_none_found">未找到文件</string>
+    <string name="language_menu">语言</string>
+
+    <string name="language_indonesian" translatable="false">Bahasa Indonesia</string>
+    <string name="language_english" translatable="false">English</string>
+    <string name="language_malay" translatable="false">Bahasa Melayu</string>
+    <string name="language_arabic" translatable="false">العربية</string>
+    <string name="language_chinese_simplified" translatable="false">简体中文</string>
+    <string name="language_chinese_traditional" translatable="false">繁體中文</string>
+    <string name="language_hindi" translatable="false">हिन्दी</string>
+    <string name="language_spanish" translatable="false">Español</string>
+    <string name="language_portuguese" translatable="false">Português</string>
+    <string name="language_french" translatable="false">Français</string>
+    <string name="language_german" translatable="false">Deutsch</string>
+    <string name="language_russian" translatable="false">Русский</string>
+    <string name="language_japanese" translatable="false">日本語</string>
+    <string name="language_korean" translatable="false">한국어</string>
+    <string name="language_turkish" translatable="false">Türkçe</string>
+    <string name="language_thai" translatable="false">ไทย</string>
+    <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
+    <string name="language_filipino" translatable="false">Filipino</string>
+</resources>

@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FileNest</string>
+
+    <string name="app_tagline">Dosya ve arşivleri kolayca yönetin</string>
+    <string name="language">Dil</string>
+    <string name="language_title">Dil seçin</string>
+    <string name="language_subtitle">FileNest için bir dil seçin. İstediğiniz zaman menüden değiştirebilirsiniz.</string>
+    <string name="language_system">Sistemi takip et</string>
+    <string name="continue_label">Devam</string>
+    <string name="cancel">İptal</string>
+    <string name="save">Kaydet</string>
+    <string name="refresh">Yenile</string>
+    <string name="menu">Menü</string>
+    <string name="back">Geri</string>
+    <string name="search">Ara</string>
+    <string name="search_files_hint">Dosya ara…</string>
+    <string name="clear_search">Aramayı temizle</string>
+    <string name="cloud">Bulut</string>
+    <string name="favorites">Favoriler</string>
+    <string name="all_files">Tümü</string>
+    <string name="zips">ZIP</string>
+    <string name="view_all">Tümünü gör</string>
+    <string name="recent_photos">Son fotoğraflar</string>
+    <string name="categories">Kategoriler</string>
+    <string name="storage">Depolama</string>
+    <string name="storage_calculating">Kapasite hesaplanıyor…</string>
+    <string name="storage_available">%1$s kullanılabilir</string>
+    <string name="no_recent_photos">Henüz son fotoğraf yok</string>
+    <string name="search_no_results">Sonuç yok</string>
+    <string name="search_min_chars">En az 2 karakter yazın</string>
+    <string name="searching">Aranıyor…</string>
+    <string name="permission_title">Depolama izni gerekli</string>
+    <string name="permission_body">FileNest’in bu cihazda dosyaları göstermek, açmak ve yönetmek için tüm dosyalara erişmesi gerekir.</string>
+    <string name="permission_action">İzin ver</string>
+    <string name="theme">Tema</string>
+    <string name="theme_system">Sistem</string>
+    <string name="theme_light">Açık</string>
+    <string name="theme_dark">Koyu</string>
+    <string name="theme_with_label">Tema: %1$s</string>
+    <string name="category_downloads">İndirilenler</string>
+    <string name="category_downloads_sub">İndirilen dosyalar</string>
+    <string name="category_images">Görseller</string>
+    <string name="category_images_sub">Fotoğraflar ve görseller</string>
+    <string name="category_videos">Videolar</string>
+    <string name="category_videos_sub">Filmler ve kayıtlar</string>
+    <string name="category_documents">Belgeler</string>
+    <string name="category_documents_sub">PDF, Word, Excel</string>
+    <string name="category_archives">ZIP</string>
+    <string name="category_archives_sub">ZIP ve arşiv dosyaları</string>
+    <string name="category_apps">Uygulamalar</string>
+    <string name="category_apps_sub">APK ve kurulum dosyaları</string>
+    <string name="category_others">Diğer</string>
+    <string name="category_others_sub">Müzik ve diğer dosyalar</string>
+    <string name="items_count">%1$d öğe</string>
+    <string name="opening_cloud">Dosya açılıyor, lütfen bekleyin…</string>
+    <string name="cloud_open_failed">Bulut dosyası açılamadı</string>
+    <string name="cloud_busy">Dosya açılıyor, lütfen bekleyin…</string>
+    <string name="categories_hint">Açılacak dosya türünü seçin</string>
+    <string name="storage_internal">Dahili depolama</string>
+    <string name="storage_used_of">%2$s içinden %1$s kullanıldı</string>
+    <string name="search_results">Arama sonuçları</string>
+    <string name="search_none_found">Dosya bulunamadı</string>
+    <string name="language_menu">Dil</string>
+
+    <string name="language_indonesian" translatable="false">Bahasa Indonesia</string>
+    <string name="language_english" translatable="false">English</string>
+    <string name="language_malay" translatable="false">Bahasa Melayu</string>
+    <string name="language_arabic" translatable="false">العربية</string>
+    <string name="language_chinese_simplified" translatable="false">简体中文</string>
+    <string name="language_chinese_traditional" translatable="false">繁體中文</string>
+    <string name="language_hindi" translatable="false">हिन्दी</string>
+    <string name="language_spanish" translatable="false">Español</string>
+    <string name="language_portuguese" translatable="false">Português</string>
+    <string name="language_french" translatable="false">Français</string>
+    <string name="language_german" translatable="false">Deutsch</string>
+    <string name="language_russian" translatable="false">Русский</string>
+    <string name="language_japanese" translatable="false">日本語</string>
+    <string name="language_korean" translatable="false">한국어</string>
+    <string name="language_turkish" translatable="false">Türkçe</string>
+    <string name="language_thai" translatable="false">ไทย</string>
+    <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
+    <string name="language_filipino" translatable="false">Filipino</string>
+</resources>
