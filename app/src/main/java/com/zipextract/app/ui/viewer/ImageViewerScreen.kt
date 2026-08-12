@@ -127,7 +127,7 @@ fun ImageViewerScreen(
                 modifier = Modifier.fillMaxSize(),
             ) {
                 SubcomposeAsyncImage(
-                    model = file,
+                    model = imageRequest,
                     contentDescription = file.name,
                     contentScale = ContentScale.Fit,
                     loading = {
