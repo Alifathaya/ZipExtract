@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -51,6 +52,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -97,6 +99,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
@@ -104,8 +107,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
-import coil.request.ImageRequest
-import coil.request.videoFrameMillis
 import com.zipextract.app.R
 import com.zipextract.app.data.AppLanguage
 import com.zipextract.app.data.ClipboardMode
@@ -115,6 +116,7 @@ import com.zipextract.app.data.FileCategory
 import com.zipextract.app.data.FileItem
 import com.zipextract.app.data.LibrarySubFilter
 import com.zipextract.app.data.ThemeMode
+import com.zipextract.app.data.VideoThumbnailLoader
 import com.zipextract.app.data.cloud.SafCloudAccess
 import com.zipextract.app.ui.viewer.ExtractZipScreen
 import com.zipextract.app.ui.viewer.ImageViewerScreen
@@ -994,13 +996,24 @@ private fun VideoThumbnailCell(
     onLongClick: () -> Unit,
     onToggleFavorite: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val thumbRequest = remember(item.path, item.sizeBytes, item.lastModified) {
-        ImageRequest.Builder(context)
-            .data(item.file)
-            .videoFrameMillis(1_000L)
-            .crossfade(true)
-            .build()
+    var bitmap by remember(item.path, item.sizeBytes, item.lastModified) {
+        mutableStateOf(VideoThumbnailLoader.peek(item.file))
+    }
+    var failed by remember(item.path, item.sizeBytes, item.lastModified) {
+        mutableStateOf(false)
+    }
+
+    LaunchedEffect(item.path, item.sizeBytes, item.lastModified) {
+        if (bitmap != null) return@LaunchedEffect
+        val loaded = withContext(Dispatchers.IO) {
+            runCatching { VideoThumbnailLoader.load(item.file) }.getOrNull()
+        }
+        if (loaded == null) {
+            failed = true
+        } else {
+            bitmap = loaded
+            failed = false
+        }
     }
 
     Box(
@@ -1010,22 +1023,16 @@ private fun VideoThumbnailCell(
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
-        SubcomposeAsyncImage(
-            model = thumbRequest,
-            contentDescription = item.name,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop,
-            loading = {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator(modifier = Modifier.size(22.dp))
-                }
-            },
-            error = {
+        when {
+            bitmap != null -> {
+                Image(
+                    bitmap = bitmap!!.asImageBitmap(),
+                    contentDescription = item.name,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+            failed -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
@@ -1037,18 +1044,27 @@ private fun VideoThumbnailCell(
                         modifier = Modifier.size(32.dp),
                     )
                 }
-            },
-            success = {
-                SubcomposeAsyncImageContent()
-            },
-        )
+            }
+            else -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp))
+                }
+            }
+        }
 
         // Dark scrim + play badge so video thumbs are distinct from photos.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.18f)),
-        )
+        if (bitmap != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.18f)),
+            )
+        }
         Icon(
             imageVector = Icons.Default.PlayCircle,
             contentDescription = null,
