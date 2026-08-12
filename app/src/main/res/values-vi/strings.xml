@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FileNest</string>
+
+    <string name="app_tagline">Quản lý tệp và kho lưu trữ dễ dàng</string>
+    <string name="language">Ngôn ngữ</string>
+    <string name="language_title">Chọn ngôn ngữ</string>
+    <string name="language_subtitle">Chọn ngôn ngữ cho FileNest. Bạn có thể đổi bất cứ lúc nào từ menu.</string>
+    <string name="language_system">Theo hệ thống</string>
+    <string name="continue_label">Tiếp tục</string>
+    <string name="cancel">Hủy</string>
+    <string name="save">Lưu</string>
+    <string name="refresh">Làm mới</string>
+    <string name="menu">Menu</string>
+    <string name="back">Quay lại</string>
+    <string name="search">Tìm kiếm</string>
+    <string name="search_files_hint">Tìm tệp…</string>
+    <string name="clear_search">Xóa tìm kiếm</string>
+    <string name="cloud">Đám mây</string>
+    <string name="favorites">Yêu thích</string>
+    <string name="all_files">Tất cả</string>
+    <string name="zips">ZIP</string>
+    <string name="view_all">Xem tất cả</string>
+    <string name="recent_photos">Ảnh gần đây</string>
+    <string name="categories">Danh mục</string>
+    <string name="storage">Bộ nhớ</string>
+    <string name="storage_calculating">Đang tính dung lượng…</string>
+    <string name="storage_available">Còn trống %1$s</string>
+    <string name="no_recent_photos">Chưa có ảnh gần đây</string>
+    <string name="search_no_results">Không có kết quả</string>
+    <string name="search_min_chars">Nhập ít nhất 2 ký tự</string>
+    <string name="searching">Đang tìm…</string>
+    <string name="permission_title">Cần quyền bộ nhớ</string>
+    <string name="permission_body">FileNest cần quyền truy cập mọi tệp để hiển thị, mở và quản lý tệp trên thiết bị này.</string>
+    <string name="permission_action">Cấp quyền</string>
+    <string name="theme">Giao diện</string>
+    <string name="theme_system">Hệ thống</string>
+    <string name="theme_light">Sáng</string>
+    <string name="theme_dark">Tối</string>
+    <string name="theme_with_label">Giao diện: %1$s</string>
+    <string name="category_downloads">Tải xuống</string>
+    <string name="category_downloads_sub">Tệp đã tải</string>
+    <string name="category_images">Hình ảnh</string>
+    <string name="category_images_sub">Ảnh và hình</string>
+    <string name="category_videos">Video</string>
+    <string name="category_videos_sub">Phim và bản ghi</string>
+    <string name="category_documents">Tài liệu</string>
+    <string name="category_documents_sub">PDF, Word, Excel</string>
+    <string name="category_archives">ZIP</string>
+    <string name="category_archives_sub">Tệp ZIP và lưu trữ</string>
+    <string name="category_apps">Ứng dụng</string>
+    <string name="category_apps_sub">Tệp APK và trình cài đặt</string>
+    <string name="category_others">Khác</string>
+    <string name="category_others_sub">Nhạc và tệp khác</string>
+    <string name="items_count">%1$d mục</string>
+    <string name="opening_cloud">Đang mở tệp, vui lòng chờ…</string>
+    <string name="cloud_open_failed">Không mở được tệp đám mây</string>
+    <string name="cloud_busy">Đang mở tệp, vui lòng chờ…</string>
+    <string name="categories_hint">Chọn loại tệp để mở</string>
+    <string name="storage_internal">Bộ nhớ trong</string>
+    <string name="storage_used_of">Đã dùng %1$s / %2$s</string>
+    <string name="search_results">Kết quả tìm kiếm</string>
+    <string name="search_none_found">Không tìm thấy tệp</string>
+    <string name="language_menu">Ngôn ngữ</string>
+
+    <string name="language_indonesian" translatable="false">Bahasa Indonesia</string>
+    <string name="language_english" translatable="false">English</string>
+    <string name="language_malay" translatable="false">Bahasa Melayu</string>
+    <string name="language_arabic" translatable="false">العربية</string>
+    <string name="language_chinese_simplified" translatable="false">简体中文</string>
+    <string name="language_chinese_traditional" translatable="false">繁體中文</string>
+    <string name="language_hindi" translatable="false">हिन्दी</string>
+    <string name="language_spanish" translatable="false">Español</string>
+    <string name="language_portuguese" translatable="false">Português</string>
+    <string name="language_french" translatable="false">Français</string>
+    <string name="language_german" translatable="false">Deutsch</string>
+    <string name="language_russian" translatable="false">Русский</string>
+    <string name="language_japanese" translatable="false">日本語</string>
+    <string name="language_korean" translatable="false">한국어</string>
+    <string name="language_turkish" translatable="false">Türkçe</string>
+    <string name="language_thai" translatable="false">ไทย</string>
+    <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
+    <string name="language_filipino" translatable="false">Filipino</string>
+</resources>

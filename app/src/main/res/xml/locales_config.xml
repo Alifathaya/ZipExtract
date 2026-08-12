@@ -2,4 +2,20 @@
 <locale-config xmlns:android="http://schemas.android.com/apk/res/android">
     <locale android:name="in" />
     <locale android:name="en" />
+    <locale android:name="ms" />
+    <locale android:name="ar" />
+    <locale android:name="zh-CN" />
+    <locale android:name="zh-TW" />
+    <locale android:name="hi" />
+    <locale android:name="es" />
+    <locale android:name="pt" />
+    <locale android:name="fr" />
+    <locale android:name="de" />
+    <locale android:name="ru" />
+    <locale android:name="ja" />
+    <locale android:name="ko" />
+    <locale android:name="tr" />
+    <locale android:name="th" />
+    <locale android:name="vi" />
+    <locale android:name="fil" />
 </locale-config>

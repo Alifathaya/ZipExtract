@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FileNest</string>
+
+    <string name="app_tagline">Dateien und Archive einfach verwalten</string>
+    <string name="language">Sprache</string>
+    <string name="language_title">Sprache wählen</string>
+    <string name="language_subtitle">Wähle eine Sprache für FileNest. Du kannst sie jederzeit im Menü ändern.</string>
+    <string name="language_system">System folgen</string>
+    <string name="continue_label">Weiter</string>
+    <string name="cancel">Abbrechen</string>
+    <string name="save">Speichern</string>
+    <string name="refresh">Aktualisieren</string>
+    <string name="menu">Menü</string>
+    <string name="back">Zurück</string>
+    <string name="search">Suchen</string>
+    <string name="search_files_hint">Dateien suchen…</string>
+    <string name="clear_search">Suche löschen</string>
+    <string name="cloud">Cloud</string>
+    <string name="favorites">Favoriten</string>
+    <string name="all_files">Alle</string>
+    <string name="zips">ZIP</string>
+    <string name="view_all">Alle anzeigen</string>
+    <string name="recent_photos">Aktuelle Fotos</string>
+    <string name="categories">Kategorien</string>
+    <string name="storage">Speicher</string>
+    <string name="storage_calculating">Kapazität wird berechnet…</string>
+    <string name="storage_available">%1$s verfügbar</string>
+    <string name="no_recent_photos">Noch keine aktuellen Fotos</string>
+    <string name="search_no_results">Keine Ergebnisse</string>
+    <string name="search_min_chars">Mindestens 2 Zeichen eingeben</string>
+    <string name="searching">Suche läuft…</string>
+    <string name="permission_title">Speicherberechtigung erforderlich</string>
+    <string name="permission_body">FileNest benötigt Zugriff auf alle Dateien, um Dateien auf diesem Gerät anzuzeigen, zu öffnen und zu verwalten.</string>
+    <string name="permission_action">Berechtigung erteilen</string>
+    <string name="theme">Design</string>
+    <string name="theme_system">System</string>
+    <string name="theme_light">Hell</string>
+    <string name="theme_dark">Dunkel</string>
+    <string name="theme_with_label">Design: %1$s</string>
+    <string name="category_downloads">Downloads</string>
+    <string name="category_downloads_sub">Heruntergeladene Dateien</string>
+    <string name="category_images">Bilder</string>
+    <string name="category_images_sub">Fotos &amp; Bilder</string>
+    <string name="category_videos">Videos</string>
+    <string name="category_videos_sub">Filme &amp; Aufnahmen</string>
+    <string name="category_documents">Dokumente</string>
+    <string name="category_documents_sub">PDF, Word, Excel</string>
+    <string name="category_archives">ZIP</string>
+    <string name="category_archives_sub">ZIP- &amp; Archivdateien</string>
+    <string name="category_apps">Apps</string>
+    <string name="category_apps_sub">APK- &amp; Installationsdateien</string>
+    <string name="category_others">Sonstiges</string>
+    <string name="category_others_sub">Musik &amp; andere Dateien</string>
+    <string name="items_count">%1$d Elemente</string>
+    <string name="opening_cloud">Datei wird geöffnet, bitte warten…</string>
+    <string name="cloud_open_failed">Clouddatei konnte nicht geöffnet werden</string>
+    <string name="cloud_busy">Datei wird geöffnet, bitte warten…</string>
+    <string name="categories_hint">Dateityp zum Öffnen wählen</string>
+    <string name="storage_internal">Interner Speicher</string>
+    <string name="storage_used_of">%1$s von %2$s verwendet</string>
+    <string name="search_results">Suchergebnisse</string>
+    <string name="search_none_found">Keine Dateien gefunden</string>
+    <string name="language_menu">Sprache</string>
+
+    <string name="language_indonesian" translatable="false">Bahasa Indonesia</string>
+    <string name="language_english" translatable="false">English</string>
+    <string name="language_malay" translatable="false">Bahasa Melayu</string>
+    <string name="language_arabic" translatable="false">العربية</string>
+    <string name="language_chinese_simplified" translatable="false">简体中文</string>
+    <string name="language_chinese_traditional" translatable="false">繁體中文</string>
+    <string name="language_hindi" translatable="false">हिन्दी</string>
+    <string name="language_spanish" translatable="false">Español</string>
+    <string name="language_portuguese" translatable="false">Português</string>
+    <string name="language_french" translatable="false">Français</string>
+    <string name="language_german" translatable="false">Deutsch</string>
+    <string name="language_russian" translatable="false">Русский</string>
+    <string name="language_japanese" translatable="false">日本語</string>
+    <string name="language_korean" translatable="false">한국어</string>
+    <string name="language_turkish" translatable="false">Türkçe</string>
+    <string name="language_thai" translatable="false">ไทย</string>
+    <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
+    <string name="language_filipino" translatable="false">Filipino</string>
+</resources>

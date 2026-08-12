@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FileNest</string>
+
+    <string name="app_tagline">จัดการไฟล์และไฟล์บีบอัดได้ง่ายๆ</string>
+    <string name="language">ภาษา</string>
+    <string name="language_title">เลือกภาษา</string>
+    <string name="language_subtitle">เลือกภาษาสำหรับ FileNest คุณสามารถเปลี่ยนได้ทุกเมื่อจากเมนู</string>
+    <string name="language_system">ตามระบบ</string>
+    <string name="continue_label">ดำเนินการต่อ</string>
+    <string name="cancel">ยกเลิก</string>
+    <string name="save">บันทึก</string>
+    <string name="refresh">รีเฟรช</string>
+    <string name="menu">เมนู</string>
+    <string name="back">กลับ</string>
+    <string name="search">ค้นหา</string>
+    <string name="search_files_hint">ค้นหาไฟล์…</string>
+    <string name="clear_search">ล้างการค้นหา</string>
+    <string name="cloud">คลาวด์</string>
+    <string name="favorites">รายการโปรด</string>
+    <string name="all_files">ทั้งหมด</string>
+    <string name="zips">ZIP</string>
+    <string name="view_all">ดูทั้งหมด</string>
+    <string name="recent_photos">รูปภาพล่าสุด</string>
+    <string name="categories">หมวดหมู่</string>
+    <string name="storage">ที่เก็บข้อมูล</string>
+    <string name="storage_calculating">กำลังคำนวณความจุ…</string>
+    <string name="storage_available">ว่าง %1$s</string>
+    <string name="no_recent_photos">ยังไม่มีรูปภาพล่าสุด</string>
+    <string name="search_no_results">ไม่พบผลลัพธ์</string>
+    <string name="search_min_chars">พิมพ์อย่างน้อย 2 ตัวอักษร</string>
+    <string name="searching">กำลังค้นหา…</string>
+    <string name="permission_title">ต้องได้รับสิทธิ์ที่เก็บข้อมูล</string>
+    <string name="permission_body">FileNest ต้องการสิทธิ์เข้าถึงไฟล์ทั้งหมดเพื่อแสดง เปิด และจัดการไฟล์บนอุปกรณ์นี้</string>
+    <string name="permission_action">อนุญาต</string>
+    <string name="theme">ธีม</string>
+    <string name="theme_system">ระบบ</string>
+    <string name="theme_light">สว่าง</string>
+    <string name="theme_dark">มืด</string>
+    <string name="theme_with_label">ธีม: %1$s</string>
+    <string name="category_downloads">ดาวน์โหลด</string>
+    <string name="category_downloads_sub">ไฟล์ที่ดาวน์โหลด</string>
+    <string name="category_images">รูปภาพ</string>
+    <string name="category_images_sub">รูปภาพและภาพถ่าย</string>
+    <string name="category_videos">วิดีโอ</string>
+    <string name="category_videos_sub">ภาพยนตร์และการบันทึก</string>
+    <string name="category_documents">เอกสาร</string>
+    <string name="category_documents_sub">PDF, Word, Excel</string>
+    <string name="category_archives">ZIP</string>
+    <string name="category_archives_sub">ไฟล์ ZIP และไฟล์บีบอัด</string>
+    <string name="category_apps">แอป</string>
+    <string name="category_apps_sub">ไฟล์ APK และตัวติดตั้ง</string>
+    <string name="category_others">อื่นๆ</string>
+    <string name="category_others_sub">เพลงและไฟล์อื่นๆ</string>
+    <string name="items_count">%1$d รายการ</string>
+    <string name="opening_cloud">กำลังเปิดไฟล์ โปรดรอ…</string>
+    <string name="cloud_open_failed">เปิดไฟล์คลาวด์ไม่สำเร็จ</string>
+    <string name="cloud_busy">กำลังเปิดไฟล์ โปรดรอ…</string>
+    <string name="categories_hint">เลือกประเภทไฟล์ที่จะเปิด</string>
+    <string name="storage_internal">ที่เก็บข้อมูลภายใน</string>
+    <string name="storage_used_of">ใช้ไป %1$s จาก %2$s</string>
+    <string name="search_results">ผลการค้นหา</string>
+    <string name="search_none_found">ไม่พบไฟล์</string>
+    <string name="language_menu">ภาษา</string>
+
+    <string name="language_indonesian" translatable="false">Bahasa Indonesia</string>
+    <string name="language_english" translatable="false">English</string>
+    <string name="language_malay" translatable="false">Bahasa Melayu</string>
+    <string name="language_arabic" translatable="false">العربية</string>
+    <string name="language_chinese_simplified" translatable="false">简体中文</string>
+    <string name="language_chinese_traditional" translatable="false">繁體中文</string>
+    <string name="language_hindi" translatable="false">हिन्दी</string>
+    <string name="language_spanish" translatable="false">Español</string>
+    <string name="language_portuguese" translatable="false">Português</string>
+    <string name="language_french" translatable="false">Français</string>
+    <string name="language_german" translatable="false">Deutsch</string>
+    <string name="language_russian" translatable="false">Русский</string>
+    <string name="language_japanese" translatable="false">日本語</string>
+    <string name="language_korean" translatable="false">한국어</string>
+    <string name="language_turkish" translatable="false">Türkçe</string>
+    <string name="language_thai" translatable="false">ไทย</string>
+    <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
+    <string name="language_filipino" translatable="false">Filipino</string>
+</resources>

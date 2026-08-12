@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FileNest</string>
+
+    <string name="app_tagline">ファイルとアーカイブをかんたん管理</string>
+    <string name="language">言語</string>
+    <string name="language_title">言語を選択</string>
+    <string name="language_subtitle">FileNest の言語を選んでください。メニューからいつでも変更できます。</string>
+    <string name="language_system">システムに従う</string>
+    <string name="continue_label">続ける</string>
+    <string name="cancel">キャンセル</string>
+    <string name="save">保存</string>
+    <string name="refresh">更新</string>
+    <string name="menu">メニュー</string>
+    <string name="back">戻る</string>
+    <string name="search">検索</string>
+    <string name="search_files_hint">ファイルを検索…</string>
+    <string name="clear_search">検索をクリア</string>
+    <string name="cloud">クラウド</string>
+    <string name="favorites">お気に入り</string>
+    <string name="all_files">すべて</string>
+    <string name="zips">ZIP</string>
+    <string name="view_all">すべて表示</string>
+    <string name="recent_photos">最近の写真</string>
+    <string name="categories">カテゴリ</string>
+    <string name="storage">ストレージ</string>
+    <string name="storage_calculating">容量を計算中…</string>
+    <string name="storage_available">空き容量 %1$s</string>
+    <string name="no_recent_photos">最近の写真はまだありません</string>
+    <string name="search_no_results">結果なし</string>
+    <string name="search_min_chars">2文字以上入力してください</string>
+    <string name="searching">検索中…</string>
+    <string name="permission_title">ストレージの許可が必要です</string>
+    <string name="permission_body">この端末でファイルを表示・開く・管理するには、FileNest にすべてのファイルへのアクセスが必要です。</string>
+    <string name="permission_action">許可する</string>
+    <string name="theme">テーマ</string>
+    <string name="theme_system">システム</string>
+    <string name="theme_light">ライト</string>
+    <string name="theme_dark">ダーク</string>
+    <string name="theme_with_label">テーマ: %1$s</string>
+    <string name="category_downloads">ダウンロード</string>
+    <string name="category_downloads_sub">ダウンロードしたファイル</string>
+    <string name="category_images">画像</string>
+    <string name="category_images_sub">写真と画像</string>
+    <string name="category_videos">動画</string>
+    <string name="category_videos_sub">映画と録画</string>
+    <string name="category_documents">ドキュメント</string>
+    <string name="category_documents_sub">PDF、Word、Excel</string>
+    <string name="category_archives">ZIP</string>
+    <string name="category_archives_sub">ZIP とアーカイブ</string>
+    <string name="category_apps">アプリ</string>
+    <string name="category_apps_sub">APK とインストーラー</string>
+    <string name="category_others">その他</string>
+    <string name="category_others_sub">音楽とその他のファイル</string>
+    <string name="items_count">%1$d 件</string>
+    <string name="opening_cloud">ファイルを開いています。しばらくお待ちください…</string>
+    <string name="cloud_open_failed">クラウドファイルを開けませんでした</string>
+    <string name="cloud_busy">ファイルを開いています。しばらくお待ちください…</string>
+    <string name="categories_hint">開くファイルの種類を選択</string>
+    <string name="storage_internal">内部ストレージ</string>
+    <string name="storage_used_of">%2$s 中 %1$s 使用</string>
+    <string name="search_results">検索結果</string>
+    <string name="search_none_found">ファイルが見つかりません</string>
+    <string name="language_menu">言語</string>
+
+    <string name="language_indonesian" translatable="false">Bahasa Indonesia</string>
+    <string name="language_english" translatable="false">English</string>
+    <string name="language_malay" translatable="false">Bahasa Melayu</string>
+    <string name="language_arabic" translatable="false">العربية</string>
+    <string name="language_chinese_simplified" translatable="false">简体中文</string>
+    <string name="language_chinese_traditional" translatable="false">繁體中文</string>
+    <string name="language_hindi" translatable="false">हिन्दी</string>
+    <string name="language_spanish" translatable="false">Español</string>
+    <string name="language_portuguese" translatable="false">Português</string>
+    <string name="language_french" translatable="false">Français</string>
+    <string name="language_german" translatable="false">Deutsch</string>
+    <string name="language_russian" translatable="false">Русский</string>
+    <string name="language_japanese" translatable="false">日本語</string>
+    <string name="language_korean" translatable="false">한국어</string>
+    <string name="language_turkish" translatable="false">Türkçe</string>
+    <string name="language_thai" translatable="false">ไทย</string>
+    <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
+    <string name="language_filipino" translatable="false">Filipino</string>
+</resources>

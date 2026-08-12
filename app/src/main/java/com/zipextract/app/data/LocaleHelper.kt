@@ -6,10 +6,10 @@ import androidx.core.os.LocaleListCompat
 object LocaleHelper {
 
     fun apply(language: AppLanguage) {
-        val locales = when (language) {
-            AppLanguage.SYSTEM -> LocaleListCompat.getEmptyLocaleList()
-            AppLanguage.INDONESIAN -> LocaleListCompat.forLanguageTags("in")
-            AppLanguage.ENGLISH -> LocaleListCompat.forLanguageTags("en")
+        val locales = if (language == AppLanguage.SYSTEM || language.tag.isBlank()) {
+            LocaleListCompat.getEmptyLocaleList()
+        } else {
+            LocaleListCompat.forLanguageTags(language.tag)
         }
         AppCompatDelegate.setApplicationLocales(locales)
     }
