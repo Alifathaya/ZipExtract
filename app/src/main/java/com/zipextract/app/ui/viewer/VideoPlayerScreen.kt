@@ -186,6 +186,7 @@ fun VideoPlayerScreen(
                         )
                         useController = true
                         controllerShowTimeoutMs = 3_500
+                        keepScreenOn = true
                         setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                         this.player = player
                     }
