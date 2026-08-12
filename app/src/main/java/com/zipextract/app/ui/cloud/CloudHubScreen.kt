@@ -1,6 +1,8 @@
 package com.zipextract.app.ui.cloud
 
 import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
@@ -62,6 +64,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.common.api.ApiException
 import com.zipextract.app.data.FileActions
 import com.zipextract.app.data.cloud.CloudAuthState
@@ -205,18 +209,56 @@ fun CloudHubScreen(
     val driveSignInLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
-        if (result.resultCode != Activity.RESULT_OK) {
-            Toast.makeText(context, "Login Google dibatalkan", Toast.LENGTH_SHORT).show()
-            return@rememberLauncherForActivityResult
-        }
+        // Even on cancel, parse intent — DEVELOPER_ERROR (10) often returns RESULT_CANCELED.
         val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
         try {
             task.getResult(ApiException::class.java)
             refreshAuth()
             Toast.makeText(context, "Login Google Drive berhasil", Toast.LENGTH_SHORT).show()
         } catch (e: ApiException) {
-            Toast.makeText(context, "Login gagal: ${e.statusCode}", Toast.LENGTH_SHORT).show()
+            val message = when {
+                e.statusCode == 12501 -> "Login dibatalkan"
+                result.resultCode != Activity.RESULT_OK && e.statusCode == 4 ->
+                    "Login dibatalkan / belum pilih akun"
+                else -> driveClient.describeSignInError(e.statusCode)
+            }
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
             refreshAuth()
+        } catch (t: Throwable) {
+            if (result.resultCode != Activity.RESULT_OK) {
+                Toast.makeText(context, "Login Google dibatalkan", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, t.message ?: "Login gagal", Toast.LENGTH_LONG).show()
+            }
+            refreshAuth()
+        }
+    }
+
+    fun launchGoogleSignIn() {
+        val availability = GoogleApiAvailability.getInstance()
+        val code = availability.isGooglePlayServicesAvailable(context)
+        if (code != ConnectionResult.SUCCESS) {
+            val activity = context.findActivity()
+            if (activity != null && availability.isUserResolvableError(code)) {
+                availability.getErrorDialog(activity, code, 2404)?.show()
+            } else {
+                Toast.makeText(
+                    context,
+                    "Google Play Services tidak tersedia (kode $code)",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            return
+        }
+        Toast.makeText(context, "Membuka login Google…", Toast.LENGTH_SHORT).show()
+        runCatching {
+            driveSignInLauncher.launch(driveClient.signInIntent())
+        }.onFailure { err ->
+            Toast.makeText(
+                context,
+                "Tidak bisa membuka login Google: ${err.message ?: err.javaClass.simpleName}",
+                Toast.LENGTH_LONG,
+            ).show()
         }
     }
 
@@ -257,6 +299,193 @@ fun CloudHubScreen(
             contentPadding = PaddingValues(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            item {
+                SectionCard(title = "Google Drive", subtitle = "Login native & browse file") {
+                    when (val auth = authState) {
+                        is CloudAuthState.NeedsSetup,
+                        is CloudAuthState.SignedOut,
+                        -> {
+                            Button(
+                                onClick = { launchGoogleSignIn() },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Icon(Icons.Default.Login, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Login Google Drive")
+                            }
+                            val hint = driveClient.setupHintOrNull()
+                                ?: (auth as? CloudAuthState.NeedsSetup)?.message
+                            if (!hint.isNullOrBlank()) {
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    hint,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        is CloudAuthState.SignedIn -> {
+                            Text("Masuk sebagai ${auth.displayName ?: auth.email}")
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    driveClient.signOut {
+                                        refreshAuth()
+                                        driveState = DriveBrowseState()
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Icon(Icons.Default.Logout, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Keluar")
+                            }
+                        }
+                        is CloudAuthState.Error -> {
+                            Text(auth.message, color = MaterialTheme.colorScheme.error)
+                            Spacer(Modifier.height(8.dp))
+                            Button(
+                                onClick = { launchGoogleSignIn() },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("Coba login lagi")
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (authState is CloudAuthState.SignedIn) {
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (driveState.parentStack.isNotEmpty()) {
+                            IconButton(
+                                onClick = {
+                                    val stack = driveState.parentStack.toMutableList()
+                                    val parent = stack.removeLast()
+                                    driveState = driveState.copy(parentStack = stack)
+                                    refreshDrive(parent.first, parent.second)
+                                },
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Folder sebelumnya")
+                            }
+                        }
+                        Text(
+                            text = driveState.folderName,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (driveState.loading) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        }
+                    }
+                }
+
+                driveState.error?.let { err ->
+                    item {
+                        Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+
+                items(driveState.files, key = { "drive-${it.id}" }) { file ->
+                    CloudRow(
+                        item = file,
+                        onClick = {
+                            if (file.isFolder) {
+                                driveState = driveState.copy(
+                                    parentStack = driveState.parentStack +
+                                        (driveState.folderId to driveState.folderName),
+                                )
+                                refreshDrive(file.id, file.name)
+                            } else {
+                                busyMessage = "Mengunduh ${file.name}…"
+                                scope.launch {
+                                    val result = driveClient.downloadFile(file.id, file.name, file.mimeType)
+                                    busyMessage = null
+                                    result.fold(
+                                        onSuccess = { local -> onOpenImportedFile(local) },
+                                        onFailure = { e ->
+                                            Toast.makeText(
+                                                context,
+                                                e.message ?: "Gagal unduh",
+                                                Toast.LENGTH_LONG,
+                                            ).show()
+                                        },
+                                    )
+                                }
+                            }
+                        },
+                        trailing = {
+                            if (!file.isFolder) {
+                                IconButton(
+                                    onClick = {
+                                        busyMessage = "Mengunduh ${file.name}…"
+                                        scope.launch {
+                                            val result = driveClient.downloadFile(
+                                                file.id,
+                                                file.name,
+                                                file.mimeType,
+                                            )
+                                            busyMessage = null
+                                            result.fold(
+                                                onSuccess = { local ->
+                                                    FileActions.shareFile(context, local)
+                                                },
+                                                onFailure = { e ->
+                                                    Toast.makeText(
+                                                        context,
+                                                        e.message ?: "Gagal unduh",
+                                                        Toast.LENGTH_LONG,
+                                                    ).show()
+                                                },
+                                            )
+                                        }
+                                    },
+                                ) {
+                                    Icon(Icons.Default.CloudDownload, contentDescription = "Unduh & bagikan")
+                                }
+                            }
+                        },
+                    )
+                }
+
+                if (onExportLocalFile != null) {
+                    item {
+                        OutlinedButton(
+                            onClick = {
+                                val local = onExportLocalFile
+                                busyMessage = "Mengunggah ${local.name}…"
+                                scope.launch {
+                                    val result = driveClient.uploadFile(local, driveState.folderId)
+                                    busyMessage = null
+                                    result.fold(
+                                        onSuccess = {
+                                            Toast.makeText(context, "Terunggah ke Drive", Toast.LENGTH_SHORT).show()
+                                            refreshDrive()
+                                        },
+                                        onFailure = { e ->
+                                            Toast.makeText(
+                                                context,
+                                                e.message ?: "Upload gagal",
+                                                Toast.LENGTH_LONG,
+                                            ).show()
+                                        },
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Default.CloudUpload, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Unggah ${onExportLocalFile.name} ke folder ini")
+                        }
+                    }
+                }
+            }
+
+            item { HorizontalDivider() }
+
             item {
                 SectionCard(
                     title = "Cloud via sistem (SAF)",
@@ -387,160 +616,6 @@ fun CloudHubScreen(
                 }
             }
 
-            item { HorizontalDivider() }
-
-            item {
-                SectionCard(title = "Google Drive", subtitle = "Login native & browse file") {
-                    when (val auth = authState) {
-                        is CloudAuthState.NeedsSetup -> {
-                            Text(auth.message, style = MaterialTheme.typography.bodySmall)
-                        }
-                        is CloudAuthState.SignedOut -> {
-                            Button(
-                                onClick = { driveSignInLauncher.launch(driveClient.signInIntent()) },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Icon(Icons.Default.Login, null, Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Login Google Drive")
-                            }
-                        }
-                        is CloudAuthState.SignedIn -> {
-                            Text("Masuk sebagai ${auth.displayName ?: auth.email}")
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedButton(
-                                onClick = {
-                                    driveClient.signOut {
-                                        refreshAuth()
-                                        driveState = DriveBrowseState()
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Icon(Icons.Default.Logout, null, Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Keluar")
-                            }
-                        }
-                        is CloudAuthState.Error -> Text(auth.message, color = MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
-
-            if (authState is CloudAuthState.SignedIn) {
-                item {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (driveState.parentStack.isNotEmpty()) {
-                            IconButton(
-                                onClick = {
-                                    val stack = driveState.parentStack.toMutableList()
-                                    val parent = stack.removeLast()
-                                    driveState = driveState.copy(parentStack = stack)
-                                    refreshDrive(parent.first, parent.second)
-                                },
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Folder sebelumnya")
-                            }
-                        }
-                        Text(
-                            text = driveState.folderName,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                }
-
-                if (driveState.loading) {
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(24.dp),
-                            horizontalArrangement = Arrangement.Center,
-                        ) { CircularProgressIndicator() }
-                    }
-                }
-
-                driveState.error?.let { err ->
-                    item { Text(err, color = MaterialTheme.colorScheme.error) }
-                }
-
-                items(driveState.files, key = { it.id }) { file ->
-                    CloudRow(
-                        item = file,
-                        onClick = {
-                            if (file.isFolder) {
-                                val stack = driveState.parentStack + (driveState.folderId to driveState.folderName)
-                                driveState = driveState.copy(parentStack = stack)
-                                refreshDrive(file.id, file.name)
-                            } else {
-                                busyMessage = "Mengunduh ${file.name}…"
-                                scope.launch {
-                                    val result = driveClient.downloadFile(file.id, file.name, file.mimeType)
-                                    busyMessage = null
-                                    result.fold(
-                                        onSuccess = { local ->
-                                            Toast.makeText(context, "Diunduh: ${local.name}", Toast.LENGTH_SHORT).show()
-                                            onOpenImportedFile(local)
-                                        },
-                                        onFailure = { err ->
-                                            Toast.makeText(context, err.message ?: "Gagal unduh", Toast.LENGTH_SHORT).show()
-                                        },
-                                    )
-                                }
-                            }
-                        },
-                        trailing = {
-                            if (!file.isFolder) {
-                                IconButton(
-                                    onClick = {
-                                        busyMessage = "Mengunduh ${file.name}…"
-                                        scope.launch {
-                                            val result = driveClient.downloadFile(file.id, file.name, file.mimeType)
-                                            busyMessage = null
-                                            result.onSuccess { local ->
-                                                FileActions.shareFile(context, local)
-                                            }.onFailure {
-                                                Toast.makeText(context, it.message ?: "Gagal", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    },
-                                ) {
-                                    Icon(Icons.Default.CloudDownload, contentDescription = "Unduh & bagikan")
-                                }
-                            }
-                        },
-                    )
-                }
-
-                if (onExportLocalFile != null) {
-                    item {
-                        Button(
-                            onClick = {
-                                val local = onExportLocalFile
-                                busyMessage = "Mengunggah ${local.name}…"
-                                scope.launch {
-                                    val result = driveClient.uploadFile(local, driveState.folderId)
-                                    busyMessage = null
-                                    result.fold(
-                                        onSuccess = {
-                                            Toast.makeText(context, "Terunggah ke Drive", Toast.LENGTH_SHORT).show()
-                                            refreshDrive()
-                                        },
-                                        onFailure = {
-                                            Toast.makeText(context, it.message ?: "Upload gagal", Toast.LENGTH_SHORT).show()
-                                        },
-                                    )
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Icon(Icons.Default.CloudUpload, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Unggah ${onExportLocalFile.name} ke folder ini")
-                        }
-                    }
-                }
-            }
-
             if (busyMessage != null) {
                 item {
                     Row(
@@ -554,6 +629,15 @@ fun CloudHubScreen(
             }
         }
     }
+}
+
+private fun Context.findActivity(): Activity? {
+    var current: Context? = this
+    while (current is ContextWrapper) {
+        if (current is Activity) return current
+        current = current.baseContext
+    }
+    return null
 }
 
 @Composable

@@ -39,26 +39,30 @@ class GoogleDriveClient(private val context: Context) {
     }
 
     fun authState(): CloudAuthState {
-        if (!isConfigured()) {
-            return CloudAuthState.NeedsSetup(
-                "Tambahkan GOOGLE_WEB_CLIENT_ID di local.properties untuk login Drive native. " +
-                    "Fitur SAF cloud tetap bisa dipakai tanpa ini.",
-            )
-        }
         val account = GoogleSignIn.getLastSignedInAccount(context)
-        return if (account != null && account.email != null) {
+        return if (account != null && !account.email.isNullOrBlank()) {
             CloudAuthState.SignedIn(email = account.email!!, displayName = account.displayName)
         } else {
+            // Login does not require GOOGLE_WEB_CLIENT_ID — that is only for optional ID tokens.
             CloudAuthState.SignedOut
         }
+    }
+
+    /** Optional hint shown under the login button when web client ID is missing. */
+    fun setupHintOrNull(): String? {
+        if (isConfigured()) return null
+        return "Opsional: set GOOGLE_WEB_CLIENT_ID untuk ID token. Login Drive tetap bisa tanpa itu " +
+            "(butuh OAuth Android client di Google Cloud: package + SHA-1)."
     }
 
     fun signInClient(): GoogleSignInClient {
         val webClientId = webClientIdOrNull().orEmpty()
         val options = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestEmail()
+            .requestProfile()
             .requestScopes(Scope(SCOPE_DRIVE))
             .apply {
+                // Web client ID is optional; used only when present.
                 if (webClientId.isNotBlank()) {
                     requestIdToken(webClientId)
                 }
@@ -71,6 +75,19 @@ class GoogleDriveClient(private val context: Context) {
 
     fun signOut(onDone: () -> Unit = {}) {
         signInClient().signOut().addOnCompleteListener { onDone() }
+    }
+
+    fun describeSignInError(statusCode: Int): String {
+        return when (statusCode) {
+            10 -> "Konfigurasi OAuth salah (kode 10). Tambahkan SHA-1 debug/release + package " +
+                "com.zipextract.app di Google Cloud Console → Credentials → Android client."
+            7 -> "Jaringan bermasalah (kode 7). Cek koneksi internet."
+            8 -> "Internal error Play Services (kode 8). Coba lagi."
+            12500 -> "Login gagal (12500). Update Google Play Services."
+            12501 -> "Login dibatalkan."
+            12502 -> "Login sedang diproses. Tunggu sebentar."
+            else -> "Login gagal: kode $statusCode"
+        }
     }
 
     fun lastAccount(): GoogleSignInAccount? = GoogleSignIn.getLastSignedInAccount(context)
