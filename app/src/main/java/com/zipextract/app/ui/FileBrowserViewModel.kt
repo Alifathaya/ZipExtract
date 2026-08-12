@@ -460,6 +460,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     currentDir = item.file,
                     fileFilter = FileFilter.ALL,
                     libraryMode = false,
+                    // Keep search so Back from this folder can still feel contextual;
+                    // goHome clears it explicitly.
                     searchQuery = "",
                     searchResults = emptyList(),
                 )
@@ -467,11 +469,26 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             refresh()
             return
         }
-        // Open media directly without switching into folder-list mode.
-        when {
-            item.isPdf || item.isImage -> {
-                openItem(item)
+
+        val fromHomeOrCloud = _uiState.value.showHome || _uiState.value.showCloud
+        // From home search / cloud: never jump into an empty parent folder list.
+        if (fromHomeOrCloud) {
+            when {
+                item.isPdf || item.isImage -> openItem(item)
+                item.isArchive -> openExtractDialog(item.file.canonicalFile)
+                item.isVideo || item.isAudio -> {
+                    if (!FileActions.playMedia(getApplication(), item.file)) {
+                        emit("Tidak bisa memutar media")
+                    }
+                }
+                else -> showFileDetails(item)
             }
+            return
+        }
+
+        // Browser / library: open media in-place; other files may reveal parent folder.
+        when {
+            item.isPdf || item.isImage -> openItem(item)
             else -> {
                 val parent = item.file.parentFile
                 if (parent != null) {
@@ -689,8 +706,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 extractDialog = null,
                 selectionMode = false,
                 selectedPaths = emptySet(),
-                searchQuery = "",
-                searchResults = emptyList(),
+                // Preserve search so Back from viewer restores the previous results page.
+                searchQuery = if (resolvedReturn == ViewerReturnTarget.HOME) it.searchQuery else "",
+                searchResults = if (resolvedReturn == ViewerReturnTarget.HOME) it.searchResults else emptyList(),
+                searchLoading = if (resolvedReturn == ViewerReturnTarget.HOME) it.searchLoading else false,
             )
         }
     }
@@ -770,7 +789,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         return false
     }
 
-    /** Return to home dashboard without wiping cached home content. */
+    /** Return to home dashboard without wiping cached home content / search. */
     private fun restoreHomeAfterViewer() {
         searchJob?.cancel()
         libraryJob?.cancel()
@@ -791,8 +810,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 selectedPaths = emptySet(),
                 items = emptyList(),
                 canGoUp = false,
-                searchQuery = "",
-                searchResults = emptyList(),
+                // Keep searchQuery / searchResults so Back returns to the search page.
                 searchLoading = false,
                 progress = null,
                 extractDialog = null,
