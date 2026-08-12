@@ -68,6 +68,21 @@ class ZoomState(
             offset = Offset.Zero
         }
     }
+
+    /** Scale-only transform (layout-based zoom; pan handled by scroll). */
+    fun onZoom(zoom: Float) {
+        scale = (scale * zoom).coerceIn(minScale, maxScale)
+        if (scale <= minScale) {
+            offset = Offset.Zero
+        }
+    }
+
+    fun clampOffset(maxX: Float, maxY: Float = Float.MAX_VALUE) {
+        offset = Offset(
+            x = offset.x.coerceIn(-maxX, maxX),
+            y = offset.y.coerceIn(-maxY, maxY),
+        )
+    }
 }
 
 @Composable
