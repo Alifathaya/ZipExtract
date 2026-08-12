@@ -647,7 +647,7 @@ private fun QuickActionsRow(
         QuickActionChip(
             modifier = Modifier.fillMaxWidth(),
             icon = Icons.Default.Cloud,
-            label = "Cloud (Drive & lainnya)",
+            label = "Cloud",
             container = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f),
             onClick = onOpenCloud,
         )

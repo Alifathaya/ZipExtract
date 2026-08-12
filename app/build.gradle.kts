@@ -12,9 +12,6 @@ val localProperties = Properties().apply {
         file.inputStream().use { load(it) }
     }
 }
-val googleWebClientId: String = localProperties.getProperty("GOOGLE_WEB_CLIENT_ID")
-    ?: System.getenv("GOOGLE_WEB_CLIENT_ID")
-    ?: ""
 
 // Stable upload keystore so CI/user APKs can update in-place (same signature).
 // Override via env/local.properties if needed; defaults match app/filenest-upload.jks.
@@ -37,9 +34,8 @@ android {
         applicationId = "com.zipextract.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 30
-        versionName = "2.2.5"
-        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
+        versionCode = 31
+        versionName = "2.2.6"
     }
 
     signingConfigs {
@@ -77,7 +73,6 @@ android {
 
     buildFeatures {
         compose = true
-        buildConfig = true
     }
 
     packaging {
@@ -101,9 +96,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
     implementation("androidx.documentfile:documentfile:1.0.1")
-    implementation("com.google.android.gms:play-services-auth:21.2.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("net.lingala.zip4j:zip4j:2.11.5")
 

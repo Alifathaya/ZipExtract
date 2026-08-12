@@ -131,6 +131,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     private var libraryJob: Job? = null
     private var homeJob: Job? = null
     private var softRefreshJob: Job? = null
+    private var cloudImportJob: Job? = null
     private var activeJob: Job? = null
     @Volatile
     private var mediaLibraryCache: MediaLibrary? = null
@@ -524,14 +525,24 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update { it.copy(safBookmarks = bookmarks) }
     }
 
-    fun openImportedCloudFile(file: File) {
-        closeCloud()
-        openFileFromAnywhere(FileItem(file))
+fun openImportedCloudFile(file: File) {
+        // Serialize hand-off so rapid cloud picks don't stack viewer opens / freeze UI.
+        cloudImportJob?.cancel()
+        cloudImportJob = viewModelScope.launch {
+            closeCloud()
+            kotlinx.coroutines.yield()
+            if (!file.exists() || file.length() <= 0L) {
+                _events.tryEmit("File cloud kosong atau gagal diimpor")
+                return@launch
+            }
+            openFileFromAnywhere(FileItem(file))
+        }
     }
 
-    fun goHome() {
+fun goHome() {
         searchJob?.cancel()
         libraryJob?.cancel()
+        cloudImportJob?.cancel()
         _uiState.update {
             it.copy(
                 showHome = true,

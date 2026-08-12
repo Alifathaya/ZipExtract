@@ -34,6 +34,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.zipextract.app.data.FileActions
 import java.io.File
 
@@ -47,6 +49,14 @@ fun ImageViewerScreen(
     val context = LocalContext.current
     val zoomState = rememberZoomState()
     var editing by remember { mutableStateOf(false) }
+    val imageRequest = remember(file.absolutePath, file.length(), file.lastModified()) {
+        ImageRequest.Builder(context)
+            .data(file)
+            .memoryCacheKey("${file.absolutePath}:${file.length()}:${file.lastModified()}")
+            .diskCachePolicy(CachePolicy.DISABLED)
+            .allowHardware(false)
+            .build()
+    }
 
     if (editing) {
         MediaEditorScreen(
