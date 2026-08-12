@@ -52,6 +52,16 @@ sealed class ViewerContent {
     ) : ViewerContent()
 }
 
+/** Where to land after closing the in-app viewer. */
+enum class ViewerReturnTarget {
+    /** Stay on current browser / library screen. */
+    STAY,
+    /** Back to home dashboard (recent photos, search, etc.). */
+    HOME,
+    /** Back to Cloud hub. */
+    CLOUD,
+}
+
 data class ExtractZipState(
     val zipFile: File,
     val entries: List<com.zipextract.app.data.ZipEntryItem> = emptyList(),
@@ -95,6 +105,7 @@ data class BrowserUiState(
     val safBookmarks: List<com.zipextract.app.data.cloud.SafBookmark> = emptyList(),
     val cloudExportFile: File? = null,
     val viewer: ViewerContent? = null,
+    val viewerReturnTarget: ViewerReturnTarget = ViewerReturnTarget.STAY,
     val launchedFromExternalIntent: Boolean = false,
     val extractDialog: ExtractZipState? = null,
 )
@@ -525,21 +536,31 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update { it.copy(safBookmarks = bookmarks) }
     }
 
-fun openImportedCloudFile(file: File) {
+    fun openImportedCloudFile(file: File) {
         // Serialize hand-off so rapid cloud picks don't stack viewer opens / freeze UI.
         cloudImportJob?.cancel()
         cloudImportJob = viewModelScope.launch {
-            closeCloud()
-            kotlinx.coroutines.yield()
             if (!file.exists() || file.length() <= 0L) {
                 _events.tryEmit("File cloud kosong atau gagal diimpor")
                 return@launch
             }
-            openFileFromAnywhere(FileItem(file))
+            val item = FileItem(file)
+            // Keep Cloud as return target even though we close the hub while viewing.
+            closeCloud()
+            kotlinx.coroutines.yield()
+            when {
+                item.isImage -> openViewer(ViewerContent.Image(file), ViewerReturnTarget.CLOUD)
+                item.isPdf -> openViewer(ViewerContent.Pdf(file), ViewerReturnTarget.CLOUD)
+                item.isArchive -> {
+                    // Archives open extract UI; return home/cloud via normal flow after.
+                    openExtractDialog(file)
+                }
+                else -> openFileFromAnywhere(item)
+            }
         }
     }
 
-fun goHome() {
+    fun goHome() {
         searchJob?.cancel()
         libraryJob?.cancel()
         cloudImportJob?.cancel()
@@ -635,7 +656,10 @@ fun goHome() {
         }
     }
 
-    fun openViewer(content: ViewerContent) {
+    fun openViewer(
+        content: ViewerContent,
+        returnTarget: ViewerReturnTarget? = null,
+    ) {
         val canOpen = when (content) {
             is ViewerContent.Pdf -> {
                 content.sourceUri != null ||
@@ -647,10 +671,18 @@ fun goHome() {
             emit("File tidak ditemukan")
             return
         }
+        val state = _uiState.value
+        val resolvedReturn = returnTarget ?: when {
+            state.showCloud -> ViewerReturnTarget.CLOUD
+            state.showHome -> ViewerReturnTarget.HOME
+            else -> ViewerReturnTarget.STAY
+        }
         _uiState.update {
             it.copy(
                 showHome = false,
+                showCloud = false,
                 viewer = content,
+                viewerReturnTarget = resolvedReturn,
                 extractDialog = null,
                 selectionMode = false,
                 selectedPaths = emptySet(),
@@ -710,15 +742,61 @@ fun goHome() {
     }
 
     fun closeViewer(): Boolean {
-        val shouldFinish = _uiState.value.launchedFromExternalIntent
+        val state = _uiState.value
+        val shouldFinish = state.launchedFromExternalIntent
+        val returnTarget = state.viewerReturnTarget
         _uiState.update {
             it.copy(
                 viewer = null,
-                showHome = if (shouldFinish) true else it.showHome,
+                viewerReturnTarget = ViewerReturnTarget.STAY,
                 launchedFromExternalIntent = false,
             )
         }
-        return shouldFinish
+        if (shouldFinish) {
+            goHome()
+            return true
+        }
+        when (returnTarget) {
+            ViewerReturnTarget.HOME -> restoreHomeAfterViewer()
+            ViewerReturnTarget.CLOUD -> {
+                restoreHomeAfterViewer()
+                openCloud()
+            }
+            ViewerReturnTarget.STAY -> Unit
+        }
+        return false
+    }
+
+    /** Return to home dashboard without wiping cached home content. */
+    private fun restoreHomeAfterViewer() {
+        searchJob?.cancel()
+        libraryJob?.cancel()
+        _uiState.update {
+            it.copy(
+                showHome = true,
+                showCloud = false,
+                cloudExportFile = null,
+                activeCategory = null,
+                categoryRoot = null,
+                fileFilter = FileFilter.ALL,
+                libraryMode = false,
+                showFavoritesOnly = false,
+                showDuplicates = false,
+                duplicateGroups = emptyList(),
+                librarySubFilter = LibrarySubFilter.ALL,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+                items = emptyList(),
+                canGoUp = false,
+                searchQuery = "",
+                searchResults = emptyList(),
+                searchLoading = false,
+                progress = null,
+                extractDialog = null,
+                viewer = null,
+                viewerReturnTarget = ViewerReturnTarget.STAY,
+            )
+        }
     }
 
     fun openExtractDialogForItem(item: FileItem) {
