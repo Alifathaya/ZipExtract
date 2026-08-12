@@ -309,7 +309,7 @@ fun MediaEditorScreen(
                             }
                         }
                         Text(
-                            text = "Geser 6 titik besar, atau geser area tengah untuk memindahkan crop",
+                            text = "Geser 8 titik besar, atau geser area tengah untuk memindahkan crop",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -529,14 +529,17 @@ private fun EditorCanvas(
 }
 
 private fun cropHandlePositions(cropRect: Rect): List<Offset> {
+    val midX = (cropRect.left + cropRect.right) / 2f
     val midY = (cropRect.top + cropRect.bottom) / 2f
     return listOf(
         cropRect.topLeft, // 0 TL
-        Offset(cropRect.right, cropRect.top), // 1 TR
-        Offset(cropRect.left, midY), // 2 mid-left
-        Offset(cropRect.right, midY), // 3 mid-right
-        Offset(cropRect.left, cropRect.bottom), // 4 BL
-        cropRect.bottomRight, // 5 BR
+        Offset(midX, cropRect.top), // 1 top-mid
+        Offset(cropRect.right, cropRect.top), // 2 TR
+        Offset(cropRect.left, midY), // 3 mid-left
+        Offset(cropRect.right, midY), // 4 mid-right
+        Offset(cropRect.left, cropRect.bottom), // 5 BL
+        Offset(midX, cropRect.bottom), // 6 bottom-mid
+        cropRect.bottomRight, // 7 BR
     )
 }
 
@@ -561,7 +564,7 @@ private fun CropGestureLayer(
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(drawW, drawH) {
-                var active = -1 // 0..5 handles, 6 = move whole box
+                var active = -1 // 0..7 handles, 8 = move whole box
                 var l = leftState.value
                 var t = topState.value
                 var r = rightState.value
@@ -580,7 +583,7 @@ private fun CropGestureLayer(
                         }?.takeIf { i -> (handles[i] - start).getDistance() <= hitRadius } ?: -1
 
                         if (active < 0 && cropRect.contains(start)) {
-                            active = 6
+                            active = 8
                         }
                     },
                     onDragEnd = { active = -1 },
@@ -596,25 +599,31 @@ private fun CropGestureLayer(
                                 l = (l + dx).coerceIn(0f, r - minSize)
                                 t = (t + dy).coerceIn(0f, b - minSize)
                             }
-                            1 -> { // TR
+                            1 -> { // top-mid
+                                t = (t + dy).coerceIn(0f, b - minSize)
+                            }
+                            2 -> { // TR
                                 r = (r + dx).coerceIn(l + minSize, 1f)
                                 t = (t + dy).coerceIn(0f, b - minSize)
                             }
-                            2 -> { // mid-left
+                            3 -> { // mid-left
                                 l = (l + dx).coerceIn(0f, r - minSize)
                             }
-                            3 -> { // mid-right
+                            4 -> { // mid-right
                                 r = (r + dx).coerceIn(l + minSize, 1f)
                             }
-                            4 -> { // BL
+                            5 -> { // BL
                                 l = (l + dx).coerceIn(0f, r - minSize)
                                 b = (b + dy).coerceIn(t + minSize, 1f)
                             }
-                            5 -> { // BR
+                            6 -> { // bottom-mid
+                                b = (b + dy).coerceIn(t + minSize, 1f)
+                            }
+                            7 -> { // BR
                                 r = (r + dx).coerceIn(l + minSize, 1f)
                                 b = (b + dy).coerceIn(t + minSize, 1f)
                             }
-                            6 -> { // move whole crop box
+                            8 -> { // move whole crop box
                                 val width = r - l
                                 val height = b - t
                                 val nl = (l + dx).coerceIn(0f, 1f - width)
