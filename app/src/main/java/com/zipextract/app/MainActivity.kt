@@ -7,17 +7,18 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
@@ -27,10 +28,13 @@ import com.zipextract.app.data.LocaleHelper
 import com.zipextract.app.data.ThemeMode
 import com.zipextract.app.ui.FileBrowserScreen
 import com.zipextract.app.ui.FileBrowserViewModel
-import com.zipextract.app.ui.ProvideAppLocale
 import com.zipextract.app.ui.theme.FileNestTheme
 
-class MainActivity : ComponentActivity() {
+/**
+ * AppCompatActivity is required so [AppCompatDelegate.setApplicationLocales] applies
+ * reliably and recreates the UI in the selected language.
+ */
+class MainActivity : AppCompatActivity() {
 
     private val viewModel: FileBrowserViewModel by viewModels()
 
@@ -48,121 +52,122 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.DARK -> true
             }
 
-            FileNestTheme(darkTheme = darkTheme) {
-                ProvideAppLocale(language = state.appLanguage) {
-                val context = LocalContext.current
+            // key(language) forces a clean recomposition when the user changes language.
+            key(state.appLanguage) {
+                FileNestTheme(darkTheme = darkTheme) {
+                    val context = LocalContext.current
 
-                val legacyPermissionLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.RequestMultiplePermissions()
-                ) {
-                    viewModel.setStorageGranted(hasStorageAccess())
-                }
+                    val legacyPermissionLauncher = rememberLauncherForActivityResult(
+                        ActivityResultContracts.RequestMultiplePermissions()
+                    ) {
+                        viewModel.setStorageGranted(hasStorageAccess())
+                    }
 
-                val manageStorageLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.StartActivityForResult()
-                ) {
-                    viewModel.setStorageGranted(hasStorageAccess())
-                }
+                    val manageStorageLauncher = rememberLauncherForActivityResult(
+                        ActivityResultContracts.StartActivityForResult()
+                    ) {
+                        viewModel.setStorageGranted(hasStorageAccess())
+                    }
 
-                fun requestStorageAccess() {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        try {
-                            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                                data = Uri.parse("package:$packageName")
+                    fun requestStorageAccess() {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            try {
+                                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                                    data = Uri.parse("package:$packageName")
+                                }
+                                manageStorageLauncher.launch(intent)
+                            } catch (_: Exception) {
+                                manageStorageLauncher.launch(
+                                    Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                                )
                             }
-                            manageStorageLauncher.launch(intent)
-                        } catch (_: Exception) {
-                            manageStorageLauncher.launch(
-                                Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                        } else {
+                            legacyPermissionLauncher.launch(
+                                arrayOf(
+                                    android.Manifest.permission.READ_EXTERNAL_STORAGE,
+                                    android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                                )
                             )
                         }
-                    } else {
-                        legacyPermissionLauncher.launch(
-                            arrayOf(
-                                android.Manifest.permission.READ_EXTERNAL_STORAGE,
-                                android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                            )
+                    }
+
+                    LaunchedEffect(Unit) {
+                        viewModel.setStorageGranted(hasStorageAccess())
+                        handleIncomingIntent(intent)
+                    }
+
+                    LaunchedEffect(viewModel) {
+                        viewModel.events.collect { message ->
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+
+                    Surface(modifier = Modifier.fillMaxSize()) {
+                        FileBrowserScreen(
+                            state = state,
+                            onOpen = viewModel::openDirectory,
+                            onOpenItem = viewModel::openItem,
+                            onGoUp = viewModel::goUp,
+                            onRefresh = viewModel::refresh,
+                            onToggleSelect = viewModel::toggleSelect,
+                            onToggleSelectionMode = viewModel::toggleSelectionMode,
+                            onSelectAll = viewModel::selectAll,
+                            onClearSelection = viewModel::clearSelection,
+                            onCopy = viewModel::copySelected,
+                            onCut = viewModel::cutSelected,
+                            onPaste = viewModel::paste,
+                            onDelete = viewModel::deleteSelected,
+                            onCreateFolder = viewModel::createFolder,
+                            onRename = viewModel::renameSelected,
+                            onCreateZip = viewModel::createZip,
+                            onOpenExtract = viewModel::openExtractDialogForItem,
+                            onOpenCategory = viewModel::openCategory,
+                            onBrowseAll = viewModel::browseAllFiles,
+                            onGoHome = viewModel::goHome,
+                            onSearchQueryChange = viewModel::updateSearchQuery,
+                            onClearSearch = viewModel::clearSearch,
+                            onOpenFileAnywhere = viewModel::openFileFromAnywhere,
+                            onSetFileFilter = viewModel::setFileFilter,
+                            onToggleSort = viewModel::toggleSort,
+                            onRequestPermission = { requestStorageAccess() },
+                            onCloseViewer = {
+                                if (viewModel.closeViewer()) {
+                                    finish()
+                                }
+                            },
+                            onCloseExtract = viewModel::closeExtractDialog,
+                            onToggleExtractEntry = viewModel::toggleExtractEntry,
+                            onSelectAllExtractEntries = viewModel::selectAllExtractEntries,
+                            onDeselectAllExtractEntries = viewModel::deselectAllExtractEntries,
+                            onDeleteOriginalZipChange = viewModel::setDeleteOriginalZip,
+                            onConfirmExtract = viewModel::confirmExtract,
+                            onSetExtractDestination = viewModel::setExtractDestination,
+                            onDismissExtractResult = viewModel::dismissExtractResult,
+                            onOpenExtractResultFolder = viewModel::openExtractResultFolder,
+                            onShareSelected = { viewModel.shareSelected(context) },
+                            onOpenWithSelected = { viewModel.openWithSelected(context) },
+                            onToggleFavoriteSelected = viewModel::toggleFavoriteSelected,
+                            onShowSelectedDetails = viewModel::showSelectedDetails,
+                            onCloseFileDetails = viewModel::closeFileDetails,
+                            onOpenParentOfDetails = viewModel::openParentOfDetails,
+                            onOpenFavorites = viewModel::openFavorites,
+                            onSetThemeMode = viewModel::setThemeMode,
+                            onSetAppLanguage = viewModel::setAppLanguage,
+                            onSetLibrarySubFilter = viewModel::setLibrarySubFilter,
+                            onSetMediaAlbum = viewModel::setMediaAlbum,
+                            onFindDuplicates = viewModel::findDuplicates,
+                            onCloseDuplicates = viewModel::closeDuplicates,
+                            onDeleteDuplicateExtras = viewModel::deleteDuplicateExtras,
+                            onCancelProgress = viewModel::cancelActiveJob,
+                            onToggleFavoritePath = viewModel::toggleFavorite,
+                            onShowFileDetails = viewModel::showFileDetails,
+                            onOpenCloud = { viewModel.openCloud() },
+                            onCloseCloud = viewModel::closeCloud,
+                            onUpdateSafBookmarks = viewModel::updateSafBookmarks,
+                            onOpenImportedCloudFile = viewModel::openImportedCloudFile,
                         )
                     }
                 }
-
-                LaunchedEffect(Unit) {
-                    viewModel.setStorageGranted(hasStorageAccess())
-                    handleIncomingIntent(intent)
-                }
-
-                LaunchedEffect(viewModel) {
-                    viewModel.events.collect { message ->
-                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-                    }
-                }
-
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    FileBrowserScreen(
-                        state = state,
-                        onOpen = viewModel::openDirectory,
-                        onOpenItem = viewModel::openItem,
-                        onGoUp = viewModel::goUp,
-                        onRefresh = viewModel::refresh,
-                        onToggleSelect = viewModel::toggleSelect,
-                        onToggleSelectionMode = viewModel::toggleSelectionMode,
-                        onSelectAll = viewModel::selectAll,
-                        onClearSelection = viewModel::clearSelection,
-                        onCopy = viewModel::copySelected,
-                        onCut = viewModel::cutSelected,
-                        onPaste = viewModel::paste,
-                        onDelete = viewModel::deleteSelected,
-                        onCreateFolder = viewModel::createFolder,
-                        onRename = viewModel::renameSelected,
-                        onCreateZip = viewModel::createZip,
-                        onOpenExtract = viewModel::openExtractDialogForItem,
-                        onOpenCategory = viewModel::openCategory,
-                        onBrowseAll = viewModel::browseAllFiles,
-                        onGoHome = viewModel::goHome,
-                        onSearchQueryChange = viewModel::updateSearchQuery,
-                        onClearSearch = viewModel::clearSearch,
-                        onOpenFileAnywhere = viewModel::openFileFromAnywhere,
-                        onSetFileFilter = viewModel::setFileFilter,
-                        onToggleSort = viewModel::toggleSort,
-                        onRequestPermission = { requestStorageAccess() },
-                        onCloseViewer = {
-                            if (viewModel.closeViewer()) {
-                                finish()
-                            }
-                        },
-                        onCloseExtract = viewModel::closeExtractDialog,
-                        onToggleExtractEntry = viewModel::toggleExtractEntry,
-                        onSelectAllExtractEntries = viewModel::selectAllExtractEntries,
-                        onDeselectAllExtractEntries = viewModel::deselectAllExtractEntries,
-                        onDeleteOriginalZipChange = viewModel::setDeleteOriginalZip,
-                        onConfirmExtract = viewModel::confirmExtract,
-                        onSetExtractDestination = viewModel::setExtractDestination,
-                        onDismissExtractResult = viewModel::dismissExtractResult,
-                        onOpenExtractResultFolder = viewModel::openExtractResultFolder,
-                        onShareSelected = { viewModel.shareSelected(context) },
-                        onOpenWithSelected = { viewModel.openWithSelected(context) },
-                        onToggleFavoriteSelected = viewModel::toggleFavoriteSelected,
-                        onShowSelectedDetails = viewModel::showSelectedDetails,
-                        onCloseFileDetails = viewModel::closeFileDetails,
-                        onOpenParentOfDetails = viewModel::openParentOfDetails,
-                        onOpenFavorites = viewModel::openFavorites,
-                        onSetThemeMode = viewModel::setThemeMode,
-                        onSetAppLanguage = viewModel::setAppLanguage,
-                        onSetLibrarySubFilter = viewModel::setLibrarySubFilter,
-                        onSetMediaAlbum = viewModel::setMediaAlbum,
-                        onFindDuplicates = viewModel::findDuplicates,
-                        onCloseDuplicates = viewModel::closeDuplicates,
-                        onDeleteDuplicateExtras = viewModel::deleteDuplicateExtras,
-                        onCancelProgress = viewModel::cancelActiveJob,
-                        onToggleFavoritePath = viewModel::toggleFavorite,
-                        onShowFileDetails = viewModel::showFileDetails,
-                        onOpenCloud = { viewModel.openCloud() },
-                        onCloseCloud = viewModel::closeCloud,
-                        onUpdateSafBookmarks = viewModel::updateSafBookmarks,
-                        onOpenImportedCloudFile = viewModel::openImportedCloudFile,
-                    )
-                }
-                } // ProvideAppLocale
             }
         }
     }

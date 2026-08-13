@@ -1766,8 +1766,14 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         _events.tryEmit(message)
     }
 
-    private fun str(@StringRes id: Int, vararg args: Any): String =
-        getApplication<Application>().getString(id, *args)
+    private fun str(@StringRes id: Int, vararg args: Any): String {
+        val localized = LocaleHelper.wrap(getApplication(), _uiState.value.appLanguage)
+        return if (args.isEmpty()) {
+            localized.getString(id)
+        } else {
+            localized.getString(id, *args)
+        }
+    }
 
     private data class HomeDashboardData(
         val storageInfo: StorageInfo,

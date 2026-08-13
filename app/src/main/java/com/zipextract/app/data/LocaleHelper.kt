@@ -4,7 +4,9 @@ import android.content.Context
 import android.content.res.Configuration
 import android.os.LocaleList
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.appcompat.view.ContextThemeWrapper
 import androidx.core.os.LocaleListCompat
+import com.zipextract.app.R
 import java.util.Locale
 
 object LocaleHelper {
@@ -29,15 +31,17 @@ object LocaleHelper {
     }
 
     /**
-     * Create a context whose [Configuration] matches [language] so Compose
-     * `stringResource` / `getString` resolve the correct `values-xx` strings
-     * even before/without an Activity recreate.
+     * Context for [getString] that follows [language], while keeping the app theme
+     * (required so Compose/Material does not crash).
      */
     fun wrap(context: Context, language: AppLanguage): Context {
         val locale = localeFor(language)
+        Locale.setDefault(locale)
         val config = Configuration(context.resources.configuration)
         config.setLocales(LocaleList(locale))
-        return context.createConfigurationContext(config)
+        val localized = context.createConfigurationContext(config)
+        // Preserve theme — bare createConfigurationContext breaks Material3 startup.
+        return ContextThemeWrapper(localized, R.style.Theme_ZipExtract)
     }
 
     fun localeFor(language: AppLanguage): Locale {
