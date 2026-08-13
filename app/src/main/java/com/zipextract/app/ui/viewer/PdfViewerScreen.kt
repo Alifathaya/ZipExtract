@@ -66,9 +66,11 @@ import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.zipextract.app.R
 import com.zipextract.app.data.FileActions
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -120,7 +122,7 @@ fun PdfViewerScreen(
         val holder = runCatching {
             PdfRendererHolder.open(context, file, sourceUri)
         }.getOrElse {
-            error = it.message ?: "Gagal membuka PDF"
+            error = it.message ?: context.getString(R.string.pdf_open_failed)
             loading = false
             null
         }
@@ -181,9 +183,13 @@ fun PdfViewerScreen(
             }
             preparingEdit = false
             if (bitmap == null) {
-                Toast.makeText(context, "Gagal menyiapkan halaman untuk diedit", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.pdf_prepare_edit_failed),
+                    Toast.LENGTH_SHORT,
+                ).show()
             } else {
-                editTitle = "${file.name} · halaman ${page + 1}"
+                editTitle = context.getString(R.string.pdf_page_title, file.name, page + 1)
                 editBitmap = bitmap
             }
         }
@@ -201,9 +207,9 @@ fun PdfViewerScreen(
                         )
                         Text(
                             text = if (pageCount > 0) {
-                                "$pageCount halaman · Zoom tetap saat gulir"
+                                stringResource(R.string.pdf_pages_zoom_hint, pageCount)
                             } else {
-                                "Cubit / double-tap untuk zoom"
+                                stringResource(R.string.pdf_zoom_hint)
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -214,7 +220,10 @@ fun PdfViewerScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onClose) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.back),
+                        )
                     }
                 },
                 actions = {
@@ -222,25 +231,44 @@ fun PdfViewerScreen(
                         onClick = { openEditorForVisiblePage() },
                         enabled = !preparingEdit && pageCount > 0,
                     ) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit halaman")
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = stringResource(R.string.pdf_edit_page),
+                        )
                     }
                     IconButton(
                         onClick = {
                             if (!FileActions.shareFile(context, file)) {
-                                Toast.makeText(context, "Gagal membagikan PDF", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.pdf_share_failed),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
                             }
                         },
                     ) {
-                        Icon(Icons.Default.Share, contentDescription = "Bagikan")
+                        Icon(
+                            Icons.Default.Share,
+                            contentDescription = stringResource(R.string.share),
+                        )
                     }
                     IconButton(onClick = { zoomState.zoomOut() }) {
-                        Icon(Icons.Default.ZoomOut, contentDescription = "Perkecil")
+                        Icon(
+                            Icons.Default.ZoomOut,
+                            contentDescription = stringResource(R.string.zoom_out),
+                        )
                     }
                     IconButton(onClick = { zoomState.zoomIn() }) {
-                        Icon(Icons.Default.ZoomIn, contentDescription = "Perbesar")
+                        Icon(
+                            Icons.Default.ZoomIn,
+                            contentDescription = stringResource(R.string.zoom_in),
+                        )
                     }
                     IconButton(onClick = { zoomState.reset() }) {
-                        Icon(Icons.Default.ZoomOutMap, contentDescription = "Reset zoom")
+                        Icon(
+                            Icons.Default.ZoomOutMap,
+                            contentDescription = stringResource(R.string.zoom_reset),
+                        )
                     }
                 },
             )
@@ -255,9 +283,12 @@ fun PdfViewerScreen(
         ) {
             when {
                 loading || preparingEdit -> CircularProgressIndicator()
-                error != null -> Text(error ?: "Error", color = MaterialTheme.colorScheme.error)
+                error != null -> Text(
+                    error ?: stringResource(R.string.error_generic),
+                    color = MaterialTheme.colorScheme.error,
+                )
                 rendererHolder == null || pageCount == 0 -> {
-                    Text("PDF kosong atau tidak bisa dibaca")
+                    Text(stringResource(R.string.pdf_empty))
                 }
                 else -> {
                     BoxWithConstraints(
@@ -327,7 +358,11 @@ fun PdfViewerScreen(
                             ) { index, _ ->
                                 Column(modifier = Modifier.fillMaxWidth()) {
                                     Text(
-                                        text = "Halaman ${index + 1} / $pageCount",
+                                        text = stringResource(
+                                            R.string.pdf_page_of,
+                                            index + 1,
+                                            pageCount,
+                                        ),
                                         style = MaterialTheme.typography.labelLarge,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(bottom = 6.dp),
@@ -422,7 +457,7 @@ private fun PdfPage(
         contentAlignment = Alignment.Center,
     ) {
         when {
-            failed -> Text("Gagal merender halaman ${pageIndex + 1}")
+            failed -> Text(stringResource(R.string.pdf_render_failed, pageIndex + 1))
             bitmap == null -> {
                 Row(
                     Modifier.padding(24.dp),
@@ -434,7 +469,7 @@ private fun PdfPage(
             else -> {
                 Image(
                     bitmap = bitmap!!.asImageBitmap(),
-                    contentDescription = "Halaman ${pageIndex + 1}",
+                    contentDescription = stringResource(R.string.pdf_page_label, pageIndex + 1),
                     contentScale = ContentScale.FillWidth,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -473,7 +508,7 @@ private class PdfRendererHolder private constructor(
                     context.contentResolver.openFileDescriptor(sourceUri, "r")
                 }
                 else -> null
-            } ?: throw IllegalStateException("Gagal membuka PDF")
+            } ?: throw IllegalStateException(context.getString(R.string.pdf_open_failed))
             return PdfRendererHolder(descriptor)
         }
     }

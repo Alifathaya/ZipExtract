@@ -31,11 +31,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import com.zipextract.app.R
 import com.zipextract.app.data.FileActions
 import java.io.File
 
@@ -78,7 +80,7 @@ fun ImageViewerScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = "Cubit / double-tap zoom · Edit crop & pen",
+                            text = stringResource(R.string.image_viewer_hint),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -86,30 +88,52 @@ fun ImageViewerScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onClose) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.back),
+                        )
                     }
                 },
                 actions = {
                     IconButton(onClick = { editing = true }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit")
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = stringResource(R.string.edit),
+                        )
                     }
                     IconButton(
                         onClick = {
                             if (!FileActions.shareFile(context, file)) {
-                                Toast.makeText(context, "Gagal membagikan foto", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.image_share_failed),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
                             }
                         },
                     ) {
-                        Icon(Icons.Default.Share, contentDescription = "Bagikan")
+                        Icon(
+                            Icons.Default.Share,
+                            contentDescription = stringResource(R.string.share),
+                        )
                     }
                     IconButton(onClick = { zoomState.zoomOut() }) {
-                        Icon(Icons.Default.ZoomOut, contentDescription = "Perkecil")
+                        Icon(
+                            Icons.Default.ZoomOut,
+                            contentDescription = stringResource(R.string.zoom_out),
+                        )
                     }
                     IconButton(onClick = { zoomState.zoomIn() }) {
-                        Icon(Icons.Default.ZoomIn, contentDescription = "Perbesar")
+                        Icon(
+                            Icons.Default.ZoomIn,
+                            contentDescription = stringResource(R.string.zoom_in),
+                        )
                     }
                     IconButton(onClick = { zoomState.reset() }) {
-                        Icon(Icons.Default.ZoomOutMap, contentDescription = "Reset zoom")
+                        Icon(
+                            Icons.Default.ZoomOutMap,
+                            contentDescription = stringResource(R.string.zoom_reset),
+                        )
                     }
                 },
             )
@@ -135,7 +159,7 @@ fun ImageViewerScreen(
                     },
                     error = {
                         Text(
-                            text = "Gagal memuat gambar",
+                            text = stringResource(R.string.image_load_failed),
                             color = MaterialTheme.colorScheme.error,
                             modifier = Modifier.padding(24.dp),
                         )

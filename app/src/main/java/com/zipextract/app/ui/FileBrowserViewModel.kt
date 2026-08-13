@@ -979,7 +979,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             try {
                 val entries = withContext(Dispatchers.IO) {
-                    ZipManager.listZipEntryDetails(file)
+                    ZipManager.listZipEntryDetails(file, appContext)
                 }
                 val destination = _uiState.value.extractDialog?.destinationDir ?: defaultDestination
                 if (entries.isEmpty()) {
@@ -1086,6 +1086,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     zipFile = zip,
                     destinationDir = destination,
                     selectedPaths = selectedPaths,
+                    context = appContext,
                 ) { progress, name ->
                     updateProgress(extractTitle, name, progress)
                 }
@@ -1372,7 +1373,13 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         val zipTitle = str(R.string.progress_creating_zip)
         runJob(zipTitle, destination.name) {
             try {
-                ZipManager.createZip(sources, destination, level, password = pass) { progress, name ->
+                ZipManager.createZip(
+                    sources = sources,
+                    destinationZip = destination,
+                    compressionLevel = level,
+                    password = pass,
+                    context = appContext,
+                ) { progress, name ->
                     updateProgress(zipTitle, name, progress)
                 }
                 _uiState.update { it.copy(selectionMode = false, selectedPaths = emptySet()) }

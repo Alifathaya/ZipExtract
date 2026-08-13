@@ -18,7 +18,20 @@ enum class FileCategory(
     OTHERS(R.string.category_others, R.string.category_others_sub),
     ;
 
-    /** Fallback Indonesian labels for non-Compose call sites. */
+    /** Localized short noun for library empty/progress copy. */
+    @get:StringRes
+    val libraryNounRes: Int
+        get() = when (this) {
+            DOWNLOADS -> R.string.noun_downloads
+            IMAGES -> R.string.noun_images
+            VIDEOS -> R.string.noun_videos
+            DOCUMENTS -> R.string.noun_documents
+            ARCHIVES -> R.string.noun_archives
+            APPS -> R.string.noun_apps
+            OTHERS -> R.string.noun_others
+        }
+
+    @Deprecated("Use titleRes / context.getString", ReplaceWith("titleRes"))
     val title: String
         get() = when (this) {
             DOWNLOADS -> "Download"
@@ -30,6 +43,7 @@ enum class FileCategory(
             OTHERS -> "Lainnya"
         }
 
+    @Deprecated("Use subtitleRes / context.getString", ReplaceWith("subtitleRes"))
     val subtitle: String
         get() = when (this) {
             DOWNLOADS -> "File unduhan"
@@ -39,6 +53,18 @@ enum class FileCategory(
             ARCHIVES -> "File ZIP & arsip"
             APPS -> "File APK & installer"
             OTHERS -> "Musik & file lain"
+        }
+
+    @Deprecated("Use libraryNounRes / context.getString", ReplaceWith("libraryNounRes"))
+    val libraryNoun: String
+        get() = when (this) {
+            DOWNLOADS -> "file unduhan"
+            IMAGES -> "foto"
+            VIDEOS -> "video"
+            DOCUMENTS -> "dokumen"
+            ARCHIVES -> "file ZIP"
+            APPS -> "APK"
+            OTHERS -> "file"
         }
 
     fun resolveFolder(): File {
@@ -75,17 +101,6 @@ enum class FileCategory(
             )
         }
     }
-
-    val libraryNoun: String
-        get() = when (this) {
-            DOWNLOADS -> "file unduhan"
-            IMAGES -> "foto"
-            VIDEOS -> "video"
-            DOCUMENTS -> "dokumen"
-            ARCHIVES -> "file ZIP"
-            APPS -> "APK"
-            OTHERS -> "file"
-        }
 
     private fun publicDir(type: String, fallback: File? = null): File {
         return runCatching {
