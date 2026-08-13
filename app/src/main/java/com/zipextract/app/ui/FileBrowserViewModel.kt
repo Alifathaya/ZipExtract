@@ -1244,7 +1244,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         )
     }
 
-    /** @deprecated Prefer [openDownloadCategoryPage] / [showDownloadListWithExtractedOnTop]. */
+    /** Kept for call sites that previously opened the extract folder. */
+    @Suppress("UNUSED_PARAMETER")
     private fun openFolderAfterExtract(dir: File) {
         openDownloadCategoryPage()
     }
