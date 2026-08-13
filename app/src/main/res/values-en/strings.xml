@@ -318,4 +318,6 @@
     <string name="pdf_edit_page">Edit page</string>
     <string name="pdf_page_title">%1$s · page %2$d</string>
     <string name="pdf_page_label">Page %1$d</string>
+    <string name="saf_cloud_empty">Cloud file is empty or unreadable.</string>
+    <string name="saf_uri_denied">Access denied (URI permission). Open again via Cloud → Open cloud file.</string>
 </resources>
