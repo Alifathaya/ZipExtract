@@ -671,11 +671,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 item.isPdf || item.isImage || item.isVideo -> openItem(item)
                 item.isApk -> installApkFile(item.file)
                 item.isArchive -> openExtractDialog(item.file.canonicalFile)
-                item.isAudio -> {
-                    if (!FileActions.playMedia(getApplication(), item.file)) {
-                        emit(str(R.string.media_play_failed))
-                    }
-                }
+                // In-app ExoPlayer handles m4a/opus/flac even when no external player exists.
+                item.isAudio -> openViewer(ViewerContent.Video(item.file), ViewerReturnTarget.HOME)
                 else -> showFileDetails(item)
             }
             return
@@ -879,11 +876,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             item.isPdf -> openViewer(ViewerContent.Pdf(item.file))
             item.isImage -> openViewer(ViewerContent.Image(item.file))
             item.isVideo -> openViewer(ViewerContent.Video(item.file))
-            item.isAudio -> {
-                if (!FileActions.playMedia(getApplication(), item.file)) {
-                    emit(str(R.string.media_play_failed))
-                }
-            }
+            // In-app ExoPlayer handles m4a/opus/flac even when no external player exists.
+            item.isAudio -> openViewer(ViewerContent.Video(item.file))
             else -> toggleSelect(item)
         }
     }
@@ -1008,6 +1002,14 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                         )
                     )
                 }
+                item.isAudio -> {
+                    openViewer(
+                        ViewerContent.Video(
+                            file = resolved.file,
+                            sourceUri = resolved.sourceUri,
+                        )
+                    )
+                }
                 else -> {
                     _uiState.update { it.copy(launchedFromExternalIntent = false, showHome = true) }
                     emit(str(R.string.format_unsupported))
@@ -1021,7 +1023,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         when {
             item.isPdf -> openViewer(ViewerContent.Pdf(file))
             item.isImage -> openViewer(ViewerContent.Image(file))
-            item.isVideo -> openViewer(ViewerContent.Video(file))
+            item.isVideo || item.isAudio -> openViewer(ViewerContent.Video(file))
             else -> emit(str(R.string.format_unsupported))
         }
     }

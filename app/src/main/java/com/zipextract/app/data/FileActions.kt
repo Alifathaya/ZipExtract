@@ -304,6 +304,7 @@ object FileActions {
     fun mimeTypeFor(file: File): String {
         val ext = file.extension.lowercase(Locale.ROOT)
         return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+            ?: EXTRA_MIME_TYPES[ext]
             ?: when {
                 FileItem(file).isImage -> "image/*"
                 FileItem(file).isVideo -> "video/*"
@@ -314,4 +315,15 @@ object FileActions {
                 else -> "*/*"
             }
     }
+
+    /** Extensions MimeTypeMap does not know on many devices. */
+    private val EXTRA_MIME_TYPES = mapOf(
+        "opus" to "audio/ogg",
+        "m4a" to "audio/mp4",
+        "amr" to "audio/amr",
+        "flac" to "audio/flac",
+        "mkv" to "video/x-matroska",
+        "7z" to "application/x-7z-compressed",
+        "rar" to "application/vnd.rar",
+    )
 }
