@@ -2,6 +2,7 @@ package com.zipextract.app.ui
 
 import android.app.Application
 import android.content.Context
+import android.media.MediaScannerConnection
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -944,11 +945,12 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             emit("File ZIP tidak ditemukan")
             return
         }
+        val defaultDestination = ZipManager.defaultExtractDirectory(file)
         _uiState.update {
             it.copy(
                 extractDialog = ExtractZipState(
                     zipFile = file,
-                    destinationDir = file.parentFile ?: file,
+                    destinationDir = defaultDestination,
                     isLoading = true,
                 ),
                 selectionMode = false,
@@ -960,11 +962,13 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 val entries = withContext(Dispatchers.IO) {
                     ZipManager.listZipEntryDetails(file)
                 }
+                val destination = _uiState.value.extractDialog?.destinationDir ?: defaultDestination
                 if (entries.isEmpty()) {
                     _uiState.update {
                         it.copy(
                             extractDialog = ExtractZipState(
                                 zipFile = file,
+                                destinationDir = destination,
                                 isLoading = false,
                                 error = "File ZIP kosong",
                             ),
@@ -976,6 +980,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     it.copy(
                         extractDialog = ExtractZipState(
                             zipFile = file,
+                            destinationDir = destination,
                             entries = entries,
                             selectedPaths = entries.map { entry -> entry.path }.toSet(),
                             isLoading = false,
@@ -987,6 +992,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     it.copy(
                         extractDialog = ExtractZipState(
                             zipFile = file,
+                            destinationDir = defaultDestination,
                             isLoading = false,
                             error = "Gagal membaca ZIP: ${e.message ?: "error"}",
                         ),
@@ -1046,7 +1052,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             destination.mkdirs()
         }
         if (!destination.exists() || !destination.isDirectory) {
-            emit("Folder tujuan tidak ditemukan")
+            emit("Folder tujuan tidak ditemukan: ${destination.absolutePath}")
             return
         }
 
@@ -1056,22 +1062,57 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
         runJob("Extract ZIP…", zip.name) {
             try {
-                ZipManager.extractZipEntries(zip, destination, selectedPaths) { progress, name ->
+                val written = ZipManager.extractZipEntries(zip, destination, selectedPaths) { progress, name ->
                     updateProgress("Extract ZIP…", name, progress)
                 }
                 if (deleteOriginal) {
                     if (!zip.delete()) {
                         emit("Extract selesai, tetapi gagal menghapus ZIP asli")
-                        return@runJob
                     }
                 }
-                val suffix = if (deleteOriginal) " (ZIP asli dihapus)" else ""
+                // Make photos/docs visible to the system gallery & other apps.
+                MediaScannerConnection.scanFile(
+                    appContext,
+                    arrayOf(destination.absolutePath),
+                    null,
+                    null,
+                )
                 invalidateMediaLibraryCache()
-                emit("Extract selesai ke ${destination.name}$suffix")
-                refresh()
+                openFolderAfterExtract(destination)
+                val suffix = if (deleteOriginal) " (ZIP asli dihapus)" else ""
+                if (written <= 0) {
+                    emit("Extract selesai (folder kosong?) di ${destination.absolutePath}$suffix")
+                } else {
+                    emit("Extract $written file ke ${destination.absolutePath}$suffix")
+                }
             } catch (e: Exception) {
                 emit("Gagal extract: ${e.message ?: "error"}")
             }
+        }
+    }
+
+    /** Leave library/home and open the extract destination so results are visible. */
+    private fun openFolderAfterExtract(dir: File) {
+        val target = runCatching { dir.canonicalFile }.getOrDefault(dir)
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                showCloud = false,
+                libraryMode = false,
+                showFavoritesOnly = false,
+                showDuplicates = false,
+                duplicateGroups = emptyList(),
+                activeCategory = null,
+                categoryRoot = null,
+                currentDir = target,
+                fileFilter = FileFilter.ALL,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+                searchQuery = "",
+                searchResults = emptyList(),
+                searchLoading = false,
+                canGoUp = true,
+            )
         }
     }
 

@@ -138,40 +138,112 @@ object ZipManager {
         destinationDir: File,
         selectedPaths: Set<String>,
         onProgress: ((Float, String) -> Unit)? = null,
-    ) {
+    ): Int {
         require(zipFile.exists() && zipFile.isFile) { "File zip tidak ditemukan" }
         require(selectedPaths.isNotEmpty()) { "Pilih minimal 1 file untuk diextract" }
-        destinationDir.mkdirs()
+        if (!destinationDir.exists() && !destinationDir.mkdirs()) {
+            error("Tidak bisa membuat folder tujuan: ${destinationDir.absolutePath}")
+        }
+        require(destinationDir.isDirectory) {
+            "Folder tujuan tidak valid: ${destinationDir.absolutePath}"
+        }
 
-        val totalEntries = selectedPaths.size.coerceAtLeast(1)
-        var processed = 0
+        return ZipFile(zipFile).use { zip ->
+            val allNames = zip.entries().asSequence().map { it.name.replace('\\', '/') }.toList()
+            val toExtract = expandSelectedPaths(allNames, selectedPaths)
+            if (toExtract.isEmpty()) {
+                error("Tidak ada file yang cocok untuk diextract")
+            }
 
-        ZipInputStream(BufferedInputStream(FileInputStream(zipFile))).use { zis ->
-            var entry = zis.nextEntry
-            while (entry != null) {
-                val entryPath = entry.name.replace('\\', '/')
-                if (entryPath in selectedPaths) {
-                    val outFile = safeResolve(destinationDir, entryPath)
-                    onProgress?.invoke(++processed / totalEntries.toFloat(), entryPath)
+            val totalEntries = toExtract.size.coerceAtLeast(1)
+            var processed = 0
+            var written = 0
 
-                    if (entry.isDirectory) {
-                        outFile.mkdirs()
-                    } else {
-                        outFile.parentFile?.mkdirs()
-                        FileOutputStream(outFile).use { fos ->
-                            BufferedOutputStream(fos).use { bos ->
-                                zis.copyTo(bos, bufferSize = DEFAULT_BUFFER)
+            toExtract.forEach { entryPath ->
+                val entry = findEntry(zip, entryPath) ?: return@forEach
+                val normalized = entry.name.replace('\\', '/')
+                val outFile = safeResolve(destinationDir, normalized)
+                onProgress?.invoke(++processed / totalEntries.toFloat(), normalized)
+
+                if (entry.isDirectory || normalized.endsWith('/')) {
+                    if (!outFile.exists() && !outFile.mkdirs()) {
+                        error("Gagal membuat folder: ${outFile.absolutePath}")
+                    }
+                } else {
+                    outFile.parentFile?.mkdirs()
+                    zip.getInputStream(entry).use { input ->
+                        BufferedInputStream(input).use { bis ->
+                            FileOutputStream(outFile).use { fos ->
+                                BufferedOutputStream(fos).use { bos ->
+                                    bis.copyTo(bos, bufferSize = DEFAULT_BUFFER)
+                                }
                             }
                         }
-                        if (entry.time > 0) {
-                            outFile.setLastModified(entry.time)
-                        }
                     }
+                    if (entry.time > 0) {
+                        outFile.setLastModified(entry.time)
+                    }
+                    if (!outFile.isFile) {
+                        error("Gagal menulis file: ${outFile.absolutePath}")
+                    }
+                    written++
                 }
-                zis.closeEntry()
-                entry = zis.nextEntry
+            }
+            written
+        }
+    }
+
+    private fun findEntry(zip: ZipFile, entryPath: String): ZipEntry? {
+        zip.getEntry(entryPath)?.let { return it }
+        val normalized = entryPath.replace('\\', '/')
+        return zip.entries().asSequence().firstOrNull {
+            it.name.replace('\\', '/') == normalized
+        }
+    }
+
+    /**
+     * If a folder entry is selected, include all nested files under that prefix.
+     * Also matches entries whether or not they use a trailing slash.
+     */
+    private fun expandSelectedPaths(
+        allNames: List<String>,
+        selectedPaths: Set<String>,
+    ): List<String> {
+        val selected = selectedPaths.map { it.replace('\\', '/') }.toSet()
+        val out = LinkedHashSet<String>()
+        allNames.forEach { name ->
+            val normalized = name.replace('\\', '/')
+            if (normalized in selected) {
+                out += normalized
+                return@forEach
+            }
+            // Directory selected as "foo" or "foo/" should pull "foo/bar.txt".
+            selected.forEach { sel ->
+                val prefix = when {
+                    sel.endsWith('/') -> sel
+                    else -> "$sel/"
+                }
+                if (normalized.startsWith(prefix)) {
+                    out += normalized
+                }
             }
         }
+        return out.toList()
+    }
+
+    /** Default extract folder: sibling folder named after the ZIP (unique if needed). */
+    fun defaultExtractDirectory(zipFile: File): File {
+        val parent = zipFile.parentFile ?: File(".")
+        val base = zipFile.nameWithoutExtension.trim().ifBlank { "extract" }
+            .replace(Regex("""[\\/:*?"<>|]"""), "_")
+        var candidate = File(parent, base)
+        var index = 2
+        while (candidate.exists() && !candidate.isDirectory) {
+            candidate = File(parent, "$base ($index)")
+            index++
+        }
+        // If a same-named folder already exists, still use it (extract into it).
+        return candidate
     }
 
     private fun collectFiles(dir: File, basePath: String, out: MutableList<Pair<File, String>>) {

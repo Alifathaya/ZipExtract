@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.max
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.zipextract.app.data.ZipEntryItem
+import com.zipextract.app.data.ZipManager
 import com.zipextract.app.ui.ExtractZipState
 import java.io.File
 
@@ -271,8 +272,14 @@ private fun DestinationInfo(
                 text = destination.absolutePath,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
+                maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Setelah extract, app akan membuka folder ini otomatis.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
             )
             Spacer(modifier = Modifier.height(8.dp))
             Row(
@@ -281,6 +288,13 @@ private fun DestinationInfo(
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
+                TextButton(
+                    onClick = {
+                        onSetDestination(com.zipextract.app.data.ZipManager.defaultExtractDirectory(zipFile))
+                    },
+                ) {
+                    Text("Folder ZIP")
+                }
                 TextButton(
                     onClick = {
                         zipFile.parentFile?.let(onSetDestination)
