@@ -129,12 +129,8 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         onCloseExtract = viewModel::closeExtractDialog,
-                        onToggleExtractEntry = viewModel::toggleExtractEntry,
-                        onSelectAllExtractEntries = viewModel::selectAllExtractEntries,
-                        onDeselectAllExtractEntries = viewModel::deselectAllExtractEntries,
                         onDeleteOriginalZipChange = viewModel::setDeleteOriginalZip,
                         onConfirmExtract = viewModel::confirmExtract,
-                        onSetExtractDestination = viewModel::setExtractDestination,
                         onDismissExtractResult = viewModel::dismissExtractResult,
                         onOpenExtractResultFolder = viewModel::openExtractResultFolder,
                         onShareSelected = { viewModel.shareSelected(context) },

@@ -145,6 +145,37 @@ object ZipManager {
     }
 
     /**
+     * Prefer Download/FileNest/<zipName> so extracted files always appear on the Download page.
+     */
+    fun downloadExtractDirectory(zipFile: File): File {
+        val baseName = zipFile.nameWithoutExtension.trim().ifBlank { "extract" }
+            .replace(Regex("""[\\/:*?"<>|]"""), "_")
+            .take(80)
+        val nest = publicFileNestDir()
+        var candidate = File(nest, baseName)
+        var index = 2
+        while (candidate.exists() && !candidate.isDirectory) {
+            candidate = File(nest, "$baseName ($index)")
+            index++
+        }
+        // If the folder already has content from a previous extract, use a unique sibling.
+        if (candidate.isDirectory) {
+            val hasContent = candidate.list()?.isNotEmpty() == true
+            if (hasContent) {
+                while (true) {
+                    val unique = File(nest, "$baseName ($index)")
+                    if (!unique.exists()) {
+                        candidate = unique
+                        break
+                    }
+                    index++
+                }
+            }
+        }
+        return candidate
+    }
+
+    /**
      * Pick a destination that is actually writable.
      * Prefers [preferred], then Download/FileNest, then app-specific external storage
      * (always writable even without All Files Access).
@@ -155,6 +186,7 @@ object ZipManager {
         val stamp = System.currentTimeMillis() % 100000
         val candidates = buildList {
             preferred?.let { add(it) }
+            add(downloadExtractDirectory(zipFile))
             add(File(publicFileNestDir(), baseName))
             add(File(publicFileNestDir(), "${baseName}_$stamp"))
             context.getExternalFilesDir("Extract")?.let { add(File(it, baseName)) }
@@ -170,20 +202,14 @@ object ZipManager {
         error("Tidak ada folder yang bisa ditulis. Berikan izin penyimpanan, lalu coba lagi.")
     }
 
-    /** Default extract folder suggestion for the UI. */
+    /** Default extract folder suggestion for the UI — always Download/FileNest. */
     fun defaultExtractDirectory(context: android.content.Context, zipFile: File): File {
-        val sibling = zipFile.parentFile
-            ?.takeUnless { isAppPrivatePath(it) }
-            ?.let { parent ->
-                val base = zipFile.nameWithoutExtension.trim().ifBlank { "extract" }
-                    .replace(Regex("""[\\/:*?"<>|]"""), "_")
-                File(parent, base)
-            }
-        return runCatching { resolveWritableExtractDir(context, zipFile, sibling) }
-            .getOrElse {
-                val fallback = context.getExternalFilesDir("Extract") ?: File(context.filesDir, "Extract")
-                File(fallback, zipFile.nameWithoutExtension.ifBlank { "extract" }).also { ensureDirectory(it) }
-            }
+        return runCatching {
+            resolveWritableExtractDir(context, zipFile, downloadExtractDirectory(zipFile))
+        }.getOrElse {
+            val fallback = context.getExternalFilesDir("Extract") ?: File(context.filesDir, "Extract")
+            File(fallback, zipFile.nameWithoutExtension.ifBlank { "extract" }).also { ensureDirectory(it) }
+        }
     }
 
     /** @deprecated Use [defaultExtractDirectory] with Context. */

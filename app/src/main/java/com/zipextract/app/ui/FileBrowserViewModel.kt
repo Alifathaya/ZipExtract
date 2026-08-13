@@ -77,7 +77,7 @@ data class ExtractZipState(
     val selectedPaths: Set<String> = emptySet(),
     val deleteOriginal: Boolean = false,
     val destinationDir: File = zipFile.parentFile ?: zipFile,
-    val isLoading: Boolean = true,
+    val isLoading: Boolean = false,
     val error: String? = null,
 )
 
@@ -1004,61 +1004,20 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             emit("Format .${file.extension} belum didukung. Saat ini hanya ZIP/JAR/APK.")
             return
         }
-        val defaultDestination = ZipManager.defaultExtractDirectory(appContext, file)
+        // Always land in Download/FileNest/<zipName>/ so results show on Download page.
+        val destination = ZipManager.downloadExtractDirectory(file)
         _uiState.update {
             it.copy(
                 extractDialog = ExtractZipState(
                     zipFile = file,
-                    destinationDir = defaultDestination,
-                    isLoading = true,
+                    destinationDir = destination,
+                    deleteOriginal = false,
+                    isLoading = false,
                 ),
                 extractResult = null,
                 selectionMode = false,
                 selectedPaths = emptySet(),
             )
-        }
-        viewModelScope.launch {
-            try {
-                val entries = withContext(Dispatchers.IO) {
-                    ZipManager.listZipEntryDetails(file)
-                }
-                val destination = _uiState.value.extractDialog?.destinationDir ?: defaultDestination
-                if (entries.isEmpty()) {
-                    _uiState.update {
-                        it.copy(
-                            extractDialog = ExtractZipState(
-                                zipFile = file,
-                                destinationDir = destination,
-                                isLoading = false,
-                                error = "File ZIP kosong atau tidak bisa dibaca",
-                            ),
-                        )
-                    }
-                    return@launch
-                }
-                _uiState.update {
-                    it.copy(
-                        extractDialog = ExtractZipState(
-                            zipFile = file,
-                            destinationDir = destination,
-                            entries = entries,
-                            selectedPaths = entries.map { entry -> entry.path }.toSet(),
-                            isLoading = false,
-                        ),
-                    )
-                }
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(
-                        extractDialog = ExtractZipState(
-                            zipFile = file,
-                            destinationDir = defaultDestination,
-                            isLoading = false,
-                            error = "Gagal membaca ZIP: ${e.message ?: "error"}",
-                        ),
-                    )
-                }
-            }
         }
     }
 
@@ -1102,40 +1061,42 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
     fun confirmExtract() {
         val dialog = _uiState.value.extractDialog ?: return
-        if (dialog.selectedPaths.isEmpty()) {
-            emit("Pilih minimal 1 file untuk diextract")
-            return
-        }
         val zip = dialog.zipFile
-        val selectedPaths = dialog.selectedPaths.toSet()
         val deleteOriginal = dialog.deleteOriginal
-        val preferred = dialog.destinationDir
         closeExtractDialog()
 
         runJob("Extract ZIP…", zip.name) {
             try {
+                val preferred = ZipManager.downloadExtractDirectory(zip)
                 val destination = ZipManager.resolveWritableExtractDir(
                     context = appContext,
                     zipFile = zip,
                     preferred = preferred,
                 )
-                val written = ZipManager.extractZipEntries(
-                    zipFile = zip,
-                    destinationDir = destination,
-                    selectedPaths = selectedPaths,
-                ) { progress, name ->
-                    updateProgress("Extract ZIP…", name, progress)
+                // Extract entire archive (simple dialog has no per-entry picker).
+                val written = run {
+                    val allPaths = ZipManager.listZipEntryDetails(zip).map { it.path }.toSet()
+                    if (allPaths.isEmpty()) {
+                        error("File ZIP kosong atau tidak bisa dibaca")
+                    }
+                    ZipManager.extractZipEntries(
+                        zipFile = zip,
+                        destinationDir = destination,
+                        selectedPaths = allPaths,
+                    ) { progress, name ->
+                        updateProgress("Extract ZIP…", name, progress)
+                    }
                 }
                 if (deleteOriginal && zip.exists()) {
                     runCatching { zip.delete() }
                 }
                 scanExtractedFiles(destination)
                 invalidateMediaLibraryCache()
-                openFolderAfterExtract(destination)
+                openDownloadsAfterExtract(destination)
                 val message = if (written <= 0) {
-                    "Extract selesai, tetapi tidak ada file yang ditulis.\n${destination.absolutePath}"
+                    "Extract selesai, tetapi tidak ada file yang ditulis.\nDownload/FileNest"
                 } else {
-                    "Berhasil extract $written file ke:\n${destination.absolutePath}"
+                    "Berhasil extract $written file.\nDisimpan di Download/FileNest/${destination.name}"
                 }
                 _uiState.update {
                     it.copy(
@@ -1174,7 +1135,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     fun openExtractResultFolder() {
         val dest = _uiState.value.extractResult?.destination ?: return
         _uiState.update { it.copy(extractResult = null) }
-        openFolderAfterExtract(dest)
+        openDownloadsAfterExtract(dest)
         refresh()
     }
 
@@ -1195,9 +1156,17 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    /** Leave library/home and open the extract destination so results are visible. */
-    private fun openFolderAfterExtract(dir: File) {
+    /**
+     * After extract, open the Download page (folder browser under Downloads),
+     * preferably focused on the extract destination inside Download/FileNest.
+     */
+    private fun openDownloadsAfterExtract(dir: File) {
+        val downloadsRoot = FileCategory.DOWNLOADS.resolveFolder()
         val target = runCatching { dir.canonicalFile }.getOrDefault(dir.absoluteFile)
+        val underDownloads = runCatching {
+            target.absolutePath.startsWith(downloadsRoot.canonicalFile.absolutePath)
+        }.getOrDefault(false)
+        val openDir = if (underDownloads && target.exists()) target else downloadsRoot
         _uiState.update {
             it.copy(
                 showHome = false,
@@ -1206,9 +1175,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 showFavoritesOnly = false,
                 showDuplicates = false,
                 duplicateGroups = emptyList(),
-                activeCategory = null,
-                categoryRoot = null,
-                currentDir = target,
+                activeCategory = FileCategory.DOWNLOADS,
+                categoryRoot = downloadsRoot,
+                currentDir = openDir,
                 fileFilter = FileFilter.ALL,
                 selectionMode = false,
                 selectedPaths = emptySet(),
@@ -1219,6 +1188,11 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 progress = null,
             )
         }
+    }
+
+    /** Leave library/home and open the extract destination so results are visible. */
+    private fun openFolderAfterExtract(dir: File) {
+        openDownloadsAfterExtract(dir)
     }
 
     fun goUp() {

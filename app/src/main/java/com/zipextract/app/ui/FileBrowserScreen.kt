@@ -123,7 +123,7 @@ import com.zipextract.app.data.LibrarySubFilter
 import com.zipextract.app.data.ThemeMode
 import com.zipextract.app.data.VideoThumbnailLoader
 import com.zipextract.app.data.cloud.SafCloudAccess
-import com.zipextract.app.ui.viewer.ExtractZipScreen
+import com.zipextract.app.ui.viewer.ExtractZipDialog
 import com.zipextract.app.ui.viewer.ImageViewerScreen
 import com.zipextract.app.ui.viewer.PdfViewerScreen
 import com.zipextract.app.ui.viewer.VideoPlayerScreen
@@ -170,12 +170,8 @@ fun FileBrowserScreen(
     onRequestPermission: () -> Unit,
     onCloseViewer: () -> Unit,
     onCloseExtract: () -> Unit,
-    onToggleExtractEntry: (String) -> Unit,
-    onSelectAllExtractEntries: () -> Unit,
-    onDeselectAllExtractEntries: () -> Unit,
     onDeleteOriginalZipChange: (Boolean) -> Unit,
     onConfirmExtract: () -> Unit,
-    onSetExtractDestination: (File) -> Unit,
     onDismissExtractResult: () -> Unit,
     onOpenExtractResultFolder: () -> Unit,
     onShareSelected: () -> Unit,
@@ -295,18 +291,14 @@ fun FileBrowserScreen(
         }
     }
 
+    // Compact dialog overlay — keep browser visible underneath.
     if (state.extractDialog != null) {
-        ExtractZipScreen(
+        ExtractZipDialog(
             state = state.extractDialog,
             onClose = onCloseExtract,
-            onToggleEntry = onToggleExtractEntry,
-            onSelectAll = onSelectAllExtractEntries,
-            onDeselectAll = onDeselectAllExtractEntries,
             onDeleteOriginalChange = onDeleteOriginalZipChange,
             onExtract = onConfirmExtract,
-            onSetDestination = onSetExtractDestination,
         )
-        return
     }
 
     if (state.viewer != null) {
@@ -820,7 +812,7 @@ fun FileBrowserScreen(
             confirmButton = {
                 if (result.destination != null) {
                     TextButton(onClick = onOpenExtractResultFolder) {
-                        Text("Buka folder")
+                        Text("Buka Download")
                     }
                 } else {
                     TextButton(onClick = onDismissExtractResult) {
