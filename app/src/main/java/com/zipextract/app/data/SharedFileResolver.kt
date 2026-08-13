@@ -113,7 +113,7 @@ object SharedFileResolver {
             ?: "shared_${System.currentTimeMillis()}"
 
         val cacheDir = File(context.cacheDir, "incoming").apply { mkdirs() }
-        val target = File(cacheDir, "${safeBase}_${System.currentTimeMillis()}.$extension")
+        var target = File(cacheDir, "${safeBase}_${System.currentTimeMillis()}.$extension")
 
         return try {
             val copied = copyUriBytes(context, uri, target)
@@ -121,7 +121,22 @@ object SharedFileResolver {
                 target.delete()
                 return null
             }
-            target.takeIf { it.exists() && it.length() > 0L }
+            if (!target.exists() || target.length() <= 0L) {
+                target.delete()
+                return null
+            }
+            // WhatsApp / cloud often share ZIPs as application/octet-stream with a .bin name.
+            if (extension != "zip" && ZipManager.hasZipMagic(target)) {
+                val renamed = File(cacheDir, "${safeBase}_${System.currentTimeMillis()}.zip")
+                if (target.renameTo(renamed)) {
+                    target = renamed
+                } else {
+                    target.copyTo(renamed, overwrite = true)
+                    target.delete()
+                    target = renamed
+                }
+            }
+            target
         } catch (_: Exception) {
             target.delete()
             null
