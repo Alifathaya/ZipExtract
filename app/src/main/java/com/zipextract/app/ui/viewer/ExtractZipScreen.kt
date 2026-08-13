@@ -49,7 +49,7 @@ fun ExtractZipDialog(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "Hasil extract disimpan di halaman Download (folder FileNest).",
+                    text = "Hasil extract muncul di atas list halaman Download.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

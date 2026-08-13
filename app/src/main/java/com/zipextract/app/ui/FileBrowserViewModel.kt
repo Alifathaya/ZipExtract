@@ -1063,9 +1063,11 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         val dialog = _uiState.value.extractDialog ?: return
         val zip = dialog.zipFile
         val deleteOriginal = dialog.deleteOriginal
+        // Close the small dialog immediately and return to the Download page.
         closeExtractDialog()
+        openDownloadCategoryPage()
 
-        runJob("Extract ZIP…", zip.name) {
+        runJob("Extract ZIP…", zip.name, refreshAfter = false) {
             try {
                 val preferred = ZipManager.downloadExtractDirectory(zip)
                 val destination = ZipManager.resolveWritableExtractDir(
@@ -1073,56 +1075,36 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     zipFile = zip,
                     preferred = preferred,
                 )
-                // Extract entire archive (simple dialog has no per-entry picker).
-                val written = run {
-                    val allPaths = ZipManager.listZipEntryDetails(zip).map { it.path }.toSet()
-                    if (allPaths.isEmpty()) {
-                        error("File ZIP kosong atau tidak bisa dibaca")
-                    }
-                    ZipManager.extractZipEntries(
-                        zipFile = zip,
-                        destinationDir = destination,
-                        selectedPaths = allPaths,
-                    ) { progress, name ->
-                        updateProgress("Extract ZIP…", name, progress)
-                    }
+                val allPaths = ZipManager.listZipEntryDetails(zip).map { it.path }.toSet()
+                if (allPaths.isEmpty()) {
+                    error("File ZIP kosong atau tidak bisa dibaca")
+                }
+                val written = ZipManager.extractZipEntries(
+                    zipFile = zip,
+                    destinationDir = destination,
+                    selectedPaths = allPaths,
+                ) { progress, name ->
+                    updateProgress("Extract ZIP…", name, progress)
                 }
                 if (deleteOriginal && zip.exists()) {
                     runCatching { zip.delete() }
                 }
+
+                // Bump timestamps so extracted files sort to the top of Download.
+                val extractedItems = collectExtractedItems(destination, touchNewest = true)
                 scanExtractedFiles(destination)
                 invalidateMediaLibraryCache()
-                openDownloadsAfterExtract(destination)
-                val message = if (written <= 0) {
-                    "Extract selesai, tetapi tidak ada file yang ditulis.\nDownload/FileNest"
-                } else {
-                    "Berhasil extract $written file.\nDisimpan di Download/FileNest/${destination.name}"
-                }
-                _uiState.update {
-                    it.copy(
-                        extractResult = ExtractResultState(
-                            success = written > 0,
-                            title = if (written > 0) "Extract berhasil" else "Extract selesai",
-                            message = message,
-                            destination = destination,
-                            fileCount = written,
-                        ),
-                    )
-                }
-                emit(if (written > 0) "Extract berhasil ($written file)" else "Extract tanpa file")
+                showDownloadListWithExtractedOnTop(extractedItems)
+
+                emit(
+                    if (written > 0) {
+                        "Extract berhasil ($written file) — ada di atas list Download"
+                    } else {
+                        "Extract tanpa file"
+                    },
+                )
             } catch (e: Exception) {
                 val err = e.message ?: e.javaClass.simpleName
-                _uiState.update {
-                    it.copy(
-                        extractResult = ExtractResultState(
-                            success = false,
-                            title = "Extract gagal",
-                            message = err,
-                            destination = null,
-                            fileCount = 0,
-                        ),
-                    )
-                }
                 emit("Gagal extract: $err")
             }
         }
@@ -1135,7 +1117,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     fun openExtractResultFolder() {
         val dest = _uiState.value.extractResult?.destination ?: return
         _uiState.update { it.copy(extractResult = null) }
-        openDownloadsAfterExtract(dest)
+        openDownloadCategoryPage()
         refresh()
     }
 
@@ -1156,43 +1138,115 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    /**
-     * After extract, open the Download page (folder browser under Downloads),
-     * preferably focused on the extract destination inside Download/FileNest.
-     */
-    private fun openDownloadsAfterExtract(dir: File) {
+    /** Open the main Download category page (same as tapping Download on home). */
+    private fun openDownloadCategoryPage() {
         val downloadsRoot = FileCategory.DOWNLOADS.resolveFolder()
-        val target = runCatching { dir.canonicalFile }.getOrDefault(dir.absoluteFile)
-        val underDownloads = runCatching {
-            target.absolutePath.startsWith(downloadsRoot.canonicalFile.absolutePath)
-        }.getOrDefault(false)
-        val openDir = if (underDownloads && target.exists()) target else downloadsRoot
+        if (!downloadsRoot.exists()) downloadsRoot.mkdirs()
+        val cached = mediaLibraryCache?.forCategory(FileCategory.DOWNLOADS).orEmpty()
         _uiState.update {
             it.copy(
                 showHome = false,
                 showCloud = false,
-                libraryMode = false,
+                libraryMode = true,
                 showFavoritesOnly = false,
                 showDuplicates = false,
                 duplicateGroups = emptyList(),
                 activeCategory = FileCategory.DOWNLOADS,
                 categoryRoot = downloadsRoot,
-                currentDir = openDir,
-                fileFilter = FileFilter.ALL,
+                currentDir = downloadsRoot,
+                fileFilter = FileFilter.forCategory(FileCategory.DOWNLOADS),
                 selectionMode = false,
                 selectedPaths = emptySet(),
                 searchQuery = "",
                 searchResults = emptyList(),
                 searchLoading = false,
                 canGoUp = true,
-                progress = null,
+                extractDialog = null,
+                extractResult = null,
+                items = sortLibraryFiles(cached),
+                mediaAlbums = emptyList(),
+                mediaAlbumId = MediaAlbum.ALL,
             )
         }
     }
 
-    /** Leave library/home and open the extract destination so results are visible. */
+    private fun collectExtractedItems(root: File, touchNewest: Boolean): List<FileItem> {
+        val now = System.currentTimeMillis()
+        val items = mutableListOf<FileItem>()
+        fun walk(dir: File, depth: Int) {
+            if (depth > 8) return
+            val children = dir.listFiles() ?: return
+            children.forEach { child ->
+                when {
+                    child.isDirectory -> walk(child, depth + 1)
+                    child.isFile -> {
+                        if (touchNewest) {
+                            runCatching { child.setLastModified(now) }
+                        }
+                        items += FileItem(child)
+                    }
+                }
+            }
+        }
+        if (root.isFile) {
+            if (touchNewest) runCatching { root.setLastModified(now) }
+            items += FileItem(root)
+        } else {
+            walk(root, 0)
+        }
+        return items.sortedByDescending { it.lastModified }
+    }
+
+    /**
+     * Refresh Download library list and pin just-extracted files at the top.
+     */
+    private fun showDownloadListWithExtractedOnTop(extracted: List<FileItem>) {
+        val downloadsRoot = FileCategory.DOWNLOADS.resolveFolder()
+        val library = FileOperations.scanMediaLibrary(
+            contentResolver = appContext.contentResolver,
+        ).also { mediaLibraryCache = it }
+        val downloads = library.forCategory(FileCategory.DOWNLOADS)
+        val extractedPaths = extracted.map { it.path }.toHashSet()
+        // Prefer freshly built FileItem instances (touched timestamps) for the pin.
+        val pinned = extracted
+            .filter { it.file.exists() && it.file.isFile }
+            .sortedByDescending { it.lastModified }
+        val rest = downloads.filter { it.path !in extractedPaths }
+        val items = pinned + rest
+
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                showCloud = false,
+                libraryMode = true,
+                showFavoritesOnly = false,
+                showDuplicates = false,
+                activeCategory = FileCategory.DOWNLOADS,
+                categoryRoot = downloadsRoot,
+                currentDir = downloadsRoot,
+                fileFilter = FileFilter.forCategory(FileCategory.DOWNLOADS),
+                items = items,
+                progress = null,
+                canGoUp = true,
+                extractDialog = null,
+                extractResult = null,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+                mediaAlbums = emptyList(),
+                mediaAlbumId = MediaAlbum.ALL,
+            )
+        }
+        persistHomeSnapshot(
+            library = library,
+            categories = FileOperations.getCategorySummaries(library),
+            recentFiles = library.images.take(12),
+            storage = FileOperations.getStorageInfo(),
+        )
+    }
+
+    /** @deprecated Prefer [openDownloadCategoryPage] / [showDownloadListWithExtractedOnTop]. */
     private fun openFolderAfterExtract(dir: File) {
-        openDownloadsAfterExtract(dir)
+        openDownloadCategoryPage()
     }
 
     fun goUp() {
@@ -1409,7 +1463,12 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             .map { it.file }
     }
 
-    private fun runJob(title: String, message: String, block: suspend () -> Unit) {
+    private fun runJob(
+        title: String,
+        message: String,
+        refreshAfter: Boolean = true,
+        block: suspend () -> Unit,
+    ) {
         activeJob?.cancel()
         activeJob = viewModelScope.launch {
             _uiState.update {
@@ -1425,7 +1484,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 if (activeJob === this) {
                     activeJob = null
                 }
-                refresh()
+                if (refreshAfter) {
+                    refresh()
+                }
             }
         }
     }
