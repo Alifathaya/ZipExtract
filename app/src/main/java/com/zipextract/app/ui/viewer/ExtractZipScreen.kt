@@ -43,6 +43,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
@@ -255,6 +256,7 @@ private fun DestinationInfo(
     zipFile: File,
     onSetDestination: (File) -> Unit,
 ) {
+    val context = LocalContext.current
     Surface(
         tonalElevation = 1.dp,
         modifier = Modifier
@@ -277,7 +279,7 @@ private fun DestinationInfo(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Setelah extract, app akan membuka folder ini otomatis.",
+                text = "Setelah extract, hasil akan dibuka otomatis. Jika gagal tulis, app memilih folder aman.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
             )
@@ -290,10 +292,10 @@ private fun DestinationInfo(
             ) {
                 TextButton(
                     onClick = {
-                        onSetDestination(ZipManager.defaultExtractDirectory(zipFile))
+                        onSetDestination(ZipManager.defaultExtractDirectory(context, zipFile))
                     },
                 ) {
-                    Text("Folder ZIP")
+                    Text("Otomatis")
                 }
                 TextButton(
                     onClick = {
@@ -325,12 +327,12 @@ private fun DestinationInfo(
                 }
                 TextButton(
                     onClick = {
-                        onSetDestination(
-                            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
-                        )
+                        val appDir = context.getExternalFilesDir("Extract")
+                            ?: File(context.filesDir, "Extract")
+                        onSetDestination(File(appDir, zipFile.nameWithoutExtension.ifBlank { "extract" }))
                     },
                 ) {
-                    Text("Documents")
+                    Text("Aman (app)")
                 }
             }
         }

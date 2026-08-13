@@ -176,6 +176,8 @@ fun FileBrowserScreen(
     onDeleteOriginalZipChange: (Boolean) -> Unit,
     onConfirmExtract: () -> Unit,
     onSetExtractDestination: (File) -> Unit,
+    onDismissExtractResult: () -> Unit,
+    onOpenExtractResultFolder: () -> Unit,
     onShareSelected: () -> Unit,
     onOpenWithSelected: () -> Unit,
     onToggleFavoriteSelected: () -> Unit,
@@ -803,6 +805,37 @@ fun FileBrowserScreen(
             },
         )
         null -> Unit
+    }
+
+    state.extractResult?.let { result ->
+        AlertDialog(
+            onDismissRequest = onDismissExtractResult,
+            title = { Text(result.title) },
+            text = {
+                Text(
+                    text = result.message,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            confirmButton = {
+                if (result.destination != null) {
+                    TextButton(onClick = onOpenExtractResultFolder) {
+                        Text("Buka folder")
+                    }
+                } else {
+                    TextButton(onClick = onDismissExtractResult) {
+                        Text("OK")
+                    }
+                }
+            },
+            dismissButton = {
+                if (result.destination != null) {
+                    TextButton(onClick = onDismissExtractResult) {
+                        Text("Tutup")
+                    }
+                }
+            },
+        )
     }
 
     state.fileDetails?.let { details ->

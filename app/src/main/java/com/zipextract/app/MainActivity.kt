@@ -135,6 +135,8 @@ class MainActivity : ComponentActivity() {
                         onDeleteOriginalZipChange = viewModel::setDeleteOriginalZip,
                         onConfirmExtract = viewModel::confirmExtract,
                         onSetExtractDestination = viewModel::setExtractDestination,
+                        onDismissExtractResult = viewModel::dismissExtractResult,
+                        onOpenExtractResultFolder = viewModel::openExtractResultFolder,
                         onShareSelected = { viewModel.shareSelected(context) },
                         onOpenWithSelected = { viewModel.openWithSelected(context) },
                         onToggleFavoriteSelected = viewModel::toggleFavoriteSelected,
