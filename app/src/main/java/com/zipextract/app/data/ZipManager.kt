@@ -148,15 +148,25 @@ object ZipManager {
         zipFile: File,
         destinationDir: File,
         selectedPaths: Set<String>,
+        password: String? = null,
         onProgress: ((Float, String) -> Unit)? = null,
     ): Int = withMessages(context) {
-        extractZipEntriesInternal(zipFile, destinationDir, selectedPaths, onProgress)
+        extractZipEntriesInternal(zipFile, destinationDir, selectedPaths, password, onProgress)
+    }
+
+    /** Thrown when a ZIP needs a password or the given password is wrong. */
+    class ZipPasswordException(message: String) : Exception(message)
+
+    /** Cheap check (central directory only) whether the ZIP has encrypted entries. */
+    fun isEncryptedZip(file: File): Boolean {
+        return runCatching { net.lingala.zip4j.ZipFile(file).isEncrypted }.getOrDefault(false)
     }
 
     private fun extractZipEntriesInternal(
         zipFile: File,
         destinationDir: File,
         selectedPaths: Set<String>,
+        password: String? = null,
         onProgress: ((Float, String) -> Unit)? = null,
     ): Int {
         require(zipFile.exists() && zipFile.isFile) { msg(R.string.zip_not_found) }
@@ -168,6 +178,15 @@ object ZipManager {
             msg(R.string.zip_dest_not_writable, destinationDir.absolutePath)
         }
 
+        val encrypted = isEncryptedZip(zipFile)
+        if (encrypted) {
+            if (password.isNullOrBlank()) {
+                throw ZipPasswordException(msg(R.string.zip_password_required))
+            }
+            // Only zip4j understands AES/ZipCrypto entries; no plain-stream fallback.
+            return extractWithZip4j(zipFile, destinationDir, selectedPaths, password, onProgress)
+        }
+
         val errors = mutableListOf<String>()
 
         runCatching {
@@ -175,7 +194,7 @@ object ZipManager {
         }.onFailure { errors += "stream: ${it.message ?: it.javaClass.simpleName}" }
 
         runCatching {
-            return extractWithZip4j(zipFile, destinationDir, selectedPaths, onProgress)
+            return extractWithZip4j(zipFile, destinationDir, selectedPaths, null, onProgress)
         }.onFailure { errors += "zip4j: ${it.message ?: it.javaClass.simpleName}" }
 
         runCatching {
@@ -316,7 +335,7 @@ object ZipManager {
         @Suppress("UNCHECKED_CAST")
         val headers = zip.fileHeaders as List<FileHeader>
         if (headers.isEmpty() && zip.isEncrypted) {
-            error(msg(R.string.zip_password_unsupported))
+            throw ZipPasswordException(msg(R.string.zip_password_required))
         }
         return headers.map { header ->
             val normalized = header.fileName.replace('\\', '/')
@@ -409,11 +428,16 @@ object ZipManager {
         zipFile: File,
         destinationDir: File,
         selectedPaths: Set<String>,
+        password: String?,
         onProgress: ((Float, String) -> Unit)?,
     ): Int {
-        val zip = net.lingala.zip4j.ZipFile(zipFile)
-        if (zip.isEncrypted) {
-            error(msg(R.string.zip_password_unsupported))
+        val zip = if (password.isNullOrBlank()) {
+            net.lingala.zip4j.ZipFile(zipFile)
+        } else {
+            net.lingala.zip4j.ZipFile(zipFile, password.toCharArray())
+        }
+        if (zip.isEncrypted && password.isNullOrBlank()) {
+            throw ZipPasswordException(msg(R.string.zip_password_required))
         }
         @Suppress("UNCHECKED_CAST")
         val headers = zip.fileHeaders as List<FileHeader>
@@ -441,6 +465,9 @@ object ZipManager {
             try {
                 zip.extractFile(header, destinationDir.absolutePath, safeName)
             } catch (e: ZipException) {
+                if (e.type == ZipException.Type.WRONG_PASSWORD) {
+                    throw ZipPasswordException(msg(R.string.zip_wrong_password))
+                }
                 // Fallback: stream manually if extractFile fails for this entry.
                 writeEntryBytes(
                     destinationDir = destinationDir,

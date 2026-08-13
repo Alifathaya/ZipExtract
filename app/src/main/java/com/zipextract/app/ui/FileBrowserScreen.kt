@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DataUsage
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.CreateNewFolder
@@ -171,6 +172,7 @@ fun FileBrowserScreen(
     onCloseViewer: () -> Unit,
     onCloseExtract: () -> Unit,
     onDeleteOriginalZipChange: (Boolean) -> Unit,
+    onExtractPasswordChange: (String) -> Unit,
     onConfirmExtract: () -> Unit,
     onDismissExtractResult: () -> Unit,
     onOpenExtractResultFolder: () -> Unit,
@@ -181,6 +183,7 @@ fun FileBrowserScreen(
     onCloseFileDetails: () -> Unit,
     onOpenParentOfDetails: () -> Unit,
     onOpenFavorites: () -> Unit,
+    onOpenLargestFiles: () -> Unit,
     onSetThemeMode: (ThemeMode) -> Unit,
     onSetAppLanguage: (AppLanguage) -> Unit,
     onSetLibrarySubFilter: (LibrarySubFilter) -> Unit,
@@ -297,6 +300,7 @@ fun FileBrowserScreen(
             state = state.extractDialog,
             onClose = onCloseExtract,
             onDeleteOriginalChange = onDeleteOriginalZipChange,
+            onPasswordChange = onExtractPasswordChange,
             onExtract = onConfirmExtract,
         )
     }
@@ -339,6 +343,7 @@ fun FileBrowserScreen(
             onBrowseAll = onBrowseAll,
             onOpenZips = { onOpenCategory(FileCategory.ARCHIVES) },
             onOpenFavorites = onOpenFavorites,
+            onOpenLargestFiles = onOpenLargestFiles,
             onOpenCloud = {
                 if (cloudImporting) {
                     Toast.makeText(
@@ -368,6 +373,7 @@ fun FileBrowserScreen(
                                 state.selectionMode -> stringResource(R.string.items_selected, selectedCount)
                                 state.showDuplicates -> stringResource(R.string.duplicates_title_short)
                                 state.showFavoritesOnly -> stringResource(R.string.favorites)
+                                state.showLargestFiles -> stringResource(R.string.largest_files)
                                 state.libraryMode && state.activeCategory != null ->
                                     stringResource(state.activeCategory.titleRes)
                                 state.activeCategory != null ->
@@ -384,6 +390,7 @@ fun FileBrowserScreen(
                                     stringResource(R.string.duplicates_groups_found, state.duplicateGroups.size)
                                 state.showFavoritesOnly ->
                                     stringResource(R.string.favorites_count, state.items.size)
+                                state.showLargestFiles -> stringResource(R.string.largest_files_hint)
                                 state.libraryMode && state.activeCategory != null && state.items.isNotEmpty() ->
                                     stringResource(
                                         R.string.library_items_in_device,
@@ -415,7 +422,7 @@ fun FileBrowserScreen(
                                 )
                             }
                         }
-                        state.canGoUp || state.showDuplicates || state.showFavoritesOnly -> {
+                        state.canGoUp || state.showDuplicates || state.showFavoritesOnly || state.showLargestFiles -> {
                             IconButton(
                                 onClick = {
                                     if (state.showDuplicates) onCloseDuplicates() else onGoUp()
@@ -518,6 +525,14 @@ fun FileBrowserScreen(
                             leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
                         )
                         DropdownMenuItem(
+                            text = { Text(stringResource(R.string.largest_files)) },
+                            onClick = {
+                                menuExpanded = false
+                                onOpenLargestFiles()
+                            },
+                            leadingIcon = { Icon(Icons.Default.DataUsage, contentDescription = null) },
+                        )
+                        DropdownMenuItem(
                             text = { Text(stringResource(R.string.language_menu)) },
                             onClick = {
                                 menuExpanded = false
@@ -604,6 +619,7 @@ fun FileBrowserScreen(
                 state.items.isEmpty() -> EmptyPane(
                     message = when {
                         state.showFavoritesOnly -> stringResource(R.string.no_favorites)
+                        state.showLargestFiles -> stringResource(R.string.largest_files_empty)
                         state.libraryMode && state.activeCategory != null ->
                             stringResource(
                                 R.string.library_empty_category,

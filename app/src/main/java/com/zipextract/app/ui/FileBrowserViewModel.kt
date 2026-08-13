@@ -81,6 +81,8 @@ data class ExtractZipState(
     val deleteOriginal: Boolean = false,
     val destinationDir: File = zipFile.parentFile ?: zipFile,
     val isLoading: Boolean = false,
+    val isEncrypted: Boolean = false,
+    val password: String = "",
     val error: String? = null,
 )
 
@@ -113,6 +115,7 @@ data class BrowserUiState(
     val canGoUp: Boolean = false,
     val storageGranted: Boolean = false,
     val sortNewestFirst: Boolean = false,
+    val showLargestFiles: Boolean = false,
     val libraryMode: Boolean = false,
     val librarySubFilter: LibrarySubFilter = LibrarySubFilter.ALL,
     val mediaAlbumId: String = MediaAlbum.ALL,
@@ -485,6 +488,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     mediaAlbums = mediaAlbums,
                     mediaAlbumId = mediaAlbumId,
                     showFavoritesOnly = false,
+                showLargestFiles = false,
                     showDuplicates = false,
                     selectionMode = false,
                     selectedPaths = emptySet(),
@@ -784,6 +788,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 fileFilter = FileFilter.ALL,
                 libraryMode = false,
                 showFavoritesOnly = false,
+                showLargestFiles = false,
                 showDuplicates = false,
                 duplicateGroups = emptyList(),
                 librarySubFilter = LibrarySubFilter.ALL,
@@ -806,6 +811,11 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun refresh() {
+        if (_uiState.value.showLargestFiles) {
+            invalidateMediaLibraryCache()
+            openLargestFiles()
+            return
+        }
         if (_uiState.value.showHome) {
             invalidateMediaLibraryCache()
             loadHomeData(forceRefresh = true)
@@ -1053,6 +1063,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 fileFilter = FileFilter.ALL,
                 libraryMode = false,
                 showFavoritesOnly = false,
+                showLargestFiles = false,
                 showDuplicates = false,
                 duplicateGroups = emptyList(),
                 librarySubFilter = LibrarySubFilter.ALL,
@@ -1101,6 +1112,26 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 selectedPaths = emptySet(),
             )
         }
+        // Detect password protection off the main thread, then show the password field.
+        viewModelScope.launch {
+            val encrypted = withContext(Dispatchers.IO) { ZipManager.isEncryptedZip(file) }
+            if (!encrypted) return@launch
+            _uiState.update { state ->
+                val dialog = state.extractDialog
+                if (dialog?.zipFile == file) {
+                    state.copy(extractDialog = dialog.copy(isEncrypted = true))
+                } else {
+                    state
+                }
+            }
+        }
+    }
+
+    fun setExtractPassword(password: String) {
+        _uiState.update { state ->
+            val dialog = state.extractDialog ?: return@update state
+            state.copy(extractDialog = dialog.copy(password = password))
+        }
     }
 
     fun closeExtractDialog() {
@@ -1145,6 +1176,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         val dialog = _uiState.value.extractDialog ?: return
         val zip = dialog.zipFile
         val deleteOriginal = dialog.deleteOriginal
+        val password = dialog.password.takeIf { it.isNotBlank() }
         // Close the small dialog immediately and return to the Download page.
         closeExtractDialog()
         openDownloadCategoryPage()
@@ -1166,6 +1198,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     zipFile = zip,
                     destinationDir = destination,
                     selectedPaths = allPaths,
+                    password = password,
                 ) { progress, name ->
                     updateProgress(str(R.string.progress_extract_zip), name, progress)
                 }
@@ -1186,6 +1219,20 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                         str(R.string.extract_empty_toast)
                     },
                 )
+            } catch (e: ZipManager.ZipPasswordException) {
+                // Missing/wrong password: reopen the dialog so the user can retry.
+                emit(e.message ?: str(R.string.zip_wrong_password))
+                _uiState.update {
+                    it.copy(
+                        extractDialog = ExtractZipState(
+                            zipFile = zip,
+                            destinationDir = ZipManager.downloadExtractDirectory(zip),
+                            deleteOriginal = deleteOriginal,
+                            isEncrypted = true,
+                        ),
+                        progress = null,
+                    )
+                }
             } catch (e: Exception) {
                 val err = e.message ?: e.javaClass.simpleName
                 emit(str(R.string.extract_fail_toast, err))
@@ -1232,6 +1279,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 showCloud = false,
                 libraryMode = true,
                 showFavoritesOnly = false,
+                showLargestFiles = false,
                 showDuplicates = false,
                 duplicateGroups = emptyList(),
                 activeCategory = FileCategory.DOWNLOADS,
@@ -1303,6 +1351,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 showCloud = false,
                 libraryMode = true,
                 showFavoritesOnly = false,
+                showLargestFiles = false,
                 showDuplicates = false,
                 activeCategory = FileCategory.DOWNLOADS,
                 categoryRoot = downloadsRoot,
@@ -1339,7 +1388,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             closeDuplicates()
             return
         }
-        if (state.showFavoritesOnly || state.libraryMode) {
+        if (state.showFavoritesOnly || state.showLargestFiles || state.libraryMode) {
             goHome()
             return
         }
@@ -1732,6 +1781,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 showHome = false,
                 libraryMode = false,
                 showFavoritesOnly = false,
+                showLargestFiles = false,
                 activeCategory = null,
                 categoryRoot = null,
                 currentDir = parent,
@@ -1767,6 +1817,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 showHome = false,
                 libraryMode = false,
                 showFavoritesOnly = true,
+                showLargestFiles = false,
                 activeCategory = null,
                 categoryRoot = null,
                 currentDir = root,
@@ -1777,6 +1828,61 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 selectedPaths = emptySet(),
                 progress = null,
             )
+        }
+    }
+
+    /** Storage cleanup tool: show the biggest files on the device so the user can delete them. */
+    fun openLargestFiles() {
+        activeJob?.cancel()
+        activeJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    progress = ProgressState(str(R.string.largest_files), str(R.string.progress_scanning), indeterminate = true),
+                )
+            }
+            try {
+                val items = withContext(Dispatchers.IO) {
+                    val library = obtainMediaLibrary(forceRefresh = false)
+                    (
+                        library.downloads + library.images + library.videos +
+                            library.documents + library.archives + library.apps + library.others
+                        )
+                        .distinctBy { it.path }
+                        .filter { !it.isDirectory && it.sizeBytes > 0L }
+                        .sortedByDescending { it.sizeBytes }
+                        .take(150)
+                }
+                _uiState.update {
+                    it.copy(
+                        showHome = false,
+                        showCloud = false,
+                        libraryMode = false,
+                        showFavoritesOnly = false,
+                        showDuplicates = false,
+                        showLargestFiles = true,
+                        activeCategory = null,
+                        categoryRoot = null,
+                        fileFilter = FileFilter.ALL,
+                        items = items,
+                        canGoUp = true,
+                        selectionMode = false,
+                        selectedPaths = emptySet(),
+                        mediaAlbums = emptyList(),
+                        mediaAlbumId = MediaAlbum.ALL,
+                        searchQuery = "",
+                        searchResults = emptyList(),
+                        searchLoading = false,
+                        progress = null,
+                    )
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                emit(e.message ?: str(R.string.error_generic))
+            } finally {
+                _uiState.update { it.copy(progress = null) }
+                if (activeJob === this) activeJob = null
+            }
         }
     }
 
@@ -1861,6 +1967,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                         duplicateGroups = groups,
                         libraryMode = false,
                         showFavoritesOnly = false,
+                showLargestFiles = false,
                         progress = null,
                     )
                 }

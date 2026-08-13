@@ -340,4 +340,11 @@
     <string name="files_count">%1$d file</string>
     <string name="zip_empty_unreadable">File ZIP kosong atau tidak bisa dibaca</string>
     <string name="zip_read_failed">Gagal membaca ZIP: %1$s</string>
+    <string name="zip_password_required">ZIP ini dikunci password. Masukkan password untuk extract.</string>
+    <string name="zip_wrong_password">Password salah. Coba lagi.</string>
+    <string name="extract_password_hint">Password ZIP</string>
+    <string name="zip_locked_badge">Terkunci password</string>
+    <string name="largest_files">File besar</string>
+    <string name="largest_files_hint">Hapus file besar yang tidak perlu untuk hemat ruang</string>
+    <string name="largest_files_empty">Tidak ada file besar ditemukan</string>
 </resources>

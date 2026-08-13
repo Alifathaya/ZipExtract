@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.DataUsage
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
@@ -96,6 +97,7 @@ fun HomeDashboardScreen(
     onBrowseAll: () -> Unit,
     onOpenZips: () -> Unit,
     onOpenFavorites: () -> Unit,
+    onOpenLargestFiles: () -> Unit,
     onOpenCloud: () -> Unit,
     onOpenLanguage: () -> Unit,
     onOpenFile: (FileItem) -> Unit,
@@ -196,6 +198,7 @@ fun HomeDashboardScreen(
                     onBrowseAll = onBrowseAll,
                     onOpenZips = onOpenZips,
                     onOpenFavorites = onOpenFavorites,
+                    onOpenLargestFiles = onOpenLargestFiles,
                     onOpenCloud = onOpenCloud,
                 )
 
@@ -638,6 +641,7 @@ private fun QuickActionsRow(
     onBrowseAll: () -> Unit,
     onOpenZips: () -> Unit,
     onOpenFavorites: () -> Unit,
+    onOpenLargestFiles: () -> Unit,
     onOpenCloud: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -667,13 +671,25 @@ private fun QuickActionsRow(
                 onClick = onOpenFavorites,
             )
         }
-        QuickActionChip(
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            icon = Icons.Default.Cloud,
-            label = stringResource(R.string.cloud),
-            container = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f),
-            onClick = onOpenCloud,
-        )
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            QuickActionChip(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.DataUsage,
+                label = stringResource(R.string.largest_files),
+                container = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+                onClick = onOpenLargestFiles,
+            )
+            QuickActionChip(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.Cloud,
+                label = stringResource(R.string.cloud),
+                container = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f),
+                onClick = onOpenCloud,
+            )
+        }
     }
 }
 

@@ -340,4 +340,11 @@
     <string name="files_count">%1$d files</string>
     <string name="zip_empty_unreadable">ZIP file is empty or unreadable</string>
     <string name="zip_read_failed">Failed to read ZIP: %1$s</string>
+    <string name="zip_password_required">This ZIP is password-protected. Enter the password to extract.</string>
+    <string name="zip_wrong_password">Wrong password. Try again.</string>
+    <string name="extract_password_hint">ZIP password</string>
+    <string name="zip_locked_badge">Password-protected</string>
+    <string name="largest_files">Large files</string>
+    <string name="largest_files_hint">Delete unneeded large files to free up space</string>
+    <string name="largest_files_empty">No large files found</string>
 </resources>
