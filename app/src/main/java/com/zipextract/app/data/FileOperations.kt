@@ -239,6 +239,123 @@ object FileOperations {
         }
     }
 
+    /**
+     * Queries only MediaStore rows changed since [sinceEpochSeconds]. This is used by
+     * [MediaChangeWatcher] so a new photo/download can be inserted into the UI without
+     * walking storage again. At most 64 rows are returned for a burst.
+     */
+    @Suppress("DEPRECATION")
+    fun queryRecentMediaStoreChanges(
+        resolver: ContentResolver,
+        source: String,
+        changedUri: Uri?,
+        sinceEpochSeconds: Long,
+    ): List<FileItem> {
+        val collection = when (source) {
+            "images" -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            "video" -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            "downloads" -> if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            } else {
+                MediaStore.Files.getContentUri("external")
+            }
+            else -> MediaStore.Files.getContentUri("external")
+        }
+        // A row URI ends in a numeric MediaStore ID. Query it directly when available.
+        val rowUri = changedUri?.takeIf {
+            it.lastPathSegment?.toLongOrNull() != null
+        }
+        val target = rowUri ?: collection
+        val projection = arrayOf(
+            MediaStore.MediaColumns.DATA,
+            MediaStore.MediaColumns.SIZE,
+            MediaStore.MediaColumns.DATE_MODIFIED,
+            MediaStore.MediaColumns.DATE_ADDED,
+        )
+        val selection = if (rowUri == null && sinceEpochSeconds > 0L) {
+            "${MediaStore.MediaColumns.DATE_MODIFIED} >= ? OR " +
+                "${MediaStore.MediaColumns.DATE_ADDED} >= ?"
+        } else {
+            null
+        }
+        val selectionArgs = if (selection != null) {
+            arrayOf(sinceEpochSeconds.toString(), sinceEpochSeconds.toString())
+        } else {
+            null
+        }
+        return runCatching {
+            resolver.query(
+                target,
+                projection,
+                selection,
+                selectionArgs,
+                "${MediaStore.MediaColumns.DATE_MODIFIED} DESC",
+            )?.use { cursor ->
+                val dataIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
+                val sizeIdx = cursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
+                val modifiedIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
+                if (dataIdx < 0) return@use emptyList()
+                buildList {
+                    while (cursor.moveToNext() && size < 64) {
+                        val path = cursor.getString(dataIdx)?.takeIf { it.isNotBlank() } ?: continue
+                        val file = File(path)
+                        if (!file.isFile) continue
+                        val mediaSize = if (sizeIdx >= 0) cursor.getLong(sizeIdx) else 0L
+                        val rawModified = if (modifiedIdx >= 0) cursor.getLong(modifiedIdx) else 0L
+                        val modified = when {
+                            rawModified in 1 until 10_000_000_000L -> rawModified * 1000L
+                            rawModified > 0L -> rawModified
+                            else -> file.lastModified()
+                        }
+                        add(
+                            FileItem(
+                                file = file,
+                                name = file.name,
+                                path = file.absolutePath,
+                                isDirectory = false,
+                                sizeBytes = mediaSize.takeIf { it > 0L } ?: file.length(),
+                                lastModified = modified,
+                            ),
+                        )
+                    }
+                }
+            }.orEmpty()
+        }.getOrDefault(emptyList())
+    }
+
+    /**
+     * Upserts a small set of changed files into all relevant cached categories.
+     * A file may belong to Downloads and a media category at the same time.
+     */
+    fun mergeIncremental(base: MediaLibrary, changed: List<FileItem>): MediaLibrary {
+        if (changed.isEmpty()) return base
+
+        fun merge(current: List<FileItem>, accepts: (FileItem) -> Boolean): List<FileItem> {
+            val byPath = LinkedHashMap<String, FileItem>(current.size + changed.size)
+            current.asSequence()
+                .filter { it.file.isFile }
+                .forEach { byPath[it.path] = it }
+            changed.asSequence().filter(accepts).forEach { byPath[it.path] = it }
+            return byPath.values.sortedByDescending { it.lastModified }.take(2500)
+        }
+
+        return MediaLibrary(
+            downloads = merge(base.downloads) { item ->
+                item.file.parentFile?.let(::isUnderDownloads) == true
+            },
+            images = merge(base.images) { it.isImage },
+            videos = merge(base.videos) { it.isVideo },
+            documents = merge(base.documents) { it.isDocument },
+            archives = merge(base.archives) { it.isArchive && !it.isApp },
+            apps = merge(base.apps) { it.isApp },
+            others = merge(base.others) { item ->
+                item.isAudio ||
+                    (!item.isImage && !item.isVideo && !item.isDocument &&
+                        !(item.isArchive && !item.isApp) && !item.isApp)
+            },
+        )
+    }
+
     fun isUnderDownloads(dir: File): Boolean {
         val path = runCatching { dir.canonicalPath }.getOrDefault(dir.absolutePath)
         return downloadScanRoots().any { root ->

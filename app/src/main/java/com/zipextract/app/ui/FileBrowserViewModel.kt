@@ -23,6 +23,7 @@ import com.zipextract.app.data.FileOperations
 import com.zipextract.app.data.MediaAlbum
 import com.zipextract.app.data.MediaAlbumChip
 import com.zipextract.app.data.MediaChangeWatcher
+import com.zipextract.app.data.MediaStoreChange
 import com.zipextract.app.data.LibrarySubFilter
 import com.zipextract.app.data.LocaleHelper
 import com.zipextract.app.data.MediaLibrary
@@ -45,6 +46,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.zip.Deflater
@@ -172,29 +175,29 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     private var searchJob: Job? = null
     private var libraryJob: Job? = null
     private var homeJob: Job? = null
-    private var softRefreshJob: Job? = null
     private var cloudImportJob: Job? = null
     private var activeJob: Job? = null
     private var mediaWatcher: MediaChangeWatcher? = null
+    private var incrementalPersistJob: Job? = null
+    private val incrementalUpdateMutex = Mutex()
+    @Volatile
+    private var lastIncrementalEpochSeconds: Long =
+        (MediaLibraryCache.savedAtMs(appContext) / 1000L)
+            .takeIf { it > 0L }
+            ?.minus(2L)
+            ?: (System.currentTimeMillis() / 1000L - 30L)
     @Volatile
     private var mediaLibraryCache: MediaLibrary? = null
     @Volatile
     private var homeLoadedOnce: Boolean = false
-    @Volatile
-    private var lastSoftRefreshAtMs: Long = 0L
-    @Volatile
-    private var pendingSoftRefresh: Boolean = false
-    @Volatile
-    private var pendingSoftRefreshReason: String = "soft"
-
     init {
-        // Live MediaStore updates: new downloads / photos appear without manual refresh.
-        mediaWatcher = MediaChangeWatcher(application) { source ->
-            requestSoftRefresh(reason = "media-observer:$source", fromObserver = true)
-            // MediaStore often indexes before the file size is final — follow up once.
+        // Incremental MediaStore updates: insert changed rows, never rescan storage.
+        mediaWatcher = MediaChangeWatcher(application) { change ->
+            applyMediaStoreChange(change)
+            // MediaStore can notify before a download has its final size; refresh that row.
             viewModelScope.launch {
                 delay(2_000)
-                requestSoftRefresh(reason = "media-observer-followup:$source", fromObserver = true)
+                applyMediaStoreChange(change)
             }
         }.also { it.start() }
     }
@@ -204,15 +207,14 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update { it.copy(storageGranted = granted) }
         if (!granted) return
         if (_uiState.value.showHome) {
-            // First open / first grant: load (cache ok). Later resumes: always soft-rescan
-            // so newly taken photos appear without waiting 15+ minutes.
+            // First open/grant builds the baseline. Later resumes query only changed rows.
             if (!wasGranted || !homeLoadedOnce || mediaLibraryCache == null) {
                 loadHomeData(forceRefresh = false)
             } else {
-                softRefreshMediaInBackground(reason = "resume-home")
+                catchUpMediaStoreChanges()
             }
         } else if (_uiState.value.libraryMode) {
-            softRefreshMediaInBackground(reason = "resume-library")
+            catchUpMediaStoreChanges()
         } else if (!wasGranted) {
             refresh()
         }
@@ -268,9 +270,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 )
             }
 
-            // Quietly rescan so brand-new camera shots show up soon after.
+            // Catch rows indexed while the process was not observing; no filesystem scan.
             if (!forceRefresh) {
-                softRefreshMediaInBackground(reason = "after-home-load")
+                catchUpMediaStoreChanges()
             }
         }
     }
@@ -291,140 +293,143 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    private fun softRefreshMediaInBackground(reason: String = "soft") {
-        requestSoftRefresh(reason = reason, fromObserver = false)
+    /** Query only rows newer than the last cache/update timestamp. */
+    private fun catchUpMediaStoreChanges() {
+        applyMediaStoreChange(MediaStoreChange(source = "files", uri = null))
     }
 
-    private fun requestSoftRefresh(reason: String, fromObserver: Boolean) {
-        val debounce = if (fromObserver) {
-            MediaLibraryCache.MEDIA_OBSERVER_DEBOUNCE_MS
-        } else {
-            MediaLibraryCache.RESUME_REFRESH_DEBOUNCE_MS
-        }
-        val now = System.currentTimeMillis()
-        if (softRefreshJob?.isActive == true) {
-            pendingSoftRefresh = true
-            pendingSoftRefreshReason = reason
-            return
-        }
-        if (now - lastSoftRefreshAtMs < debounce) {
-            // Coalesce near-term observer bursts into one follow-up scan.
-            if (fromObserver) {
-                pendingSoftRefresh = true
-                pendingSoftRefreshReason = reason
-                viewModelScope.launch {
-                    delay(debounce)
-                    if (pendingSoftRefresh && softRefreshJob?.isActive != true) {
-                        runSoftRefreshLoop(pendingSoftRefreshReason)
-                    }
+    /**
+     * Incrementally upserts one MediaStore notification burst into memory and the
+     * visible screen. No directory walk or full MediaStore query is performed.
+     */
+    private fun applyMediaStoreChange(change: MediaStoreChange) {
+        viewModelScope.launch(Dispatchers.IO) {
+            incrementalUpdateMutex.withLock {
+                val base = mediaLibraryCache ?: MediaLibraryCache.load(appContext)
+                if (base == null) {
+                    // No baseline yet; the normal first load will build it once.
+                    return@withLock
                 }
-            }
-            return
-        }
-        runSoftRefreshLoop(reason)
-    }
+                val queryStartedAt = System.currentTimeMillis() / 1000L
+                val changed = FileOperations.queryRecentMediaStoreChanges(
+                    resolver = appContext.contentResolver,
+                    source = change.source,
+                    changedUri = change.uri,
+                    sinceEpochSeconds = lastIncrementalEpochSeconds,
+                )
+                // Keep a small overlap because MediaStore timestamps have one-second precision.
+                lastIncrementalEpochSeconds =
+                    maxOf(lastIncrementalEpochSeconds, queryStartedAt - 2L)
+                if (changed.isEmpty()) return@withLock
 
-    private fun runSoftRefreshLoop(initialReason: String) {
-        lastSoftRefreshAtMs = System.currentTimeMillis()
-        softRefreshJob = viewModelScope.launch(Dispatchers.IO) {
-            var reason = initialReason
-            do {
-                pendingSoftRefresh = false
-                runCatching {
-                    @Suppress("UNUSED_EXPRESSION")
-                    reason
-                    val library = FileOperations.scanMediaLibrary(
-                        contentResolver = appContext.contentResolver,
-                    ).also { mediaLibraryCache = it }
-                    val categories = FileOperations.getCategorySummaries(library)
-                    val recentFiles = library.images.take(12)
-                    val storage = FileOperations.getStorageInfo()
-                    persistHomeSnapshot(library, categories, recentFiles, storage)
-                    _uiState.update { state ->
-                        val base = state.copy(
-                            homeLoading = false,
-                            storageInfo = storage,
-                            categorySummaries = categories,
-                            recentFiles = recentFiles,
-                        )
-                        when {
-                            state.libraryMode && state.activeCategory != null -> {
-                                val category = state.activeCategory
-                                val files = library.forCategory(category)
-                                when (category) {
-                                    FileCategory.IMAGES, FileCategory.VIDEOS -> {
-                                        val albums = MediaAlbum.buildChips(files)
-                                        val albumId = MediaAlbum.sanitizeSelection(state.mediaAlbumId, albums)
-                                        val sorted = sortLibraryFiles(MediaAlbum.filter(files, albumId))
-                                        base.copy(
-                                            mediaAlbums = albums,
-                                            mediaAlbumId = albumId,
-                                            items = sorted,
-                                            selectedPaths = state.selectedPaths.filter { path ->
-                                                sorted.any { item -> item.path == path }
-                                            }.toSet(),
-                                            progress = null,
-                                        )
-                                    }
-                                    FileCategory.DOCUMENTS -> {
-                                        val filtered = files.filter { state.librarySubFilter.matches(it) }
-                                        val sorted = sortLibraryFiles(filtered)
-                                        base.copy(
-                                            items = sorted,
-                                            selectedPaths = state.selectedPaths.filter { path ->
-                                                sorted.any { item -> item.path == path }
-                                            }.toSet(),
-                                            progress = null,
-                                        )
-                                    }
-                                    else -> {
-                                        // DOWNLOADS / ARCHIVES / APPS / OTHERS
-                                        val sorted = sortLibraryFiles(files)
-                                        base.copy(
-                                            items = sorted,
-                                            selectedPaths = state.selectedPaths.filter { path ->
-                                                sorted.any { item -> item.path == path }
-                                            }.toSet(),
-                                            progress = null,
-                                        )
-                                    }
+                val library = FileOperations.mergeIncremental(base, changed)
+                mediaLibraryCache = library
+                val categories = FileOperations.getCategorySummaries(library)
+                val recentFiles = library.images.take(12)
+                val storage = FileOperations.getStorageInfo()
+
+                _uiState.update { state ->
+                    val baseState = state.copy(
+                        homeLoading = false,
+                        storageInfo = storage,
+                        categorySummaries = categories,
+                        recentFiles = recentFiles,
+                    )
+                    when {
+                        state.libraryMode && state.activeCategory != null -> {
+                            val category = state.activeCategory
+                            val categoryFiles = library.forCategory(category)
+                            when (category) {
+                                FileCategory.IMAGES, FileCategory.VIDEOS -> {
+                                    val albums = MediaAlbum.buildChips(categoryFiles)
+                                    val albumId =
+                                        MediaAlbum.sanitizeSelection(state.mediaAlbumId, albums)
+                                    baseState.copy(
+                                        mediaAlbums = albums,
+                                        mediaAlbumId = albumId,
+                                        items = sortLibraryFiles(
+                                            MediaAlbum.filter(categoryFiles, albumId),
+                                        ),
+                                    )
                                 }
-                            }
-                            !state.showHome &&
-                                !state.showCloud &&
-                                !state.libraryMode &&
-                                FileOperations.isUnderDownloads(state.currentDir) -> {
-                                val filter = state.fileFilter
-                                val items = FileOperations.listFiles(state.currentDir)
-                                    .filter { it.matchesFilter(filter) }
-                                    .let { list ->
-                                        if (state.sortNewestFirst) {
-                                            list.sortedWith(
-                                                compareByDescending<FileItem> { it.isDirectory }
-                                                    .thenByDescending { it.lastModified },
-                                            )
-                                        } else {
-                                            list
-                                        }
-                                    }
-                                base.copy(
-                                    items = items,
-                                    selectedPaths = state.selectedPaths.filter { path ->
-                                        items.any { item -> item.path == path }
-                                    }.toSet(),
+                                FileCategory.DOCUMENTS -> baseState.copy(
+                                    items = sortLibraryFiles(
+                                        categoryFiles.filter {
+                                            state.librarySubFilter.matches(it)
+                                        },
+                                    ),
                                 )
+                                else -> baseState.copy(items = sortLibraryFiles(categoryFiles))
                             }
-                            else -> base
                         }
+                        state.showLargestFiles -> {
+                            val largest = (
+                                library.downloads + library.images + library.videos +
+                                    library.documents + library.archives +
+                                    library.apps + library.others
+                                )
+                                .distinctBy { it.path }
+                                .filter { !it.isDirectory && it.sizeBytes > 0L }
+                                .sortedByDescending { it.sizeBytes }
+                                .take(150)
+                            baseState.copy(items = largest)
+                        }
+                        !state.showHome &&
+                            !state.showCloud &&
+                            !state.showFavoritesOnly &&
+                            !state.showDuplicates -> {
+                            val currentPath = runCatching {
+                                state.currentDir.canonicalPath
+                            }.getOrDefault(state.currentDir.absolutePath)
+                            val additions = changed.filter { item ->
+                                val parent = item.file.parentFile ?: return@filter false
+                                val parentPath = runCatching {
+                                    parent.canonicalPath
+                                }.getOrDefault(parent.absolutePath)
+                                parentPath == currentPath && item.matchesFilter(state.fileFilter)
+                            }
+                            if (additions.isEmpty()) {
+                                baseState
+                            } else {
+                                val byPath = LinkedHashMap<String, FileItem>()
+                                state.items.forEach { byPath[it.path] = it }
+                                additions.forEach { byPath[it.path] = it }
+                                val items = if (state.sortNewestFirst) {
+                                    byPath.values.sortedWith(
+                                        compareByDescending<FileItem> { it.isDirectory }
+                                            .thenByDescending { it.lastModified },
+                                    )
+                                } else {
+                                    byPath.values.sortedWith(
+                                        compareBy<FileItem> { !it.isDirectory }
+                                            .thenBy { it.name.lowercase() },
+                                    )
+                                }
+                                baseState.copy(items = items)
+                            }
+                        }
+                        else -> baseState
                     }
                 }
-                reason = pendingSoftRefreshReason
-            } while (pendingSoftRefresh)
+                scheduleIncrementalCacheSave(library)
+            }
         }
     }
 
-    private fun softRefreshHomeInBackground() {
-        softRefreshMediaInBackground(reason = "legacy-home")
+    /** Coalesce bursty camera/download events into one small cache write. */
+    private fun scheduleIncrementalCacheSave(library: MediaLibrary) {
+        incrementalPersistJob?.cancel()
+        incrementalPersistJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(1_200)
+            val latest = mediaLibraryCache ?: library
+            val state = _uiState.value
+            persistHomeSnapshot(
+                library = latest,
+                categories = state.categorySummaries,
+                recentFiles = state.recentFiles,
+                storage = state.storageInfo ?: FileOperations.getStorageInfo(),
+            )
+        }
     }
 
     private fun persistHomeSnapshot(
@@ -500,8 +505,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     progress = null,
                 )
             }
-            // Show cache instantly, then rescan so newly added photos/videos appear.
-            softRefreshMediaInBackground(reason = "open-category")
+            // Show cache instantly, then query only rows changed since the cache snapshot.
+            catchUpMediaStoreChanges()
             return
         }
 
@@ -1331,9 +1336,13 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
      */
     private fun showDownloadListWithExtractedOnTop(extracted: List<FileItem>) {
         val downloadsRoot = FileCategory.DOWNLOADS.resolveFolder()
-        val library = FileOperations.scanMediaLibrary(
-            contentResolver = appContext.contentResolver,
-        ).also { mediaLibraryCache = it }
+        // We already know every extracted path; upsert those exact rows instead of
+        // rescanning the device after extraction.
+        val baseline = mediaLibraryCache
+            ?: MediaLibraryCache.load(appContext)
+            ?: MediaLibrary()
+        val library = FileOperations.mergeIncremental(baseline, extracted)
+            .also { mediaLibraryCache = it }
         val downloads = library.forCategory(FileCategory.DOWNLOADS)
         val extractedPaths = extracted.map { it.path }.toHashSet()
         // Prefer freshly built FileItem instances (touched timestamps) for the pin.
@@ -1531,9 +1540,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     is OperationResult.Success -> emit(result.message)
                     is OperationResult.Error -> emit(result.message)
                 }
-                // Quiet background resync (no searching overlay).
-                lastSoftRefreshAtMs = 0L
-                softRefreshMediaInBackground(reason = "after-delete")
+                // UI/cache were already patched synchronously; persist without rescanning.
+                mediaLibraryCache?.let(::scheduleIncrementalCacheSave)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 emit(str(R.string.cancelled))
                 throw e

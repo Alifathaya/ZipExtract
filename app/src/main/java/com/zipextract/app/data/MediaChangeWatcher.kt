@@ -9,13 +9,18 @@ import android.os.HandlerThread
 import android.os.SystemClock
 import android.provider.MediaStore
 
+data class MediaStoreChange(
+    val source: String,
+    val uri: Uri?,
+)
+
 /**
  * Watches MediaStore for newly indexed downloads / photos / videos so the UI can
- * refresh shortly after a browser download or camera save completes.
+ * insert the changed row without rescanning storage.
  */
 class MediaChangeWatcher(
     context: Context,
-    private val onChanged: (source: String) -> Unit,
+    private val onChanged: (MediaStoreChange) -> Unit,
 ) {
     private val appContext = context.applicationContext
     private val thread = HandlerThread("filenest-media-watch").apply { start() }
@@ -41,7 +46,7 @@ class MediaChangeWatcher(
                 uri.toString().contains("download", ignoreCase = true) -> "downloads"
                 else -> "files"
             }
-            handler.post { onChanged(source) }
+            handler.post { onChanged(MediaStoreChange(source, uri)) }
         }
     }
 
