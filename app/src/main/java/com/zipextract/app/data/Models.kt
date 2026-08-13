@@ -41,6 +41,10 @@ data class FileItem(
     val isApp: Boolean
         get() = extension in APP_EXTENSIONS
 
+    /** Plain APK that the system package installer can install directly. */
+    val isApk: Boolean
+        get() = extension == "apk"
+
     val isViewable: Boolean
         get() = isPdf || isImage || isVideo
 

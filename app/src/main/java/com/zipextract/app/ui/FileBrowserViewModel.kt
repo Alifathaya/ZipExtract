@@ -582,6 +582,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         if (fromHomeOrCloud) {
             when {
                 item.isPdf || item.isImage || item.isVideo -> openItem(item)
+                item.isApk -> installApkFile(item.file)
                 item.isArchive -> openExtractDialog(item.file.canonicalFile)
                 item.isAudio -> {
                     if (!FileActions.playMedia(getApplication(), item.file)) {
@@ -596,6 +597,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         // Browser / library: open media in-place; other files may reveal parent folder.
         when {
             item.isPdf || item.isImage -> openItem(item)
+            item.isApk -> installApkFile(item.file)
             else -> {
                 val parent = item.file.parentFile
                 if (parent != null) {
@@ -676,6 +678,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 item.isImage -> openViewer(ViewerContent.Image(file), ViewerReturnTarget.HOME)
                 item.isPdf -> openViewer(ViewerContent.Pdf(file), ViewerReturnTarget.HOME)
                 item.isVideo -> openViewer(ViewerContent.Video(file), ViewerReturnTarget.HOME)
+                item.isApk -> installApkFile(file)
                 item.isArchive -> {
                     // Archives open extract UI; return home/cloud via normal flow after.
                     openExtractDialog(file)
@@ -774,6 +777,11 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     fun openItem(item: FileItem) {
         when {
             item.isDirectory -> openDirectory(item)
+            item.isApk -> installApkFile(item.file)
+            item.isApp -> {
+                // xapk / apks / apkm are zip-based bundles — extract first.
+                openExtractDialog(item.file.canonicalFile)
+            }
             item.isArchive -> openExtractDialog(item.file.canonicalFile)
             item.isPdf -> openViewer(ViewerContent.Pdf(item.file))
             item.isImage -> openViewer(ViewerContent.Image(item.file))
@@ -784,6 +792,28 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 }
             }
             else -> toggleSelect(item)
+        }
+    }
+
+    fun installApkFile(file: File) {
+        when (val result = FileActions.installApk(getApplication(), file)) {
+            is FileActions.InstallApkResult.Started -> {
+                emit("Membuka installer…")
+            }
+            is FileActions.InstallApkResult.NeedInstallPermission -> {
+                emit("Izinkan FileNest menginstal aplikasi, lalu ketuk APK lagi")
+            }
+            is FileActions.InstallApkResult.Failed -> {
+                // Split packages (xapk/apks) or non-apk apps: fall back to extract / open-with.
+                val item = FileItem(file)
+                when {
+                    item.isApp && !item.isApk -> {
+                        emit("File ${item.extension.uppercase()} perlu diextract dulu")
+                        openExtractDialog(file)
+                    }
+                    else -> emit(result.reason)
+                }
+            }
         }
     }
 
@@ -849,6 +879,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
             val item = FileItem(resolved.file)
             when {
+                item.isApk -> {
+                    _uiState.update { it.copy(launchedFromExternalIntent = false) }
+                    installApkFile(resolved.file)
+                }
                 item.isArchive -> extractZipFile(resolved.file)
                 SharedFileResolver.isPdf(resolved.file, resolved.mimeType) -> {
                     openViewer(
@@ -1454,6 +1488,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         val file = selectedFiles().singleOrNull()
         if (file == null) {
             emit("Pilih 1 file untuk dibuka")
+            return
+        }
+        if (FileItem(file).isApk) {
+            installApkFile(file)
             return
         }
         if (!FileActions.openWith(context, file)) {
