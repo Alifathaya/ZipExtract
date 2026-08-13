@@ -1047,53 +1047,79 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             return
         }
         val zip = dialog.zipFile
-        val destination = dialog.destinationDir
+        var destination = dialog.destinationDir
+
+        // Ensure destination is writable; fall back to public Download/FileNest.
         if (!destination.exists()) {
             destination.mkdirs()
         }
-        if (!destination.exists() || !destination.isDirectory) {
-            emit("Folder tujuan tidak ditemukan: ${destination.absolutePath}")
-            return
+        if (!destination.exists() || !destination.isDirectory || !destination.canWrite()) {
+            val fallback = File(
+                ZipManager.publicFileNestDir(),
+                zip.nameWithoutExtension.ifBlank { "extract" },
+            )
+            fallback.mkdirs()
+            if (!fallback.exists() || !fallback.isDirectory) {
+                emit("Folder tujuan tidak bisa dibuat. Cek izin penyimpanan.")
+                return
+            }
+            destination = fallback
         }
 
         val deleteOriginal = dialog.deleteOriginal
-        val selectedPaths = dialog.selectedPaths
+        val selectedPaths = dialog.selectedPaths.toSet()
+        val destinationFinal = destination
         closeExtractDialog()
 
         runJob("Extract ZIP…", zip.name) {
             try {
-                val written = ZipManager.extractZipEntries(zip, destination, selectedPaths) { progress, name ->
+                val written = ZipManager.extractZipEntries(
+                    zipFile = zip,
+                    destinationDir = destinationFinal,
+                    selectedPaths = selectedPaths,
+                ) { progress, name ->
                     updateProgress("Extract ZIP…", name, progress)
                 }
-                if (deleteOriginal) {
+                if (deleteOriginal && zip.exists()) {
                     if (!zip.delete()) {
                         emit("Extract selesai, tetapi gagal menghapus ZIP asli")
                     }
                 }
-                // Make photos/docs visible to the system gallery & other apps.
-                MediaScannerConnection.scanFile(
-                    appContext,
-                    arrayOf(destination.absolutePath),
-                    null,
-                    null,
-                )
+                scanExtractedFiles(destinationFinal)
                 invalidateMediaLibraryCache()
-                openFolderAfterExtract(destination)
+                openFolderAfterExtract(destinationFinal)
                 val suffix = if (deleteOriginal) " (ZIP asli dihapus)" else ""
                 if (written <= 0) {
-                    emit("Extract selesai (folder kosong?) di ${destination.absolutePath}$suffix")
+                    emit("Extract selesai tanpa file di ${destinationFinal.absolutePath}$suffix")
                 } else {
-                    emit("Extract $written file ke ${destination.absolutePath}$suffix")
+                    emit("Berhasil extract $written file → ${destinationFinal.absolutePath}$suffix")
                 }
             } catch (e: Exception) {
-                emit("Gagal extract: ${e.message ?: "error"}")
+                emit("Gagal extract: ${e.message ?: e.javaClass.simpleName}")
             }
+        }
+    }
+
+    private fun scanExtractedFiles(root: File) {
+        val paths = mutableListOf<String>()
+        fun walk(dir: File, depth: Int) {
+            if (depth > 8) return
+            val children = dir.listFiles() ?: return
+            children.forEach { child ->
+                if (child.isDirectory) walk(child, depth + 1) else paths += child.absolutePath
+            }
+        }
+        if (root.isDirectory) walk(root, 0) else paths += root.absolutePath
+        if (paths.isEmpty()) {
+            MediaScannerConnection.scanFile(appContext, arrayOf(root.absolutePath), null, null)
+        } else {
+            MediaScannerConnection.scanFile(appContext, paths.toTypedArray(), null, null)
         }
     }
 
     /** Leave library/home and open the extract destination so results are visible. */
     private fun openFolderAfterExtract(dir: File) {
-        val target = runCatching { dir.canonicalFile }.getOrDefault(dir)
+        val target = runCatching { dir.canonicalFile }.getOrDefault(dir.absoluteFile)
         _uiState.update {
             it.copy(
                 showHome = false,
@@ -1112,6 +1138,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 searchResults = emptyList(),
                 searchLoading = false,
                 canGoUp = true,
+                progress = null,
             )
         }
     }

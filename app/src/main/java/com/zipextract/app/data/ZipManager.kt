@@ -1,5 +1,8 @@
 package com.zipextract.app.data
 
+import android.os.Environment
+import net.lingala.zip4j.exception.ZipException
+import net.lingala.zip4j.model.FileHeader
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.File
@@ -83,35 +86,8 @@ object ZipManager {
         destinationDir: File,
         onProgress: ((Float, String) -> Unit)? = null,
     ) {
-        require(zipFile.exists() && zipFile.isFile) { "File zip tidak ditemukan" }
-        destinationDir.mkdirs()
-
-        val totalEntries = ZipFile(zipFile).use { it.size().coerceAtLeast(1) }
-        var processed = 0
-
-        ZipInputStream(BufferedInputStream(FileInputStream(zipFile))).use { zis ->
-            var entry = zis.nextEntry
-            while (entry != null) {
-                val outFile = safeResolve(destinationDir, entry.name)
-                onProgress?.invoke(++processed / totalEntries.toFloat(), entry.name)
-
-                if (entry.isDirectory) {
-                    outFile.mkdirs()
-                } else {
-                    outFile.parentFile?.mkdirs()
-                    FileOutputStream(outFile).use { fos ->
-                        BufferedOutputStream(fos).use { bos ->
-                            zis.copyTo(bos, bufferSize = DEFAULT_BUFFER)
-                        }
-                    }
-                    if (entry.time > 0) {
-                        outFile.setLastModified(entry.time)
-                    }
-                }
-                zis.closeEntry()
-                entry = zis.nextEntry
-            }
-        }
+        val entries = listZipEntryDetails(zipFile).map { it.path }.toSet()
+        extractZipEntries(zipFile, destinationDir, entries, onProgress)
     }
 
     fun listZipEntries(zipFile: File): List<String> {
@@ -119,20 +95,18 @@ object ZipManager {
     }
 
     fun listZipEntryDetails(zipFile: File): List<ZipEntryItem> {
-        return ZipFile(zipFile).use { zip ->
-            zip.entries().asSequence().map { entry ->
-                val normalized = entry.name.replace('\\', '/')
-                val displayName = normalized.trimEnd('/').substringAfterLast('/')
-                ZipEntryItem(
-                    path = normalized,
-                    displayName = displayName.ifEmpty { normalized },
-                    isDirectory = entry.isDirectory,
-                    sizeBytes = entry.size,
-                )
-            }.sortedBy { it.path.lowercase() }.toList()
+        require(zipFile.exists() && zipFile.isFile) { "File zip tidak ditemukan" }
+        val fromZip4j = runCatching { listWithZip4j(zipFile) }.getOrNull()
+        if (!fromZip4j.isNullOrEmpty()) return fromZip4j
+        return runCatching { listWithJavaZip(zipFile) }.getOrElse { err ->
+            throw IllegalStateException("Gagal membaca ZIP: ${err.message ?: "format tidak didukung"}", err)
         }
     }
 
+    /**
+     * Extract selected entries. Returns number of files written (directories not counted).
+     * Uses zip4j first (handles more real-world ZIPs), then Java ZipFile fallback.
+     */
     fun extractZipEntries(
         zipFile: File,
         destinationDir: File,
@@ -141,56 +115,193 @@ object ZipManager {
     ): Int {
         require(zipFile.exists() && zipFile.isFile) { "File zip tidak ditemukan" }
         require(selectedPaths.isNotEmpty()) { "Pilih minimal 1 file untuk diextract" }
-        if (!destinationDir.exists() && !destinationDir.mkdirs()) {
-            error("Tidak bisa membuat folder tujuan: ${destinationDir.absolutePath}")
-        }
-        require(destinationDir.isDirectory) {
-            "Folder tujuan tidak valid: ${destinationDir.absolutePath}"
-        }
 
+        ensureDirectory(destinationDir)
+
+        val zip4jError = runCatching {
+            return extractWithZip4j(zipFile, destinationDir, selectedPaths, onProgress)
+        }.exceptionOrNull()
+
+        val javaError = runCatching {
+            return extractWithJavaZip(zipFile, destinationDir, selectedPaths, onProgress)
+        }.exceptionOrNull()
+
+        val detail = listOfNotNull(
+            zip4jError?.message?.let { "zip4j: $it" },
+            javaError?.message?.let { "java: $it" },
+        ).joinToString(" | ").ifBlank { "format tidak didukung" }
+        error("Gagal extract ZIP ($detail)")
+    }
+
+    /** Default extract folder: sibling named after ZIP, or public Download/FileNest when ZIP is in app cache. */
+    fun defaultExtractDirectory(zipFile: File): File {
+        val parent = zipFile.parentFile
+        val baseParent = when {
+            parent == null -> publicFileNestDir()
+            isAppPrivatePath(parent) -> publicFileNestDir()
+            !parent.exists() -> publicFileNestDir()
+            else -> parent
+        }
+        baseParent.mkdirs()
+        val base = zipFile.nameWithoutExtension.trim().ifBlank { "extract" }
+            .replace(Regex("""[\\/:*?"<>|]"""), "_")
+        var candidate = File(baseParent, base)
+        var index = 2
+        while (candidate.exists() && !candidate.isDirectory) {
+            candidate = File(baseParent, "$base ($index)")
+            index++
+        }
+        return candidate
+    }
+
+    fun publicFileNestDir(): File {
+        val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        return File(downloads, "FileNest").also { it.mkdirs() }
+    }
+
+    private fun isAppPrivatePath(dir: File): Boolean {
+        val path = dir.absolutePath
+        return path.contains("/cache/") ||
+            path.contains("/code_cache/") ||
+            path.contains("/files/incoming") ||
+            path.contains("/data/data/com.zipextract.app/") ||
+            (path.contains("/data/user/") && path.contains("/com.zipextract.app/"))
+    }
+
+    private fun listWithZip4j(zipFile: File): List<ZipEntryItem> {
+        val zip = net.lingala.zip4j.ZipFile(zipFile)
+        if (zip.isEncrypted) {
+            error("ZIP berpassword. Extract ZIP terenkripsi belum didukung.")
+        }
+        @Suppress("UNCHECKED_CAST")
+        val headers = zip.fileHeaders as List<FileHeader>
+        return headers.map { header ->
+            val normalized = header.fileName.replace('\\', '/')
+            val displayName = normalized.trimEnd('/').substringAfterLast('/')
+            ZipEntryItem(
+                path = normalized,
+                displayName = displayName.ifEmpty { normalized },
+                isDirectory = header.isDirectory || normalized.endsWith('/'),
+                sizeBytes = header.uncompressedSize,
+            )
+        }.sortedBy { it.path.lowercase() }
+    }
+
+    private fun listWithJavaZip(zipFile: File): List<ZipEntryItem> {
+        return ZipFile(zipFile).use { zip ->
+            zip.entries().asSequence().map { entry ->
+                val normalized = entry.name.replace('\\', '/')
+                val displayName = normalized.trimEnd('/').substringAfterLast('/')
+                ZipEntryItem(
+                    path = normalized,
+                    displayName = displayName.ifEmpty { normalized },
+                    isDirectory = entry.isDirectory || normalized.endsWith('/'),
+                    sizeBytes = entry.size.coerceAtLeast(0L),
+                )
+            }.sortedBy { it.path.lowercase() }.toList()
+        }
+    }
+
+    private fun extractWithZip4j(
+        zipFile: File,
+        destinationDir: File,
+        selectedPaths: Set<String>,
+        onProgress: ((Float, String) -> Unit)?,
+    ): Int {
+        val zip = net.lingala.zip4j.ZipFile(zipFile)
+        if (zip.isEncrypted) {
+            error("ZIP berpassword. Extract ZIP terenkripsi belum didukung.")
+        }
+        @Suppress("UNCHECKED_CAST")
+        val headers = zip.fileHeaders as List<FileHeader>
+        val allNames = headers.map { it.fileName.replace('\\', '/') }
+        val toExtract = expandSelectedPaths(allNames, selectedPaths).toSet()
+        if (toExtract.isEmpty()) error("Tidak ada file yang cocok untuk diextract")
+
+        val total = toExtract.size.coerceAtLeast(1)
+        var processed = 0
+        var written = 0
+
+        headers.forEach { header ->
+            val originalName = header.fileName.replace('\\', '/')
+            if (originalName !in toExtract) return@forEach
+            val safeName = sanitizeEntryName(originalName)
+            onProgress?.invoke(++processed / total.toFloat(), safeName.ifBlank { originalName })
+
+            if (header.isDirectory || originalName.endsWith('/') || safeName.isEmpty()) {
+                if (safeName.isNotEmpty()) {
+                    ensureDirectory(File(destinationDir, safeName))
+                }
+                return@forEach
+            }
+
+            try {
+                zip.extractFile(header, destinationDir.absolutePath, safeName)
+            } catch (e: ZipException) {
+                // Fallback: stream manually if extractFile fails for this entry.
+                writeEntryBytes(
+                    destinationDir = destinationDir,
+                    safeName = safeName,
+                    bytes = zip.getInputStream(header).use { it.readBytes() },
+                )
+            }
+            val out = File(destinationDir, safeName)
+            if (!out.isFile) {
+                error("Gagal menulis file: ${out.absolutePath}")
+            }
+            written++
+        }
+        return written
+    }
+
+    private fun extractWithJavaZip(
+        zipFile: File,
+        destinationDir: File,
+        selectedPaths: Set<String>,
+        onProgress: ((Float, String) -> Unit)?,
+    ): Int {
         return ZipFile(zipFile).use { zip ->
             val allNames = zip.entries().asSequence().map { it.name.replace('\\', '/') }.toList()
             val toExtract = expandSelectedPaths(allNames, selectedPaths)
-            if (toExtract.isEmpty()) {
-                error("Tidak ada file yang cocok untuk diextract")
-            }
+            if (toExtract.isEmpty()) error("Tidak ada file yang cocok untuk diextract")
 
-            val totalEntries = toExtract.size.coerceAtLeast(1)
+            val total = toExtract.size.coerceAtLeast(1)
             var processed = 0
             var written = 0
 
             toExtract.forEach { entryPath ->
                 val entry = findEntry(zip, entryPath) ?: return@forEach
-                val normalized = entry.name.replace('\\', '/')
-                val outFile = safeResolve(destinationDir, normalized)
-                onProgress?.invoke(++processed / totalEntries.toFloat(), normalized)
+                val safeName = sanitizeEntryName(entry.name)
+                onProgress?.invoke(++processed / total.toFloat(), safeName.ifBlank { entryPath })
 
-                if (entry.isDirectory || normalized.endsWith('/')) {
-                    if (!outFile.exists() && !outFile.mkdirs()) {
-                        error("Gagal membuat folder: ${outFile.absolutePath}")
-                    }
-                } else {
-                    outFile.parentFile?.mkdirs()
-                    zip.getInputStream(entry).use { input ->
-                        BufferedInputStream(input).use { bis ->
-                            FileOutputStream(outFile).use { fos ->
-                                BufferedOutputStream(fos).use { bos ->
-                                    bis.copyTo(bos, bufferSize = DEFAULT_BUFFER)
-                                }
+                if (entry.isDirectory || entry.name.replace('\\', '/').endsWith('/') || safeName.isEmpty()) {
+                    if (safeName.isNotEmpty()) ensureDirectory(File(destinationDir, safeName))
+                    return@forEach
+                }
+
+                val outFile = safeResolve(destinationDir, safeName)
+                outFile.parentFile?.let { ensureDirectory(it) }
+                zip.getInputStream(entry).use { input ->
+                    BufferedInputStream(input).use { bis ->
+                        FileOutputStream(outFile).use { fos ->
+                            BufferedOutputStream(fos).use { bos ->
+                                bis.copyTo(bos, bufferSize = DEFAULT_BUFFER)
                             }
                         }
                     }
-                    if (entry.time > 0) {
-                        outFile.setLastModified(entry.time)
-                    }
-                    if (!outFile.isFile) {
-                        error("Gagal menulis file: ${outFile.absolutePath}")
-                    }
-                    written++
                 }
+                if (entry.time > 0) outFile.setLastModified(entry.time)
+                if (!outFile.isFile) error("Gagal menulis file: ${outFile.absolutePath}")
+                written++
             }
             written
         }
+    }
+
+    private fun writeEntryBytes(destinationDir: File, safeName: String, bytes: ByteArray) {
+        val outFile = safeResolve(destinationDir, safeName)
+        outFile.parentFile?.let { ensureDirectory(it) }
+        FileOutputStream(outFile).use { it.write(bytes) }
     }
 
     private fun findEntry(zip: ZipFile, entryPath: String): ZipEntry? {
@@ -203,7 +314,6 @@ object ZipManager {
 
     /**
      * If a folder entry is selected, include all nested files under that prefix.
-     * Also matches entries whether or not they use a trailing slash.
      */
     private fun expandSelectedPaths(
         allNames: List<String>,
@@ -217,12 +327,8 @@ object ZipManager {
                 out += normalized
                 return@forEach
             }
-            // Directory selected as "foo" or "foo/" should pull "foo/bar.txt".
             selected.forEach { sel ->
-                val prefix = when {
-                    sel.endsWith('/') -> sel
-                    else -> "$sel/"
-                }
+                val prefix = if (sel.endsWith('/')) sel else "$sel/"
                 if (normalized.startsWith(prefix)) {
                     out += normalized
                 }
@@ -231,26 +337,50 @@ object ZipManager {
         return out.toList()
     }
 
-    /** Default extract folder: sibling folder named after the ZIP (unique if needed). */
-    fun defaultExtractDirectory(zipFile: File): File {
-        val parent = zipFile.parentFile ?: File(".")
-        val base = zipFile.nameWithoutExtension.trim().ifBlank { "extract" }
-            .replace(Regex("""[\\/:*?"<>|]"""), "_")
-        var candidate = File(parent, base)
-        var index = 2
-        while (candidate.exists() && !candidate.isDirectory) {
-            candidate = File(parent, "$base ($index)")
-            index++
+    /** Strip absolute/Windows prefixes and block path traversal. */
+    fun sanitizeEntryName(entryName: String): String {
+        var name = entryName.replace('\\', '/')
+        // Windows drive prefix: C:/foo or C:foo
+        if (name.length >= 2 && name[1] == ':') {
+            name = name.substring(2)
         }
-        // If a same-named folder already exists, still use it (extract into it).
-        return candidate
+        while (name.startsWith("/")) name = name.drop(1)
+        val parts = name.split('/').filter { part ->
+            part.isNotEmpty() && part != "."
+        }
+        if (parts.any { it == ".." }) {
+            throw SecurityException("Zip entry tidak valid (path traversal): $entryName")
+        }
+        return parts.joinToString("/")
+    }
+
+    private fun safeResolve(baseDir: File, entryName: String): File {
+        val safe = sanitizeEntryName(entryName)
+        if (safe.isEmpty()) return baseDir.absoluteFile.normalize()
+        val base = baseDir.absoluteFile.normalize()
+        val target = File(base, safe).normalize()
+        val basePath = base.path
+        val prefix = if (basePath.endsWith(File.separator)) basePath else basePath + File.separator
+        if (target.path != basePath && !target.path.startsWith(prefix)) {
+            throw SecurityException("Zip entry tidak valid (path traversal): $entryName")
+        }
+        return target
+    }
+
+    private fun ensureDirectory(dir: File) {
+        if (dir.isDirectory) return
+        if (dir.exists() && dir.isFile) {
+            error("Tidak bisa membuat folder (ada file dengan nama sama): ${dir.absolutePath}")
+        }
+        if (!dir.mkdirs() && !dir.isDirectory) {
+            error("Tidak bisa membuat folder tujuan: ${dir.absolutePath}")
+        }
     }
 
     private fun collectFiles(dir: File, basePath: String, out: MutableList<Pair<File, String>>) {
         val children = dir.listFiles()?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
             ?: return
         if (children.isEmpty()) {
-            // Keep empty folder representation in zip
             return
         }
         children.forEach { child ->
@@ -261,15 +391,6 @@ object ZipManager {
                 out += child to relative
             }
         }
-    }
-
-    private fun safeResolve(baseDir: File, entryName: String): File {
-        val target = File(baseDir, entryName).canonicalFile
-        val base = baseDir.canonicalFile
-        if (!target.path.startsWith(base.path + File.separator) && target != base) {
-            throw SecurityException("Zip entry tidak valid (path traversal): $entryName")
-        }
-        return target
     }
 
     private const val DEFAULT_BUFFER = 64 * 1024
