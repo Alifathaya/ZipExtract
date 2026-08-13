@@ -27,6 +27,7 @@ import com.zipextract.app.data.LocaleHelper
 import com.zipextract.app.data.ThemeMode
 import com.zipextract.app.ui.FileBrowserScreen
 import com.zipextract.app.ui.FileBrowserViewModel
+import com.zipextract.app.ui.ProvideAppLocale
 import com.zipextract.app.ui.theme.FileNestTheme
 
 class MainActivity : ComponentActivity() {
@@ -48,6 +49,7 @@ class MainActivity : ComponentActivity() {
             }
 
             FileNestTheme(darkTheme = darkTheme) {
+                ProvideAppLocale(language = state.appLanguage) {
                 val context = LocalContext.current
 
                 val legacyPermissionLauncher = rememberLauncherForActivityResult(
@@ -160,6 +162,7 @@ class MainActivity : ComponentActivity() {
                         onOpenImportedCloudFile = viewModel::openImportedCloudFile,
                     )
                 }
+                } // ProvideAppLocale
             }
         }
     }
