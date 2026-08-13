@@ -1,11 +1,23 @@
 package com.zipextract.app.data
 
-enum class LibrarySubFilter(val label: String) {
-    ALL("Semua"),
-    PDF("PDF"),
-    OFFICE("Office"),
-    TEXT("Teks"),
+import androidx.annotation.StringRes
+import com.zipextract.app.R
+
+enum class LibrarySubFilter(@StringRes val labelRes: Int) {
+    ALL(R.string.subfilter_all),
+    PDF(R.string.subfilter_pdf),
+    OFFICE(R.string.subfilter_office),
+    TEXT(R.string.subfilter_text),
     ;
+
+    /** Fallback Indonesian label for non-Compose call sites. */
+    val label: String
+        get() = when (this) {
+            ALL -> "Semua"
+            PDF -> "PDF"
+            OFFICE -> "Office"
+            TEXT -> "Teks"
+        }
 
     fun matches(item: FileItem): Boolean {
         if (this == ALL) return true

@@ -6,6 +6,7 @@ import android.database.Cursor
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.result.contract.ActivityResultContract
+import com.zipextract.app.R
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
@@ -85,22 +86,21 @@ object SafCloudAccess {
             val target = File(dir, "${System.currentTimeMillis()}_$safe")
 
             val input = openReadableStream(context, uri)
-                ?: return null to
-                    "Sistem memblokir akses file. Unduh dulu di Files/Drive lalu buka lagi."
+                ?: return null to context.getString(R.string.saf_blocked)
 
             input.use { stream ->
                 FileOutputStream(target).use { output -> stream.copyTo(output) }
             }
             if (!target.exists() || target.length() <= 0L) {
                 target.delete()
-                return null to "File cloud kosong atau tidak bisa dibaca."
+                return null to context.getString(R.string.saf_cloud_empty)
             }
             // Ensure bytes are fully flushed before the viewer opens the file.
             target to null
         } catch (security: SecurityException) {
-            null to "Ditolak sistem (izin URI). Buka ulang lewat Cloud → Buka file cloud."
+            null to context.getString(R.string.saf_uri_denied)
         } catch (t: Throwable) {
-            null to (t.message ?: "Gagal mengimpor file cloud")
+            null to (t.message ?: context.getString(R.string.saf_import_failed))
         }
     }
 

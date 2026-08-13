@@ -34,8 +34,8 @@ android {
         applicationId = "com.zipextract.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 63
-        versionName = "2.4.18"
+        versionCode = 64
+        versionName = "2.4.19"
     }
 
     signingConfigs {

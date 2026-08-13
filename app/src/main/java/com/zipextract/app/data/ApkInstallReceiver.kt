@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.os.Build
 import android.widget.Toast
+import com.zipextract.app.R
 
 /**
  * Receives [PackageInstaller] session status and launches the system
@@ -15,6 +16,9 @@ class ApkInstallReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action != ACTION_INSTALL_STATUS) return
+
+        val prefs = AppPreferences(context)
+        val localized = LocaleHelper.wrap(context, prefs.getAppLanguage())
 
         val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
         val message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
@@ -28,8 +32,8 @@ class ApkInstallReceiver : BroadcastReceiver() {
                     context.startActivity(confirm)
                 }.onFailure {
                     Toast.makeText(
-                        context,
-                        "Tidak bisa membuka installer. Izinkan instal dari FileNest di Pengaturan.",
+                        localized,
+                        localized.getString(R.string.apk_cannot_open_installer),
                         Toast.LENGTH_LONG,
                     ).show()
                     FileActions.openUnknownSourcesSettings(context)
@@ -37,7 +41,11 @@ class ApkInstallReceiver : BroadcastReceiver() {
             }
             PackageInstaller.STATUS_SUCCESS -> {
                 val label = fileName.ifBlank { "APK" }
-                Toast.makeText(context, "$label berhasil diinstal", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    localized,
+                    localized.getString(R.string.apk_install_success, label),
+                    Toast.LENGTH_SHORT,
+                ).show()
             }
             PackageInstaller.STATUS_FAILURE_ABORTED -> {
                 // User cancelled the confirmation sheet — stay quiet.
@@ -45,8 +53,8 @@ class ApkInstallReceiver : BroadcastReceiver() {
             else -> {
                 val detail = message?.takeIf { it.isNotBlank() } ?: "Status $status"
                 Toast.makeText(
-                    context,
-                    "Instal gagal: $detail",
+                    localized,
+                    localized.getString(R.string.apk_install_failed, detail),
                     Toast.LENGTH_LONG,
                 ).show()
             }

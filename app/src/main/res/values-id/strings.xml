@@ -323,4 +323,21 @@
     <string name="extract_delete_zip">Hapus file ZIP setelah extract</string>
     <string name="extract_success_top_toast">Extract berhasil (%1$d file) — ada di atas list Download</string>
     <string name="open_download">Buka Download</string>
+    <string name="apk_preparing_installer">Menyiapkan installer…</string>
+    <string name="apk_opening_installer">Membuka installer…</string>
+    <string name="apk_need_install_permission">Izinkan FileNest menginstal aplikasi, lalu ketuk APK lagi</string>
+    <string name="apk_needs_extract">File %1$s perlu diextract dulu</string>
+    <string name="progress_deleting_duplicates">Menghapus duplikat…</string>
+    <string name="duplicates_groups_found">%1$d grup ditemukan</string>
+    <string name="apk_not_found">File APK tidak ditemukan</string>
+    <string name="apk_only_apk">Hanya file .apk yang bisa diinstal langsung</string>
+    <string name="apk_empty">File APK kosong</string>
+    <string name="apk_unreadable">APK tidak bisa dibaca. Cek izin penyimpanan.</string>
+    <string name="apk_open_installer_failed">Gagal membuka installer</string>
+    <string name="apk_cannot_open_installer">Tidak bisa membuka installer. Izinkan instal dari FileNest di Pengaturan.</string>
+    <string name="apk_install_success">%1$s berhasil diinstal</string>
+    <string name="apk_install_failed">Instal gagal: %1$s</string>
+    <string name="files_count">%1$d file</string>
+    <string name="zip_empty_unreadable">File ZIP kosong atau tidak bisa dibaca</string>
+    <string name="zip_read_failed">Gagal membaca ZIP: %1$s</string>
 </resources>

@@ -1,6 +1,9 @@
 package com.zipextract.app.data
 
+import android.content.Context
 import android.os.Environment
+import androidx.annotation.StringRes
+import com.zipextract.app.R
 import net.lingala.zip4j.exception.ZipException
 import net.lingala.zip4j.model.FileHeader
 import java.io.BufferedInputStream
@@ -16,14 +19,42 @@ import java.util.zip.ZipOutputStream
 
 object ZipManager {
 
+    private val messageContext = ThreadLocal<Context>()
+
+    private fun <T> withMessages(context: Context, block: () -> T): T {
+        messageContext.set(context)
+        try {
+            return block()
+        } finally {
+            messageContext.remove()
+        }
+    }
+
+    private fun msg(@StringRes id: Int, vararg args: Any): String {
+        val ctx = messageContext.get()
+            ?: throw IllegalStateException("ZipManager locale context missing")
+        return if (args.isEmpty()) ctx.getString(id) else ctx.getString(id, *args)
+    }
+
     fun createZip(
+        context: Context,
+        sources: List<File>,
+        destinationZip: File,
+        compressionLevel: Int = Deflater.DEFAULT_COMPRESSION,
+        password: String? = null,
+        onProgress: ((Float, String) -> Unit)? = null,
+    ) = withMessages(context) {
+        createZipInternal(sources, destinationZip, compressionLevel, password, onProgress)
+    }
+
+    private fun createZipInternal(
         sources: List<File>,
         destinationZip: File,
         compressionLevel: Int = Deflater.DEFAULT_COMPRESSION,
         password: String? = null,
         onProgress: ((Float, String) -> Unit)? = null,
     ) {
-        require(sources.isNotEmpty()) { "Tidak ada file yang dipilih" }
+        require(sources.isNotEmpty()) { msg(R.string.zip_no_sources) }
         destinationZip.parentFile?.mkdirs()
 
         val allFiles = mutableListOf<Pair<File, String>>()
@@ -82,24 +113,29 @@ object ZipManager {
     }
 
     fun extractZip(
+        context: Context,
         zipFile: File,
         destinationDir: File,
         onProgress: ((Float, String) -> Unit)? = null,
     ) {
-        val entries = listZipEntryDetails(zipFile).map { it.path }.toSet()
-        extractZipEntries(zipFile, destinationDir, entries, onProgress)
+        val entries = listZipEntryDetails(context, zipFile).map { it.path }.toSet()
+        extractZipEntries(context, zipFile, destinationDir, entries, onProgress)
     }
 
-    fun listZipEntries(zipFile: File): List<String> {
-        return listZipEntryDetails(zipFile).map { it.path }
+    fun listZipEntries(context: Context, zipFile: File): List<String> {
+        return listZipEntryDetails(context, zipFile).map { it.path }
     }
 
-    fun listZipEntryDetails(zipFile: File): List<ZipEntryItem> {
-        require(zipFile.exists() && zipFile.isFile) { "File zip tidak ditemukan" }
+    fun listZipEntryDetails(context: Context, zipFile: File): List<ZipEntryItem> = withMessages(context) {
+        listZipEntryDetailsInternal(zipFile)
+    }
+
+    private fun listZipEntryDetailsInternal(zipFile: File): List<ZipEntryItem> {
+        require(zipFile.exists() && zipFile.isFile) { msg(R.string.zip_not_found) }
         val fromZip4j = runCatching { listWithZip4j(zipFile) }.getOrNull()
         if (!fromZip4j.isNullOrEmpty()) return fromZip4j
         return runCatching { listWithJavaZip(zipFile) }.getOrElse { err ->
-            throw IllegalStateException("Gagal membaca ZIP: ${err.message ?: "format tidak didukung"}", err)
+            throw IllegalStateException(msg(R.string.zip_read_failed, err.message ?: msg(R.string.zip_unsupported_format)), err)
         }
     }
 
@@ -108,18 +144,28 @@ object ZipManager {
      * Tries ZipInputStream first (most compatible), then zip4j, then Java ZipFile.
      */
     fun extractZipEntries(
+        context: Context,
+        zipFile: File,
+        destinationDir: File,
+        selectedPaths: Set<String>,
+        onProgress: ((Float, String) -> Unit)? = null,
+    ): Int = withMessages(context) {
+        extractZipEntriesInternal(zipFile, destinationDir, selectedPaths, onProgress)
+    }
+
+    private fun extractZipEntriesInternal(
         zipFile: File,
         destinationDir: File,
         selectedPaths: Set<String>,
         onProgress: ((Float, String) -> Unit)? = null,
     ): Int {
-        require(zipFile.exists() && zipFile.isFile) { "File zip tidak ditemukan" }
-        require(selectedPaths.isNotEmpty()) { "Pilih minimal 1 file untuk diextract" }
-        require(zipFile.length() > 0L) { "File ZIP kosong (0 byte)" }
+        require(zipFile.exists() && zipFile.isFile) { msg(R.string.zip_not_found) }
+        require(selectedPaths.isNotEmpty()) { msg(R.string.select_min_one_extract) }
+        require(zipFile.length() > 0L) { msg(R.string.zip_empty_file) }
 
         ensureDirectory(destinationDir)
         require(probeWritable(destinationDir)) {
-            "Folder tujuan tidak bisa ditulis: ${destinationDir.absolutePath}"
+            msg(R.string.zip_dest_not_writable, destinationDir.absolutePath)
         }
 
         val errors = mutableListOf<String>()
@@ -136,7 +182,7 @@ object ZipManager {
             return extractWithJavaZip(zipFile, destinationDir, selectedPaths, onProgress)
         }.onFailure { errors += "java: ${it.message ?: it.javaClass.simpleName}" }
 
-        error("Gagal extract ZIP (${errors.joinToString(" | ").ifBlank { "format tidak didukung" }})")
+        error(msg(R.string.zip_extract_failed, errors.joinToString(" | ").ifBlank { msg(R.string.zip_unsupported_format) }))
     }
 
     fun isSupportedZipFile(file: File): Boolean {
@@ -180,7 +226,11 @@ object ZipManager {
      * Prefers [preferred], then Download/FileNest, then app-specific external storage
      * (always writable even without All Files Access).
      */
-    fun resolveWritableExtractDir(context: android.content.Context, zipFile: File, preferred: File?): File {
+    fun resolveWritableExtractDir(context: Context, zipFile: File, preferred: File?): File = withMessages(context) {
+        resolveWritableExtractDirInternal(context, zipFile, preferred)
+    }
+
+    private fun resolveWritableExtractDirInternal(context: Context, zipFile: File, preferred: File?): File {
         val baseName = zipFile.nameWithoutExtension.trim().ifBlank { "extract" }
             .replace(Regex("""[\\/:*?"<>|]"""), "_")
         val stamp = System.currentTimeMillis() % 100000
@@ -199,16 +249,18 @@ object ZipManager {
                 if (probeWritable(dir)) return dir
             }
         }
-        error("Tidak ada folder yang bisa ditulis. Berikan izin penyimpanan, lalu coba lagi.")
+        error(msg(R.string.zip_no_writable_folder))
     }
 
     /** Default extract folder suggestion for the UI — always Download/FileNest. */
-    fun defaultExtractDirectory(context: android.content.Context, zipFile: File): File {
+    fun defaultExtractDirectory(context: Context, zipFile: File): File {
         return runCatching {
             resolveWritableExtractDir(context, zipFile, downloadExtractDirectory(zipFile))
         }.getOrElse {
             val fallback = context.getExternalFilesDir("Extract") ?: File(context.filesDir, "Extract")
-            File(fallback, zipFile.nameWithoutExtension.ifBlank { "extract" }).also { ensureDirectory(it) }
+            File(fallback, zipFile.nameWithoutExtension.ifBlank { "extract" }).also {
+                withMessages(context) { ensureDirectory(it) }
+            }
         }
     }
 
@@ -264,7 +316,7 @@ object ZipManager {
         @Suppress("UNCHECKED_CAST")
         val headers = zip.fileHeaders as List<FileHeader>
         if (headers.isEmpty() && zip.isEncrypted) {
-            error("ZIP berpassword. Extract ZIP terenkripsi belum didukung.")
+            error(msg(R.string.zip_password_unsupported))
         }
         return headers.map { header ->
             val normalized = header.fileName.replace('\\', '/')
@@ -310,7 +362,7 @@ object ZipManager {
         } else {
             selectedPaths.map { it.replace('\\', '/') }.toSet()
         }
-        if (toExtract.isEmpty()) error("Tidak ada file yang cocok untuk diextract")
+        if (toExtract.isEmpty()) error(msg(R.string.zip_no_matching_files))
 
         val total = toExtract.size.coerceAtLeast(1)
         var processed = 0
@@ -339,7 +391,7 @@ object ZipManager {
                             }
                         }
                         if (entry.time > 0) outFile.setLastModified(entry.time)
-                        if (!outFile.isFile) error("Gagal menulis file: ${outFile.absolutePath}")
+                        if (!outFile.isFile) error(msg(R.string.zip_write_file_failed, outFile.absolutePath))
                         written++
                     }
                 }
@@ -348,7 +400,7 @@ object ZipManager {
             }
         }
         if (written <= 0) {
-            error("Stream extract tidak menulis file (mungkin ZIP special/encrypted)")
+            error(msg(R.string.zip_stream_wrote_none))
         }
         return written
     }
@@ -361,13 +413,13 @@ object ZipManager {
     ): Int {
         val zip = net.lingala.zip4j.ZipFile(zipFile)
         if (zip.isEncrypted) {
-            error("ZIP berpassword. Extract ZIP terenkripsi belum didukung.")
+            error(msg(R.string.zip_password_unsupported))
         }
         @Suppress("UNCHECKED_CAST")
         val headers = zip.fileHeaders as List<FileHeader>
         val allNames = headers.map { it.fileName.replace('\\', '/') }
         val toExtract = expandSelectedPaths(allNames, selectedPaths).toSet()
-        if (toExtract.isEmpty()) error("Tidak ada file yang cocok untuk diextract")
+        if (toExtract.isEmpty()) error(msg(R.string.zip_no_matching_files))
 
         val total = toExtract.size.coerceAtLeast(1)
         var processed = 0
@@ -398,7 +450,7 @@ object ZipManager {
             }
             val out = File(destinationDir, safeName)
             if (!out.isFile) {
-                error("Gagal menulis file: ${out.absolutePath}")
+                error(msg(R.string.zip_write_file_failed, out.absolutePath))
             }
             written++
         }
@@ -414,7 +466,7 @@ object ZipManager {
         return ZipFile(zipFile).use { zip ->
             val allNames = zip.entries().asSequence().map { it.name.replace('\\', '/') }.toList()
             val toExtract = expandSelectedPaths(allNames, selectedPaths)
-            if (toExtract.isEmpty()) error("Tidak ada file yang cocok untuk diextract")
+            if (toExtract.isEmpty()) error(msg(R.string.zip_no_matching_files))
 
             val total = toExtract.size.coerceAtLeast(1)
             var processed = 0
@@ -442,7 +494,7 @@ object ZipManager {
                     }
                 }
                 if (entry.time > 0) outFile.setLastModified(entry.time)
-                if (!outFile.isFile) error("Gagal menulis file: ${outFile.absolutePath}")
+                if (!outFile.isFile) error(msg(R.string.zip_write_file_failed, outFile.absolutePath))
                 written++
             }
             written
@@ -500,7 +552,7 @@ object ZipManager {
             part.isNotEmpty() && part != "."
         }
         if (parts.any { it == ".." }) {
-            throw SecurityException("Zip entry tidak valid (path traversal): $entryName")
+            throw SecurityException(msg(R.string.zip_path_traversal, entryName))
         }
         return parts.joinToString("/")
     }
@@ -513,7 +565,7 @@ object ZipManager {
         val basePath = base.path
         val prefix = if (basePath.endsWith(File.separator)) basePath else basePath + File.separator
         if (target.path != basePath && !target.path.startsWith(prefix)) {
-            throw SecurityException("Zip entry tidak valid (path traversal): $entryName")
+            throw SecurityException(msg(R.string.zip_path_traversal, entryName))
         }
         return target
     }
@@ -521,10 +573,10 @@ object ZipManager {
     private fun ensureDirectory(dir: File) {
         if (dir.isDirectory) return
         if (dir.exists() && dir.isFile) {
-            error("Tidak bisa membuat folder (ada file dengan nama sama): ${dir.absolutePath}")
+            error(msg(R.string.zip_mkdir_conflict, dir.absolutePath))
         }
         if (!dir.mkdirs() && !dir.isDirectory) {
-            error("Tidak bisa membuat folder tujuan: ${dir.absolutePath}")
+            error(msg(R.string.zip_mkdir_failed, dir.absolutePath))
         }
     }
 

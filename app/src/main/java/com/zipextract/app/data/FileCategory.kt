@@ -87,6 +87,18 @@ enum class FileCategory(
             OTHERS -> "file"
         }
 
+    @get:StringRes
+    val nounRes: Int
+        get() = when (this) {
+            DOWNLOADS -> R.string.noun_downloads
+            IMAGES -> R.string.noun_images
+            VIDEOS -> R.string.noun_videos
+            DOCUMENTS -> R.string.noun_documents
+            ARCHIVES -> R.string.noun_archives
+            APPS -> R.string.noun_apps
+            OTHERS -> R.string.noun_others
+        }
+
     private fun publicDir(type: String, fallback: File? = null): File {
         return runCatching {
             Environment.getExternalStoragePublicDirectory(type)

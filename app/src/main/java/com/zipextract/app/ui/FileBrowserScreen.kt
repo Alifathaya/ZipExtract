@@ -365,8 +365,8 @@ fun FileBrowserScreen(
                     Column {
                         Text(
                             text = when {
-                                state.selectionMode -> "$selectedCount dipilih"
-                                state.showDuplicates -> "Duplikat"
+                                state.selectionMode -> stringResource(R.string.items_selected, selectedCount)
+                                state.showDuplicates -> stringResource(R.string.duplicates_title_short)
                                 state.showFavoritesOnly -> stringResource(R.string.favorites)
                                 state.libraryMode && state.activeCategory != null ->
                                     stringResource(state.activeCategory.titleRes)
@@ -381,14 +381,21 @@ fun FileBrowserScreen(
                         Text(
                             text = when {
                                 state.showDuplicates ->
-                                    "${state.duplicateGroups.size} grup ditemukan"
+                                    stringResource(R.string.duplicates_groups_found, state.duplicateGroups.size)
                                 state.showFavoritesOnly ->
-                                    "${state.items.size} item favorit"
+                                    stringResource(R.string.favorites_count, state.items.size)
                                 state.libraryMode && state.activeCategory != null && state.items.isNotEmpty() ->
-                                    "${state.items.size} ${state.activeCategory.libraryNoun} di perangkat"
+                                    stringResource(
+                                        R.string.library_items_in_device,
+                                        state.items.size,
+                                        stringResource(state.activeCategory.nounRes),
+                                    )
                                 state.libraryMode && state.activeCategory != null ->
-                                    "Semua ${state.activeCategory.libraryNoun} di perangkat"
-                                state.libraryMode -> "Semua file di perangkat"
+                                    stringResource(
+                                        R.string.library_all_in_device,
+                                        stringResource(state.activeCategory.nounRes),
+                                    )
+                                state.libraryMode -> stringResource(R.string.library_all_files_in_device)
                                 else -> state.currentDir.absolutePath
                             },
                             style = MaterialTheme.typography.bodyMedium,
@@ -587,7 +594,7 @@ fun FileBrowserScreen(
                             CircularProgressIndicator()
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = state.progress.message.ifBlank { "Memuat…" },
+                                text = state.progress.message.ifBlank { stringResource(R.string.loading) },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -596,13 +603,19 @@ fun FileBrowserScreen(
                 }
                 state.items.isEmpty() -> EmptyPane(
                     message = when {
-                        state.showFavoritesOnly -> "Belum ada favorit"
+                        state.showFavoritesOnly -> stringResource(R.string.no_favorites)
                         state.libraryMode && state.activeCategory != null ->
-                            "Tidak ada ${state.activeCategory.libraryNoun} ditemukan di perangkat"
-                        state.libraryMode -> "Tidak ada file ditemukan di perangkat"
+                            stringResource(
+                                R.string.library_empty_category,
+                                stringResource(state.activeCategory.nounRes),
+                            )
+                        state.libraryMode -> stringResource(R.string.library_empty_all)
                         state.fileFilter != FileFilter.ALL ->
-                            "Tidak ada file ${state.fileFilter.label.lowercase()} di folder ini"
-                        else -> "Folder kosong"
+                            stringResource(
+                                R.string.folder_empty_filter,
+                                stringResource(state.fileFilter.labelRes).lowercase(),
+                            )
+                        else -> stringResource(R.string.folder_empty)
                     },
                 )
                 state.showFavoritesOnly -> {
@@ -988,7 +1001,7 @@ private fun DuplicateGroupsPane(
     onShowDetails: (FileItem) -> Unit,
 ) {
     if (groups.isEmpty()) {
-        EmptyPane(message = "Tidak ada file duplikat")
+        EmptyPane(message = stringResource(R.string.duplicates_none))
         return
     }
 
@@ -1006,7 +1019,11 @@ private fun DuplicateGroupsPane(
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
-                            text = "${group.files.size} salinan · hemat ${FileItem.formatBytes(group.wastedBytes)}",
+                            text = stringResource(
+                                R.string.duplicates_copies_save,
+                                group.files.size,
+                                FileItem.formatBytes(group.wastedBytes),
+                            ),
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.primary,
                         )
@@ -1228,7 +1245,7 @@ private fun VideoGalleryGrid(
     modifier: Modifier = Modifier,
 ) {
     if (items.isEmpty()) {
-        EmptyPane(message = "Tidak ada video di album ini")
+        EmptyPane(message = stringResource(R.string.no_videos_in_album))
         return
     }
 
@@ -1409,7 +1426,7 @@ private fun ImageGalleryGrid(
     modifier: Modifier = Modifier,
 ) {
     if (items.isEmpty()) {
-        EmptyPane(message = "Tidak ada foto di album ini")
+        EmptyPane(message = stringResource(R.string.no_photos_in_album))
         return
     }
 
@@ -1707,7 +1724,7 @@ private fun FileFilterChips(
             FilterChip(
                 selected = selected == filter,
                 onClick = { onSelect(filter) },
-                label = { Text(filter.label) },
+                label = { Text(stringResource(filter.labelRes)) },
             )
         }
     }
@@ -1768,17 +1785,18 @@ private fun LibrarySubFilterChips(
             FilterChip(
                 selected = selected == filter,
                 onClick = { onSelect(filter) },
-                label = { Text(filter.label) },
+                label = { Text(stringResource(filter.labelRes)) },
             )
         }
     }
 }
 
 @Composable
-private fun EmptyPane(message: String = "Folder kosong") {
+private fun EmptyPane(message: String? = null) {
+    val text = message ?: stringResource(R.string.folder_empty)
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(
-            text = message,
+            text = text,
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

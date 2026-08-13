@@ -323,4 +323,21 @@
     <string name="extract_delete_zip">Delete ZIP file after extract</string>
     <string name="extract_success_top_toast">Extract successful (%1$d files) — at the top of Download</string>
     <string name="open_download">Open Download</string>
+    <string name="apk_preparing_installer">Preparing installer…</string>
+    <string name="apk_opening_installer">Opening installer…</string>
+    <string name="apk_need_install_permission">Allow FileNest to install apps, then tap the APK again</string>
+    <string name="apk_needs_extract">%1$s files need to be extracted first</string>
+    <string name="progress_deleting_duplicates">Deleting duplicates…</string>
+    <string name="duplicates_groups_found">%1$d groups found</string>
+    <string name="apk_not_found">APK file not found</string>
+    <string name="apk_only_apk">Only .apk files can be installed directly</string>
+    <string name="apk_empty">APK file is empty</string>
+    <string name="apk_unreadable">Cannot read APK. Check storage permission.</string>
+    <string name="apk_open_installer_failed">Failed to open installer</string>
+    <string name="apk_cannot_open_installer">Cannot open installer. Allow installs from FileNest in Settings.</string>
+    <string name="apk_install_success">%1$s installed successfully</string>
+    <string name="apk_install_failed">Install failed: %1$s</string>
+    <string name="files_count">%1$d files</string>
+    <string name="zip_empty_unreadable">ZIP file is empty or unreadable</string>
+    <string name="zip_read_failed">Failed to read ZIP: %1$s</string>
 </resources>

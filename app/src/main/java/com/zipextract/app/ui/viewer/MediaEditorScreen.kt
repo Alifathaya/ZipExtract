@@ -1,5 +1,7 @@
 package com.zipextract.app.ui.viewer
 
+import com.zipextract.app.R
+
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.widget.Toast
@@ -70,6 +72,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zipextract.app.data.BitmapEditor
@@ -136,7 +139,7 @@ fun MediaEditorScreen(
             }
         }
         if (loaded == null) {
-            error = "Gagal memuat media untuk diedit"
+            error = context.getString(R.string.edit_load_failed)
         } else {
             working = loaded
         }
@@ -161,7 +164,7 @@ fun MediaEditorScreen(
         cropRight = 0.92f
         cropBottom = 0.92f
         tool = EditorTool.NONE
-        Toast.makeText(context, "Crop diterapkan", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.edit_crop_applied), Toast.LENGTH_SHORT).show()
     }
 
     fun saveAndMaybeShare(share: Boolean) {
@@ -173,10 +176,10 @@ fun MediaEditorScreen(
             }
             busy = false
             if (saved == null) {
-                Toast.makeText(context, "Gagal menyimpan hasil edit", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.edit_save_failed), Toast.LENGTH_SHORT).show()
                 return@launch
             }
-            Toast.makeText(context, "Disimpan: ${saved.name}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.edit_saved, saved.name), Toast.LENGTH_SHORT).show()
             if (share) FileActions.shareFile(context, saved)
         }
     }
@@ -186,7 +189,7 @@ fun MediaEditorScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text(text = "Edit", style = MaterialTheme.typography.titleLarge)
+                        Text(text = stringResource(R.string.edit), style = MaterialTheme.typography.titleLarge)
                         Text(
                             text = title,
                             style = MaterialTheme.typography.bodyMedium,
@@ -198,7 +201,7 @@ fun MediaEditorScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onClose) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
@@ -206,13 +209,13 @@ fun MediaEditorScreen(
                         onClick = { saveAndMaybeShare(share = false) },
                         enabled = working != null && !busy,
                     ) {
-                        Icon(Icons.Default.Save, contentDescription = "Simpan")
+                        Icon(Icons.Default.Save, contentDescription = stringResource(R.string.save))
                     }
                     IconButton(
                         onClick = { saveAndMaybeShare(share = true) },
                         enabled = working != null && !busy,
                     ) {
-                        Icon(Icons.Default.Share, contentDescription = "Bagikan")
+                        Icon(Icons.Default.Share, contentDescription = stringResource(R.string.share))
                     }
                 },
             )
@@ -235,7 +238,7 @@ fun MediaEditorScreen(
                             onClick = {
                                 tool = if (tool == EditorTool.CROP) EditorTool.NONE else EditorTool.CROP
                             },
-                            label = { Text("Crop") },
+                            label = { Text(stringResource(R.string.edit_crop)) },
                             leadingIcon = { Icon(Icons.Default.Crop, null, Modifier.size(18.dp)) },
                         )
                         FilterChip(
@@ -243,7 +246,7 @@ fun MediaEditorScreen(
                             onClick = {
                                 tool = if (tool == EditorTool.PEN) EditorTool.NONE else EditorTool.PEN
                             },
-                            label = { Text("Pen") },
+                            label = { Text(stringResource(R.string.edit_pen)) },
                             leadingIcon = { Icon(Icons.Default.Edit, null, Modifier.size(18.dp)) },
                         )
                         IconButton(
@@ -253,7 +256,7 @@ fun MediaEditorScreen(
                             },
                             enabled = strokes.isNotEmpty() || currentStroke != null,
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = stringResource(R.string.undo))
                         }
                     }
 
@@ -278,9 +281,9 @@ fun MediaEditorScreen(
                                 )
                             }
                             Spacer(modifier = Modifier.width(4.dp))
-                            TextButton(onClick = { strokeWidth = 5f }) { Text("Tipis") }
-                            TextButton(onClick = { strokeWidth = 8f }) { Text("Sedang") }
-                            TextButton(onClick = { strokeWidth = 14f }) { Text("Tebal") }
+                            TextButton(onClick = { strokeWidth = 5f }) { Text(stringResource(R.string.edit_stroke_thin)) }
+                            TextButton(onClick = { strokeWidth = 8f }) { Text(stringResource(R.string.edit_stroke_medium)) }
+                            TextButton(onClick = { strokeWidth = 14f }) { Text(stringResource(R.string.edit_stroke_thick)) }
                         }
                     }
 
@@ -298,18 +301,18 @@ fun MediaEditorScreen(
                                     cropBottom = 0.9f
                                 },
                                 modifier = Modifier.weight(1f),
-                            ) { Text("Reset crop") }
+                            ) { Text(stringResource(R.string.edit_reset_crop)) }
                             Button(
                                 onClick = { applyCrop() },
                                 modifier = Modifier.weight(1f),
                             ) {
                                 Icon(Icons.Default.Check, contentDescription = null)
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Terapkan")
+                                Text(stringResource(R.string.edit_apply))
                             }
                         }
                         Text(
-                            text = "Geser 8 titik besar, atau geser area tengah untuk memindahkan crop",
+                            text = stringResource(R.string.edit_crop_hint),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -327,7 +330,7 @@ fun MediaEditorScreen(
         ) {
             when {
                 loading || busy -> CircularProgressIndicator()
-                error != null -> Text(error ?: "Error", color = MaterialTheme.colorScheme.error)
+                error != null -> Text(error ?: stringResource(R.string.error_generic), color = MaterialTheme.colorScheme.error)
                 working != null -> {
                     EditorCanvas(
                         bitmap = working!!,
