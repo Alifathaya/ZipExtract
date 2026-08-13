@@ -7,17 +7,18 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
@@ -29,7 +30,11 @@ import com.zipextract.app.ui.FileBrowserScreen
 import com.zipextract.app.ui.FileBrowserViewModel
 import com.zipextract.app.ui.theme.FileNestTheme
 
-class MainActivity : ComponentActivity() {
+/**
+ * AppCompatActivity so [AppCompatDelegate.setApplicationLocales] applies reliably
+ * and dialogs / selection actions follow the chosen language.
+ */
+class MainActivity : AppCompatActivity() {
 
     private val viewModel: FileBrowserViewModel by viewModels()
 
@@ -47,8 +52,9 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.DARK -> true
             }
 
-            FileNestTheme(darkTheme = darkTheme) {
-                val context = LocalContext.current
+            key(state.appLanguage) {
+                FileNestTheme(darkTheme = darkTheme) {
+                    val context = LocalContext.current
 
                 val legacyPermissionLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestMultiplePermissions()
@@ -155,6 +161,7 @@ class MainActivity : ComponentActivity() {
                         onUpdateSafBookmarks = viewModel::updateSafBookmarks,
                         onOpenImportedCloudFile = viewModel::openImportedCloudFile,
                     )
+                }
                 }
             }
         }

@@ -402,7 +402,10 @@ fun FileBrowserScreen(
                     when {
                         state.selectionMode -> {
                             IconButton(onClick = onClearSelection) {
-                                Icon(Icons.Default.Close, contentDescription = "Batal seleksi")
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = stringResource(R.string.cd_cancel_selection),
+                                )
                             }
                         }
                         state.canGoUp || state.showDuplicates || state.showFavoritesOnly -> {
@@ -411,7 +414,10 @@ fun FileBrowserScreen(
                                     if (state.showDuplicates) onCloseDuplicates() else onGoUp()
                                 },
                             ) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali ke beranda")
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = stringResource(R.string.cd_back_home),
+                                )
                             }
                         }
                     }
@@ -433,14 +439,22 @@ fun FileBrowserScreen(
                         }
                     }
                     IconButton(onClick = onRefresh) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.refresh))
                     }
                     IconButton(onClick = { menuExpanded = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+                        Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.menu))
                     }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                         DropdownMenuItem(
-                            text = { Text(if (state.selectionMode) "Nonaktifkan seleksi" else "Mode seleksi") },
+                            text = {
+                                Text(
+                                    if (state.selectionMode) {
+                                        stringResource(R.string.exit_selection)
+                                    } else {
+                                        stringResource(R.string.selection_mode)
+                                    },
+                                )
+                            },
                             onClick = {
                                 menuExpanded = false
                                 onToggleSelectionMode()
@@ -448,7 +462,7 @@ fun FileBrowserScreen(
                             leadingIcon = { Icon(Icons.Default.CheckBox, contentDescription = null) },
                         )
                         DropdownMenuItem(
-                            text = { Text("Pilih semua") },
+                            text = { Text(stringResource(R.string.select_all)) },
                             onClick = {
                                 menuExpanded = false
                                 onSelectAll()
@@ -456,7 +470,15 @@ fun FileBrowserScreen(
                             leadingIcon = { Icon(Icons.Default.SelectAll, contentDescription = null) },
                         )
                         DropdownMenuItem(
-                            text = { Text(if (state.sortNewestFirst) "Urut nama" else "Urut terbaru") },
+                            text = {
+                                Text(
+                                    if (state.sortNewestFirst) {
+                                        stringResource(R.string.sort_name)
+                                    } else {
+                                        stringResource(R.string.sort_newest)
+                                    },
+                                )
+                            },
                             onClick = {
                                 menuExpanded = false
                                 onToggleSort()
@@ -464,7 +486,7 @@ fun FileBrowserScreen(
                             leadingIcon = { Icon(Icons.Default.Sort, contentDescription = null) },
                         )
                         DropdownMenuItem(
-                            text = { Text("Folder baru") },
+                            text = { Text(stringResource(R.string.create_folder)) },
                             onClick = {
                                 menuExpanded = false
                                 inputText = ""
@@ -473,7 +495,7 @@ fun FileBrowserScreen(
                             leadingIcon = { Icon(Icons.Default.CreateNewFolder, contentDescription = null) },
                         )
                         DropdownMenuItem(
-                            text = { Text("Favorit") },
+                            text = { Text(stringResource(R.string.favorites)) },
                             onClick = {
                                 menuExpanded = false
                                 onOpenFavorites()
@@ -481,7 +503,7 @@ fun FileBrowserScreen(
                             leadingIcon = { Icon(Icons.Default.Star, contentDescription = null) },
                         )
                         DropdownMenuItem(
-                            text = { Text("Cari duplikat") },
+                            text = { Text(stringResource(R.string.find_duplicates)) },
                             onClick = {
                                 menuExpanded = false
                                 onFindDuplicates()
@@ -524,7 +546,7 @@ fun FileBrowserScreen(
         floatingActionButton = {
             if (state.storageGranted && state.clipboard != null) {
                 FloatingActionButton(onClick = onPaste) {
-                    Icon(Icons.Default.ContentPaste, contentDescription = "Paste")
+                    Icon(Icons.Default.ContentPaste, contentDescription = stringResource(R.string.paste))
                 }
             }
         },
@@ -748,10 +770,10 @@ fun FileBrowserScreen(
 
     when (dialog) {
         DialogType.CREATE_FOLDER -> TextInputDialog(
-            title = "Buat folder",
-            label = "Nama folder",
+            title = stringResource(R.string.dialog_folder_title),
+            label = stringResource(R.string.dialog_folder_hint),
             value = inputText,
-            confirmLabel = "Buat",
+            confirmLabel = stringResource(R.string.dialog_folder_confirm),
             onValueChange = { inputText = it },
             onDismiss = { dialog = null },
             onConfirm = {
@@ -760,10 +782,10 @@ fun FileBrowserScreen(
             },
         )
         DialogType.RENAME -> TextInputDialog(
-            title = "Ganti nama",
-            label = "Nama baru",
+            title = stringResource(R.string.dialog_rename_title),
+            label = stringResource(R.string.dialog_rename_hint),
             value = inputText,
-            confirmLabel = "Simpan",
+            confirmLabel = stringResource(R.string.save),
             onValueChange = { inputText = it },
             onDismiss = { dialog = null },
             onConfirm = {
@@ -784,16 +806,16 @@ fun FileBrowserScreen(
         )
         DialogType.DELETE_CONFIRM -> AlertDialog(
             onDismissRequest = { dialog = null },
-            title = { Text("Hapus item?") },
-            text = { Text("$selectedCount item akan dihapus permanen.") },
+            title = { Text(stringResource(R.string.dialog_delete_title)) },
+            text = { Text(stringResource(R.string.dialog_delete_body, selectedCount)) },
             confirmButton = {
                 TextButton(onClick = {
                     dialog = null
                     onDelete()
-                }) { Text("Hapus") }
+                }) { Text(stringResource(R.string.delete)) }
             },
             dismissButton = {
-                TextButton(onClick = { dialog = null }) { Text("Batal") }
+                TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.cancel)) }
             },
         )
         null -> Unit
@@ -812,18 +834,18 @@ fun FileBrowserScreen(
             confirmButton = {
                 if (result.destination != null) {
                     TextButton(onClick = onOpenExtractResultFolder) {
-                        Text("Buka Download")
+                        Text(stringResource(R.string.open_download))
                     }
                 } else {
                     TextButton(onClick = onDismissExtractResult) {
-                        Text("OK")
+                        Text(stringResource(R.string.ok))
                     }
                 }
             },
             dismissButton = {
                 if (result.destination != null) {
                     TextButton(onClick = onDismissExtractResult) {
-                        Text("Tutup")
+                        Text(stringResource(R.string.close))
                     }
                 }
             },
@@ -836,10 +858,10 @@ fun FileBrowserScreen(
             title = { Text(details.name) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Ukuran: ${details.formattedSize}")
-                    Text("Tanggal: ${details.formattedDate}")
+                    Text(stringResource(R.string.details_size, details.formattedSize))
+                    Text(stringResource(R.string.details_date, details.formattedDate))
                     Text(
-                        text = "Path: ${details.path}",
+                        text = stringResource(R.string.details_path, details.path),
                         maxLines = 4,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -847,9 +869,11 @@ fun FileBrowserScreen(
             },
             confirmButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = onCloseFileDetails) { Text("Tutup") }
-                    TextButton(onClick = onOpenParentOfDetails) { Text("Buka folder") }
-                    TextButton(onClick = { onToggleFavoritePath(details.path) }) { Text("Favorit") }
+                    TextButton(onClick = onCloseFileDetails) { Text(stringResource(R.string.close)) }
+                    TextButton(onClick = onOpenParentOfDetails) { Text(stringResource(R.string.open_folder)) }
+                    TextButton(onClick = { onToggleFavoritePath(details.path) }) {
+                        Text(stringResource(R.string.favorites))
+                    }
                 }
             },
         )
@@ -898,25 +922,25 @@ private fun ActionBar(
                 onFavorite,
                 enabled = canFavoriteOrDetails,
             )
-            ActionIcon(Icons.Default.Info, "Detail", onDetails, enabled = canFavoriteOrDetails)
-            ActionIcon(Icons.Default.Share, "Bagikan", onShare)
-            ActionIcon(Icons.Default.OpenInNew, "Buka", onOpenWith)
-            ActionIcon(Icons.Default.ContentCopy, "Salin", onCopy)
-            ActionIcon(Icons.Default.ContentCut, "Potong", onCut)
+            ActionIcon(Icons.Default.Info, stringResource(R.string.details), onDetails, enabled = canFavoriteOrDetails)
+            ActionIcon(Icons.Default.Share, stringResource(R.string.share), onShare)
+            ActionIcon(Icons.Default.OpenInNew, stringResource(R.string.open), onOpenWith)
+            ActionIcon(Icons.Default.ContentCopy, stringResource(R.string.copy), onCopy)
+            ActionIcon(Icons.Default.ContentCut, stringResource(R.string.cut), onCut)
             ActionIcon(
                 icon = Icons.Default.ContentPaste,
                 label = when (clipboardMode) {
-                    ClipboardMode.COPY -> "Tempel"
-                    ClipboardMode.CUT -> "Pindah"
-                    null -> "Tempel"
+                    ClipboardMode.COPY -> stringResource(R.string.paste)
+                    ClipboardMode.CUT -> stringResource(R.string.move)
+                    null -> stringResource(R.string.paste)
                 },
                 enabled = hasClipboard,
                 onClick = onPaste,
             )
-            ActionIcon(Icons.Default.FolderZip, "Zip", onZip)
-            ActionIcon(Icons.Default.Unarchive, "Extract", onExtract, enabled = canExtract)
-            ActionIcon(Icons.Default.DriveFileRenameOutline, "Rename", onRename, enabled = canRename)
-            ActionIcon(Icons.Default.Delete, "Hapus", onDelete)
+            ActionIcon(Icons.Default.FolderZip, stringResource(R.string.zip_action), onZip)
+            ActionIcon(Icons.Default.Unarchive, stringResource(R.string.extract), onExtract, enabled = canExtract)
+            ActionIcon(Icons.Default.DriveFileRenameOutline, stringResource(R.string.rename), onRename, enabled = canRename)
+            ActionIcon(Icons.Default.Delete, stringResource(R.string.delete), onDelete)
         }
     }
 }
@@ -1021,7 +1045,7 @@ private fun DuplicateGroupsPane(
                     .fillMaxWidth()
                     .padding(12.dp),
             ) {
-                Text("Hapus salinan")
+                Text(stringResource(R.string.delete_copies))
             }
         }
     }
@@ -1805,7 +1829,7 @@ private fun ProgressOverlay(
                 }
                 Spacer(modifier = Modifier.height(12.dp))
                 TextButton(onClick = onCancel) {
-                    Text("Batalkan")
+                    Text(stringResource(R.string.progress_cancel))
                 }
             }
         }
@@ -1840,7 +1864,7 @@ private fun TextInputDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Batal") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         },
     )
 }
@@ -1858,13 +1882,13 @@ private fun ZipDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Buat ZIP") },
+        title = { Text(stringResource(R.string.dialog_zip_title)) },
         text = {
             Column {
                 OutlinedTextField(
                     value = value,
                     onValueChange = onValueChange,
-                    label = { Text("Nama file ZIP") },
+                    label = { Text(stringResource(R.string.dialog_zip_hint)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -1872,7 +1896,7 @@ private fun ZipDialog(
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("Password (opsional)") },
+                    label = { Text(stringResource(R.string.dialog_zip_password_hint)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -1882,7 +1906,7 @@ private fun ZipDialog(
                         checked = bestCompression,
                         onCheckedChange = onBestCompressionChange,
                     )
-                    Text("Kompresi maksimal")
+                    Text(stringResource(R.string.zip_max_compression))
                 }
             }
         },
@@ -1891,11 +1915,11 @@ private fun ZipDialog(
                 onClick = { onConfirm(password.ifBlank { null }) },
                 enabled = value.isNotBlank(),
             ) {
-                Text("Buat ZIP")
+                Text(stringResource(R.string.dialog_zip_confirm))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Batal") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         },
     )
 }

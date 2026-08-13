@@ -9,7 +9,12 @@ object LocaleHelper {
         val locales = if (language == AppLanguage.SYSTEM || language.tag.isBlank()) {
             LocaleListCompat.getEmptyLocaleList()
         } else {
-            LocaleListCompat.forLanguageTags(language.tag)
+            // Android resource folders use BCP-47 "id" for Indonesian (not legacy "in").
+            val tag = when (language) {
+                AppLanguage.INDONESIAN -> "id"
+                else -> language.tag
+            }
+            LocaleListCompat.forLanguageTags(tag)
         }
         AppCompatDelegate.setApplicationLocales(locales)
     }

@@ -14,8 +14,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.zipextract.app.R
 import com.zipextract.app.ui.ExtractZipState
 
 /**
@@ -33,7 +35,7 @@ fun ExtractZipDialog(
         onDismissRequest = onClose,
         title = {
             Text(
-                text = "Extract ZIP",
+                text = stringResource(R.string.extract_title),
                 style = MaterialTheme.typography.titleLarge,
             )
         },
@@ -49,7 +51,7 @@ fun ExtractZipDialog(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "Hasil extract muncul di atas list halaman Download.",
+                    text = stringResource(R.string.extract_hint_download_top),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -64,7 +66,7 @@ fun ExtractZipDialog(
                         onCheckedChange = onDeleteOriginalChange,
                     )
                     Text(
-                        text = "Hapus file ZIP setelah extract",
+                        text = stringResource(R.string.extract_delete_zip),
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.weight(1f),
                     )
@@ -73,12 +75,12 @@ fun ExtractZipDialog(
         },
         confirmButton = {
             Button(onClick = onExtract) {
-                Text("Extract")
+                Text(stringResource(R.string.extract))
             }
         },
         dismissButton = {
             TextButton(onClick = onClose) {
-                Text("Batal")
+                Text(stringResource(R.string.cancel))
             }
         },
     )
