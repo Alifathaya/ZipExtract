@@ -515,7 +515,11 @@ private fun FilePreviewRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "${item.formattedSize} · ${item.formattedDate}",
+                    text = if (item.isDirectory) {
+                        "${stringResource(R.string.folder_label)} · ${item.formattedDate}"
+                    } else {
+                        "${item.formattedSize} · ${item.formattedDate}"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

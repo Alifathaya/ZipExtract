@@ -46,12 +46,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.zipextract.app.R
 import com.zipextract.app.data.ZipEntryItem
 import com.zipextract.app.data.ZipManager
 import com.zipextract.app.ui.ExtractZipState
@@ -84,7 +86,7 @@ fun ExtractZipScreen(
                 title = {
                     Column {
                         Text(
-                            text = "Extract ZIP",
+                            text = stringResource(R.string.extract_title),
                             style = MaterialTheme.typography.titleLarge,
                         )
                         Text(
@@ -98,7 +100,10 @@ fun ExtractZipScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onClose) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.back),
+                        )
                     }
                 },
             )
@@ -121,7 +126,7 @@ fun ExtractZipScreen(
                                 onCheckedChange = onDeleteOriginalChange,
                             )
                             Text(
-                                text = "Hapus file ZIP asli setelah extract",
+                                text = stringResource(R.string.extract_delete_original),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                         }
@@ -133,9 +138,12 @@ fun ExtractZipScreen(
                         ) {
                             Text(
                                 text = if (state.selectedPaths.isEmpty()) {
-                                    "Pilih file untuk extract"
+                                    stringResource(R.string.extract_pick_files)
                                 } else {
-                                    "Extract ${state.selectedPaths.size} item"
+                                    stringResource(
+                                        R.string.extract_n_items,
+                                        state.selectedPaths.size,
+                                    )
                                 },
                             )
                         }
@@ -155,7 +163,7 @@ fun ExtractZipScreen(
                 ) {
                     CircularProgressIndicator()
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text("Membaca isi ZIP…")
+                    Text(stringResource(R.string.extract_reading))
                 }
             }
             state.error != null -> {
@@ -174,7 +182,7 @@ fun ExtractZipScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     TextButton(onClick = onClose) {
-                        Text("Kembali")
+                        Text(stringResource(R.string.back))
                     }
                 }
             }
@@ -200,7 +208,13 @@ fun ExtractZipScreen(
                         TextButton(onClick = {
                             if (allSelected) onDeselectAll() else onSelectAll()
                         }) {
-                            Text(if (allSelected) "Batal pilih semua" else "Pilih semua")
+                            Text(
+                                if (allSelected) {
+                                    stringResource(R.string.deselect_all)
+                                } else {
+                                    stringResource(R.string.select_all)
+                                },
+                            )
                         }
                     }
 
@@ -265,7 +279,7 @@ private fun DestinationInfo(
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(
-                text = "Lokasi extract",
+                text = stringResource(R.string.extract_location),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -279,7 +293,7 @@ private fun DestinationInfo(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Setelah extract, hasil akan dibuka otomatis. Jika gagal tulis, app memilih folder aman.",
+                text = stringResource(R.string.extract_location_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
             )
@@ -295,7 +309,7 @@ private fun DestinationInfo(
                         onSetDestination(ZipManager.defaultExtractDirectory(context, zipFile))
                     },
                 ) {
-                    Text("Otomatis")
+                    Text(stringResource(R.string.extract_dest_auto))
                 }
                 TextButton(
                     onClick = {
@@ -307,14 +321,14 @@ private fun DestinationInfo(
                         )
                     },
                 ) {
-                    Text("FileNest")
+                    Text(stringResource(R.string.extract_dest_filenest))
                 }
                 TextButton(
                     onClick = {
                         zipFile.parentFile?.let(onSetDestination)
                     },
                 ) {
-                    Text("Folder yang sama")
+                    Text(stringResource(R.string.extract_dest_same))
                 }
                 TextButton(
                     onClick = {
@@ -323,7 +337,7 @@ private fun DestinationInfo(
                         )
                     },
                 ) {
-                    Text("Download")
+                    Text(stringResource(R.string.extract_dest_download))
                 }
                 TextButton(
                     onClick = {
@@ -332,7 +346,7 @@ private fun DestinationInfo(
                         onSetDestination(File(appDir, zipFile.nameWithoutExtension.ifBlank { "extract" }))
                     },
                 ) {
-                    Text("Aman (app)")
+                    Text(stringResource(R.string.extract_dest_safe))
                 }
             }
         }
@@ -355,7 +369,11 @@ private fun ZipEntryRow(
         IconButton(onClick = onToggle) {
             Icon(
                 imageVector = if (selected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
-                contentDescription = if (selected) "Dipilih" else "Tidak dipilih",
+                contentDescription = if (selected) {
+                    stringResource(R.string.selected)
+                } else {
+                    stringResource(R.string.not_selected)
+                },
                 tint = MaterialTheme.colorScheme.primary,
             )
         }
@@ -381,7 +399,11 @@ private fun ZipEntryRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = entry.formattedSize,
+                text = if (entry.isDirectory) {
+                    stringResource(R.string.folder_label)
+                } else {
+                    entry.formattedSize
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

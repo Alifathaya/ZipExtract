@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
+import com.zipextract.app.R
 import java.io.File
 import java.util.Locale
 
@@ -20,7 +21,12 @@ object FileActions {
                 putExtra(Intent.EXTRA_SUBJECT, file.name)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(intent, "Bagikan ${file.name}"))
+            context.startActivity(
+                Intent.createChooser(
+                    intent,
+                    context.getString(R.string.share_file_title, file.name),
+                ),
+            )
             true
         }.getOrDefault(false)
     }
@@ -36,7 +42,12 @@ object FileActions {
                 putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(intent, "Bagikan ${existing.size} file"))
+            context.startActivity(
+                Intent.createChooser(
+                    intent,
+                    context.getString(R.string.share_files_title, existing.size),
+                ),
+            )
             true
         }.getOrDefault(false)
     }
@@ -50,7 +61,12 @@ object FileActions {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            context.startActivity(Intent.createChooser(intent, "Buka dengan"))
+            context.startActivity(
+                Intent.createChooser(
+                    intent,
+                    context.getString(R.string.open_with_title),
+                ),
+            )
             true
         }.getOrDefault(false)
     }

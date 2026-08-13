@@ -16,6 +16,7 @@ object DuplicateFinder {
 
     fun findDuplicates(
         files: List<FileItem>,
+        checkingMessage: String = "Checking duplicates…",
         onProgress: ((Float, String) -> Unit)? = null,
     ): List<DuplicateGroup> {
         val candidates = files.filter { it.file.isFile && it.sizeBytes > 0L }
@@ -25,7 +26,10 @@ object DuplicateFinder {
         val groups = mutableListOf<DuplicateGroup>()
         val sizeBuckets = bySize.entries.toList()
         sizeBuckets.forEachIndexed { index, (_, sameSize) ->
-            onProgress?.invoke((index + 1f) / sizeBuckets.size.coerceAtLeast(1), "Memeriksa duplikat…")
+            onProgress?.invoke(
+                (index + 1f) / sizeBuckets.size.coerceAtLeast(1),
+                checkingMessage,
+            )
             val byHash = linkedMapOf<String, MutableList<FileItem>>()
             sameSize.forEach { item ->
                 val hash = contentFingerprint(item.file) ?: return@forEach

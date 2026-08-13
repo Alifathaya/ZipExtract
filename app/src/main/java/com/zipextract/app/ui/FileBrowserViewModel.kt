@@ -4,8 +4,10 @@ import android.app.Application
 import android.content.Context
 import android.media.MediaScannerConnection
 import android.net.Uri
+import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.zipextract.app.R
 import com.zipextract.app.data.AppLanguage
 import com.zipextract.app.data.AppPreferences
 import com.zipextract.app.data.ClipboardMode
@@ -437,8 +439,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 items = emptyList(),
                 canGoUp = true,
                 progress = ProgressState(
-                    title = "Memuat ${category.title}…",
-                    message = "Mencari semua ${category.libraryNoun} di perangkat",
+                    title = str(R.string.loading_category, str(category.titleRes)),
+                    message = str(R.string.searching_all_category, str(category.libraryNounRes)),
                     indeterminate = true,
                 ),
             )
@@ -585,7 +587,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 item.isArchive -> openExtractDialog(item.file.canonicalFile)
                 item.isAudio -> {
                     if (!FileActions.playMedia(getApplication(), item.file)) {
-                        emit("Tidak bisa memutar media")
+                        emit(str(R.string.media_play_failed))
                     }
                 }
                 else -> showFileDetails(item)
@@ -665,7 +667,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         cloudImportJob?.cancel()
         cloudImportJob = viewModelScope.launch {
             if (!file.exists() || file.length() <= 0L) {
-                _events.tryEmit("File cloud kosong atau gagal diimpor")
+                _events.tryEmit(str(R.string.cloud_file_empty))
                 return@launch
             }
             val item = FileItem(file)
@@ -780,7 +782,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             item.isVideo -> openViewer(ViewerContent.Video(item.file))
             item.isAudio -> {
                 if (!FileActions.playMedia(getApplication(), item.file)) {
-                    emit("Tidak bisa memutar media")
+                    emit(str(R.string.media_play_failed))
                 }
             }
             else -> toggleSelect(item)
@@ -803,7 +805,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
         if (!canOpen) {
-            emit("File tidak ditemukan")
+            emit(str(R.string.file_not_found))
             return
         }
         val state = _uiState.value
@@ -834,7 +836,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             _uiState.update {
                 it.copy(
                     launchedFromExternalIntent = true,
-                    progress = ProgressState("Membuka file…", uri.lastPathSegment.orEmpty()),
+                    progress = ProgressState(
+                        str(R.string.progress_opening_file),
+                        uri.lastPathSegment.orEmpty(),
+                    ),
                 )
             }
             val resolved = withContext(Dispatchers.IO) {
@@ -843,7 +848,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             _uiState.update { it.copy(progress = null) }
             if (resolved == null) {
                 _uiState.update { it.copy(launchedFromExternalIntent = false, showHome = true) }
-                emit("File tidak bisa dibuka")
+                emit(str(R.string.file_cannot_open))
                 return@launch
             }
 
@@ -871,7 +876,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 }
                 else -> {
                     _uiState.update { it.copy(launchedFromExternalIntent = false, showHome = true) }
-                    emit("Format file tidak didukung untuk dibuka")
+                    emit(str(R.string.format_unsupported))
                 }
             }
         }
@@ -883,7 +888,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             item.isPdf -> openViewer(ViewerContent.Pdf(file))
             item.isImage -> openViewer(ViewerContent.Image(file))
             item.isVideo -> openViewer(ViewerContent.Video(file))
-            else -> emit("Format file tidak didukung untuk dibuka")
+            else -> emit(str(R.string.format_unsupported))
         }
     }
 
@@ -951,11 +956,11 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     fun openExtractDialog(zipFile: File) {
         val file = runCatching { zipFile.canonicalFile }.getOrDefault(zipFile)
         if (!file.exists() || !file.isFile) {
-            emit("File ZIP tidak ditemukan")
+            emit(str(R.string.zip_not_found))
             return
         }
         if (!ZipManager.isSupportedZipFile(file)) {
-            emit("Format .${file.extension} belum didukung. Saat ini hanya ZIP/JAR/APK.")
+            emit(str(R.string.format_unsupported_ext, file.extension))
             return
         }
         val defaultDestination = ZipManager.defaultExtractDirectory(appContext, file)
@@ -974,7 +979,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             try {
                 val entries = withContext(Dispatchers.IO) {
-                    ZipManager.listZipEntryDetails(file)
+                    ZipManager.listZipEntryDetails(file, appContext)
                 }
                 val destination = _uiState.value.extractDialog?.destinationDir ?: defaultDestination
                 if (entries.isEmpty()) {
@@ -984,7 +989,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                                 zipFile = file,
                                 destinationDir = destination,
                                 isLoading = false,
-                                error = "File ZIP kosong atau tidak bisa dibaca",
+                                error = str(R.string.extract_zip_empty),
                             ),
                         )
                     }
@@ -1008,7 +1013,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                             zipFile = file,
                             destinationDir = defaultDestination,
                             isLoading = false,
-                            error = "Gagal membaca ZIP: ${e.message ?: "error"}",
+                            error = str(
+                                R.string.extract_zip_read_fail,
+                                e.message ?: str(R.string.error_generic),
+                            ),
                         ),
                     )
                 }
@@ -1057,7 +1065,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     fun confirmExtract() {
         val dialog = _uiState.value.extractDialog ?: return
         if (dialog.selectedPaths.isEmpty()) {
-            emit("Pilih minimal 1 file untuk diextract")
+            emit(str(R.string.select_min_one_extract))
             return
         }
         val zip = dialog.zipFile
@@ -1066,7 +1074,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         val preferred = dialog.destinationDir
         closeExtractDialog()
 
-        runJob("Extract ZIP…", zip.name) {
+        val extractTitle = str(R.string.progress_extract_zip)
+        runJob(extractTitle, zip.name) {
             try {
                 val destination = ZipManager.resolveWritableExtractDir(
                     context = appContext,
@@ -1077,8 +1086,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     zipFile = zip,
                     destinationDir = destination,
                     selectedPaths = selectedPaths,
+                    context = appContext,
                 ) { progress, name ->
-                    updateProgress("Extract ZIP…", name, progress)
+                    updateProgress(extractTitle, name, progress)
                 }
                 if (deleteOriginal && zip.exists()) {
                     runCatching { zip.delete() }
@@ -1087,36 +1097,46 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 invalidateMediaLibraryCache()
                 openFolderAfterExtract(destination)
                 val message = if (written <= 0) {
-                    "Extract selesai, tetapi tidak ada file yang ditulis.\n${destination.absolutePath}"
+                    str(R.string.extract_empty_msg, destination.absolutePath)
                 } else {
-                    "Berhasil extract $written file ke:\n${destination.absolutePath}"
+                    str(R.string.extract_success_msg, written, destination.absolutePath)
                 }
                 _uiState.update {
                     it.copy(
                         extractResult = ExtractResultState(
                             success = written > 0,
-                            title = if (written > 0) "Extract berhasil" else "Extract selesai",
+                            title = if (written > 0) {
+                                str(R.string.extract_success_title)
+                            } else {
+                                str(R.string.extract_done_title)
+                            },
                             message = message,
                             destination = destination,
                             fileCount = written,
                         ),
                     )
                 }
-                emit(if (written > 0) "Extract berhasil ($written file)" else "Extract tanpa file")
+                emit(
+                    if (written > 0) {
+                        str(R.string.extract_success_toast, written)
+                    } else {
+                        str(R.string.extract_empty_toast)
+                    },
+                )
             } catch (e: Exception) {
                 val err = e.message ?: e.javaClass.simpleName
                 _uiState.update {
                     it.copy(
                         extractResult = ExtractResultState(
                             success = false,
-                            title = "Extract gagal",
+                            title = str(R.string.extract_fail_title),
                             message = err,
                             destination = null,
                             fileCount = 0,
                         ),
                     )
                 }
-                emit("Gagal extract: $err")
+                emit(str(R.string.extract_fail_toast, err))
             }
         }
     }
@@ -1266,7 +1286,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     private fun putClipboard(mode: ClipboardMode) {
         val files = selectedFiles()
         if (files.isEmpty()) {
-            emit("Pilih file terlebih dahulu")
+            emit(str(R.string.select_files_first))
             return
         }
         _uiState.update {
@@ -1276,19 +1296,29 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 selectedPaths = emptySet(),
             )
         }
-        val label = if (mode == ClipboardMode.COPY) "disalin" else "dipotong"
-        emit("${files.size} item $label ke clipboard")
+        emit(
+            if (mode == ClipboardMode.COPY) {
+                str(R.string.clipboard_copied, files.size)
+            } else {
+                str(R.string.clipboard_cut, files.size)
+            },
+        )
     }
 
     fun paste() {
         val clipboard = _uiState.value.clipboard
         if (clipboard == null) {
-            emit("Clipboard kosong")
+            emit(str(R.string.clipboard_empty))
             return
         }
-        runJob("Menempelkan…", "Menyalin file") {
-            val result = FileOperations.paste(clipboard, _uiState.value.currentDir) { progress, name ->
-                updateProgress("Menempelkan…", name, progress)
+        val pasteTitle = str(R.string.progress_pasting)
+        runJob(pasteTitle, str(R.string.progress_copying)) {
+            val result = FileOperations.paste(
+                appContext,
+                clipboard,
+                _uiState.value.currentDir,
+            ) { progress, name ->
+                updateProgress(pasteTitle, name, progress)
             }
             if (clipboard.mode == ClipboardMode.CUT && result is OperationResult.Success) {
                 _uiState.update { it.copy(clipboard = null) }
@@ -1300,18 +1330,18 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     fun deleteSelected() {
         val files = selectedFiles()
         if (files.isEmpty()) {
-            emit("Pilih file terlebih dahulu")
+            emit(str(R.string.select_files_first))
             return
         }
-        runJob("Menghapus…", "Menghapus file") {
-            val result = FileOperations.deleteRecursively(files)
+        runJob(str(R.string.progress_deleting), str(R.string.progress_deleting_files)) {
+            val result = FileOperations.deleteRecursively(appContext, files)
             _uiState.update { it.copy(selectionMode = false, selectedPaths = emptySet()) }
             handleResult(result)
         }
     }
 
     fun createFolder(name: String) {
-        val result = FileOperations.createFolder(_uiState.value.currentDir, name)
+        val result = FileOperations.createFolder(appContext, _uiState.value.currentDir, name)
         handleResult(result)
         if (result is OperationResult.Success) refresh()
     }
@@ -1319,10 +1349,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     fun renameSelected(newName: String) {
         val file = selectedFiles().singleOrNull()
         if (file == null) {
-            emit("Pilih tepat 1 item untuk rename")
+            emit(str(R.string.select_one_rename))
             return
         }
-        val result = FileOperations.rename(file, newName)
+        val result = FileOperations.rename(appContext, file, newName)
         handleResult(result)
         if (result is OperationResult.Success) {
             clearSelection()
@@ -1332,7 +1362,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
     fun createZip(zipName: String, bestCompression: Boolean, password: String? = null) {
         val sources = selectedFiles().ifEmpty {
-            emit("Pilih file/folder untuk di-zip")
+            emit(str(R.string.select_for_zip))
             return
         }
         val safeName = zipName.trim().let { if (it.endsWith(".zip", true)) it else "$it.zip" }
@@ -1340,20 +1370,35 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         val level = if (bestCompression) Deflater.BEST_COMPRESSION else Deflater.DEFAULT_COMPRESSION
         val pass = password?.takeIf { it.isNotBlank() }
 
-        runJob("Membuat ZIP…", destination.name) {
+        val zipTitle = str(R.string.progress_creating_zip)
+        runJob(zipTitle, destination.name) {
             try {
-                ZipManager.createZip(sources, destination, level, password = pass) { progress, name ->
-                    updateProgress("Membuat ZIP…", name, progress)
+                ZipManager.createZip(
+                    sources = sources,
+                    destinationZip = destination,
+                    compressionLevel = level,
+                    password = pass,
+                    context = appContext,
+                ) { progress, name ->
+                    updateProgress(zipTitle, name, progress)
                 }
                 _uiState.update { it.copy(selectionMode = false, selectedPaths = emptySet()) }
                 invalidateMediaLibraryCache()
                 emit(
-                    if (pass != null) "ZIP terenkripsi berhasil: ${destination.name}"
-                    else "ZIP berhasil: ${destination.name}"
+                    if (pass != null) {
+                        str(R.string.zip_created_encrypted, destination.name)
+                    } else {
+                        str(R.string.zip_created, destination.name)
+                    },
                 )
                 refresh()
             } catch (e: Exception) {
-                emit("Gagal membuat ZIP: ${e.message ?: "error"}")
+                emit(
+                    str(
+                        R.string.zip_create_failed,
+                        e.message ?: str(R.string.error_generic),
+                    ),
+                )
             }
         }
     }
@@ -1362,7 +1407,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         val zip = selectedFiles().singleOrNull { it.isFile && FileItem(it).isArchive }
             ?: selectedFiles().singleOrNull()?.takeIf { FileItem(it).isArchive }
         if (zip == null) {
-            emit("Pilih 1 file ZIP untuk diextract")
+            emit(str(R.string.select_one_zip_extract))
             return
         }
         openExtractDialog(zip)
@@ -1370,7 +1415,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
     fun extractZipFile(zip: File) {
         if (!zip.exists()) {
-            emit("File ZIP tidak ditemukan")
+            emit(str(R.string.zip_not_found))
             return
         }
         navigateTo(zip.parentFile ?: root)
@@ -1398,7 +1443,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             try {
                 withContext(Dispatchers.IO) { block() }
             } catch (e: kotlinx.coroutines.CancellationException) {
-                emit("Dibatalkan")
+                emit(str(R.string.cancelled))
                 throw e
             } finally {
                 _uiState.update { it.copy(progress = null) }
@@ -1414,7 +1459,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         activeJob?.cancel()
         activeJob = null
         _uiState.update { it.copy(progress = null) }
-        emit("Operasi dibatalkan")
+        emit(str(R.string.operation_cancelled))
     }
 
     private fun updateProgress(title: String, message: String, progress: Float) {
@@ -1442,22 +1487,22 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     fun shareSelected(context: Context) {
         val files = selectedFiles()
         if (files.isEmpty()) {
-            emit("Pilih file untuk dibagikan")
+            emit(str(R.string.select_one_share))
             return
         }
         if (!FileActions.shareFiles(context, files)) {
-            emit("Gagal membagikan file")
+            emit(str(R.string.share_failed))
         }
     }
 
     fun openWithSelected(context: Context) {
         val file = selectedFiles().singleOrNull()
         if (file == null) {
-            emit("Pilih 1 file untuk dibuka")
+            emit(str(R.string.select_one_open))
             return
         }
         if (!FileActions.openWith(context, file)) {
-            emit("Tidak ada aplikasi yang bisa membuka file ini")
+            emit(str(R.string.open_with_failed))
         }
     }
 
@@ -1468,7 +1513,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     fun showSelectedDetails() {
         val item = _uiState.value.items.firstOrNull { it.path in _uiState.value.selectedPaths }
         if (item == null) {
-            emit("Pilih 1 item untuk detail")
+            emit(str(R.string.select_one_details))
             return
         }
         showFileDetails(item)
@@ -1499,13 +1544,13 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     fun toggleFavorite(path: String) {
         val nowFavorite = prefs.toggleFavorite(path)
         _uiState.update { it.copy(favoritePaths = prefs.getFavoritePaths()) }
-        emit(if (nowFavorite) "Ditambahkan ke favorit" else "Dihapus dari favorit")
+        emit(if (nowFavorite) str(R.string.favorite_added) else str(R.string.favorite_removed))
     }
 
     fun toggleFavoriteSelected() {
         val path = _uiState.value.selectedPaths.singleOrNull()
         if (path == null) {
-            emit("Pilih 1 item untuk favorit")
+            emit(str(R.string.select_one_favorite))
             return
         }
         toggleFavorite(path)
@@ -1595,9 +1640,15 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     fun findDuplicates() {
         activeJob?.cancel()
         activeJob = viewModelScope.launch {
+            val duplicatesTitle = str(R.string.progress_duplicates)
+            val checkingMessage = str(R.string.progress_checking_duplicates)
             _uiState.update {
                 it.copy(
-                    progress = ProgressState("Mencari duplikat…", "Memindai file", indeterminate = true),
+                    progress = ProgressState(
+                        duplicatesTitle,
+                        str(R.string.progress_scanning),
+                        indeterminate = true,
+                    ),
                 )
             }
             try {
@@ -1605,8 +1656,11 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     val library = obtainMediaLibrary(forceRefresh = false)
                     val pool = library.images + library.videos + library.documents +
                         library.archives + library.apps
-                    DuplicateFinder.findDuplicates(pool) { progress, message ->
-                        updateProgress("Mencari duplikat…", message, progress)
+                    DuplicateFinder.findDuplicates(
+                        files = pool,
+                        checkingMessage = checkingMessage,
+                    ) { progress, message ->
+                        updateProgress(duplicatesTitle, message, progress)
                     }
                 }
                 _uiState.update {
@@ -1620,14 +1674,22 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     )
                 }
                 emit(
-                    if (groups.isEmpty()) "Tidak ada file duplikat"
-                    else "${groups.size} grup duplikat ditemukan",
+                    if (groups.isEmpty()) {
+                        str(R.string.duplicates_none)
+                    } else {
+                        str(R.string.duplicates_found, groups.size)
+                    },
                 )
             } catch (e: kotlinx.coroutines.CancellationException) {
-                emit("Dibatalkan")
+                emit(str(R.string.cancelled))
                 throw e
             } catch (e: Exception) {
-                emit("Gagal mencari duplikat: ${e.message ?: "error"}")
+                emit(
+                    str(
+                        R.string.duplicates_search_failed,
+                        e.message ?: str(R.string.error_generic),
+                    ),
+                )
             } finally {
                 _uiState.update { it.copy(progress = null) }
                 if (activeJob === this) activeJob = null
@@ -1645,17 +1707,22 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             group.files.drop(1).map { it.file }
         }
         if (extras.isEmpty()) {
-            emit("Tidak ada file untuk dihapus")
+            emit(str(R.string.duplicates_delete_none))
             return
         }
         activeJob?.cancel()
         activeJob = viewModelScope.launch {
             _uiState.update {
-                it.copy(progress = ProgressState("Menghapus duplikat…", "${extras.size} file"))
+                it.copy(
+                    progress = ProgressState(
+                        str(R.string.progress_deleting),
+                        str(R.string.progress_deleting_files),
+                    ),
+                )
             }
             try {
                 val result = withContext(Dispatchers.IO) {
-                    FileOperations.deleteRecursively(extras)
+                    FileOperations.deleteRecursively(appContext, extras)
                 }
                 invalidateMediaLibraryCache()
                 handleResult(result)
@@ -1669,10 +1736,15 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     it.copy(duplicateGroups = groups, progress = null, showDuplicates = true)
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
-                emit("Dibatalkan")
+                emit(str(R.string.cancelled))
                 throw e
             } catch (e: Exception) {
-                emit("Gagal menghapus: ${e.message ?: "error"}")
+                emit(
+                    str(
+                        R.string.delete_failed,
+                        e.message ?: str(R.string.error_generic),
+                    ),
+                )
             } finally {
                 _uiState.update { it.copy(progress = null) }
                 if (activeJob === this) activeJob = null
@@ -1692,6 +1764,15 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
     private fun emit(message: String) {
         _events.tryEmit(message)
+    }
+
+    private fun str(@StringRes id: Int, vararg args: Any): String {
+        val localized = LocaleHelper.wrap(getApplication(), _uiState.value.appLanguage)
+        return if (args.isEmpty()) {
+            localized.getString(id)
+        } else {
+            localized.getString(id, *args)
+        }
     }
 
     private data class HomeDashboardData(
