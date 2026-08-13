@@ -1,6 +1,7 @@
 package com.zipextract.app.ui
 
 import android.widget.Toast
+import androidx.annotation.StringRes
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.AnimatedVisibility
@@ -33,6 +34,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.CircleShape
@@ -129,6 +131,11 @@ import com.zipextract.app.ui.viewer.ImageViewerScreen
 import com.zipextract.app.ui.viewer.PdfViewerScreen
 import com.zipextract.app.ui.viewer.VideoPlayerScreen
 import java.io.File
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.temporal.TemporalAdjusters
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -138,6 +145,53 @@ private enum class DialogType {
     RENAME,
     CREATE_ZIP,
     DELETE_CONFIRM,
+}
+
+private enum class TimeBucket(@StringRes val labelRes: Int) {
+    TODAY(R.string.time_today),
+    THIS_WEEK(R.string.time_this_week),
+    LAST_WEEK(R.string.time_last_week),
+    LAST_MONTH(R.string.time_last_month),
+    OLDER(R.string.time_older),
+}
+
+private data class TimeSection(
+    val bucket: TimeBucket,
+    val items: List<FileItem>,
+)
+
+/**
+ * Stable local-calendar grouping used by every category. "Last month" is the
+ * remaining recent period back through the start of the previous calendar month,
+ * so every file belongs to exactly one section with no date gaps.
+ */
+private fun groupByTime(items: List<FileItem>): List<TimeSection> {
+    val zone = ZoneId.systemDefault()
+    val today = LocalDate.now(zone)
+    val thisWeekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+    val lastWeekStart = thisWeekStart.minusWeeks(1)
+    val recentMonthStart = today.withDayOfMonth(1).minusMonths(1)
+    val grouped = TimeBucket.entries.associateWith { mutableListOf<FileItem>() }
+
+    items.sortedByDescending { it.lastModified }.forEach { item ->
+        val date = item.lastModified.takeIf { it > 0L }?.let {
+            Instant.ofEpochMilli(it).atZone(zone).toLocalDate()
+        }
+        val bucket = when {
+            date == null -> TimeBucket.OLDER
+            date == today -> TimeBucket.TODAY
+            !date.isBefore(thisWeekStart) -> TimeBucket.THIS_WEEK
+            !date.isBefore(lastWeekStart) -> TimeBucket.LAST_WEEK
+            !date.isBefore(recentMonthStart) -> TimeBucket.LAST_MONTH
+            else -> TimeBucket.OLDER
+        }
+        grouped.getValue(bucket) += item
+    }
+    return TimeBucket.entries.mapNotNull { bucket ->
+        grouped.getValue(bucket).takeIf { it.isNotEmpty() }?.let {
+            TimeSection(bucket, it)
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1264,6 +1318,7 @@ private fun VideoGalleryGrid(
         EmptyPane(message = stringResource(R.string.no_videos_in_album))
         return
     }
+    val sections = remember(items) { groupByTime(items) }
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
@@ -1272,18 +1327,26 @@ private fun VideoGalleryGrid(
         verticalArrangement = Arrangement.spacedBy(4.dp),
         modifier = modifier.fillMaxSize(),
     ) {
-        gridItems(items, key = { it.path }) { item ->
-            VideoThumbnailCell(
-                item = item,
-                selected = item.path in selectedPaths,
-                isFavorite = item.path in favoritePaths,
-                selectionMode = selectionMode,
-                onClick = {
-                    if (selectionMode) onToggleSelect(item) else onOpenItem(item)
-                },
-                onLongClick = { onToggleSelect(item) },
-                onToggleFavorite = { onToggleFavorite(item.path) },
-            )
+        sections.forEach { section ->
+            item(
+                key = "time-header-${section.bucket.name}",
+                span = { GridItemSpan(maxLineSpan) },
+            ) {
+                TimeSectionHeader(section)
+            }
+            gridItems(section.items, key = { it.path }) { item ->
+                VideoThumbnailCell(
+                    item = item,
+                    selected = item.path in selectedPaths,
+                    isFavorite = item.path in favoritePaths,
+                    selectionMode = selectionMode,
+                    onClick = {
+                        if (selectionMode) onToggleSelect(item) else onOpenItem(item)
+                    },
+                    onLongClick = { onToggleSelect(item) },
+                    onToggleFavorite = { onToggleFavorite(item.path) },
+                )
+            }
         }
     }
 }
@@ -1445,6 +1508,7 @@ private fun ImageGalleryGrid(
         EmptyPane(message = stringResource(R.string.no_photos_in_album))
         return
     }
+    val sections = remember(items) { groupByTime(items) }
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
@@ -1453,18 +1517,26 @@ private fun ImageGalleryGrid(
         verticalArrangement = Arrangement.spacedBy(4.dp),
         modifier = modifier.fillMaxSize(),
     ) {
-        gridItems(items, key = { it.path }) { item ->
-            ImageThumbnailCell(
-                item = item,
-                selected = item.path in selectedPaths,
-                isFavorite = item.path in favoritePaths,
-                selectionMode = selectionMode,
-                onClick = {
-                    if (selectionMode) onToggleSelect(item) else onOpenItem(item)
-                },
-                onLongClick = { onToggleSelect(item) },
-                onToggleFavorite = { onToggleFavorite(item.path) },
-            )
+        sections.forEach { section ->
+            item(
+                key = "time-header-${section.bucket.name}",
+                span = { GridItemSpan(maxLineSpan) },
+            ) {
+                TimeSectionHeader(section)
+            }
+            gridItems(section.items, key = { it.path }) { item ->
+                ImageThumbnailCell(
+                    item = item,
+                    selected = item.path in selectedPaths,
+                    isFavorite = item.path in favoritePaths,
+                    selectionMode = selectionMode,
+                    onClick = {
+                        if (selectionMode) onToggleSelect(item) else onOpenItem(item)
+                    },
+                    onLongClick = { onToggleSelect(item) },
+                    onToggleFavorite = { onToggleFavorite(item.path) },
+                )
+            }
         }
     }
 }
@@ -1570,30 +1642,59 @@ private fun CategoryLibraryList(
     onToggleFavorite: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val sections = remember(items) { groupByTime(items) }
     LazyColumn(
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = modifier.fillMaxSize(),
     ) {
-        items(items, key = { it.path }) { item ->
-            FileRow(
-                item = item,
-                selected = item.path in selectedPaths,
-                selectionMode = selectionMode,
-                isFavorite = item.path in favoritePaths,
-                showFolder = true,
-                onClick = {
-                    when {
-                        item.isArchive -> onOpenExtract(item)
-                        selectionMode -> onToggleSelect(item)
-                        else -> onOpenItem(item)
-                    }
-                },
-                onLongClick = { onToggleSelect(item) },
-                onToggleFavorite = { onToggleFavorite(item.path) },
-            )
+        sections.forEach { section ->
+            item(key = "time-header-${section.bucket.name}") {
+                TimeSectionHeader(section)
+            }
+            items(section.items, key = { it.path }) { item ->
+                FileRow(
+                    item = item,
+                    selected = item.path in selectedPaths,
+                    selectionMode = selectionMode,
+                    isFavorite = item.path in favoritePaths,
+                    showFolder = true,
+                    onClick = {
+                        when {
+                            item.isArchive -> onOpenExtract(item)
+                            selectionMode -> onToggleSelect(item)
+                            else -> onOpenItem(item)
+                        }
+                    },
+                    onLongClick = { onToggleSelect(item) },
+                    onToggleFavorite = { onToggleFavorite(item.path) },
+                )
+            }
         }
         item { Spacer(modifier = Modifier.height(88.dp)) }
+    }
+}
+
+@Composable
+private fun TimeSectionHeader(section: TimeSection) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 4.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(section.bucket.labelRes),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = section.items.size.toString(),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

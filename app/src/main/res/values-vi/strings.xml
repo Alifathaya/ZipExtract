@@ -344,4 +344,9 @@
     <string name="largest_files_hint">Delete unneeded large files to free up space</string>
     <string name="largest_files_empty">No large files found</string>
     <string name="rar5_unsupported">RAR5 format is not supported yet. Use legacy RAR, 7z, or ZIP.</string>
+    <string name="time_today">Hôm nay</string>
+    <string name="time_this_week">Tuần này</string>
+    <string name="time_last_week">Tuần trước</string>
+    <string name="time_last_month">Tháng trước</string>
+    <string name="time_older">Cũ hơn</string>
 </resources>

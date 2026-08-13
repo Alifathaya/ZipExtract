@@ -344,4 +344,9 @@
     <string name="largest_files_hint">Delete unneeded large files to free up space</string>
     <string name="largest_files_empty">No large files found</string>
     <string name="rar5_unsupported">RAR5 format is not supported yet. Use legacy RAR, 7z, or ZIP.</string>
+    <string name="time_today">Сегодня</string>
+    <string name="time_this_week">На этой неделе</string>
+    <string name="time_last_week">На прошлой неделе</string>
+    <string name="time_last_month">В прошлом месяце</string>
+    <string name="time_older">Ранее</string>
 </resources>

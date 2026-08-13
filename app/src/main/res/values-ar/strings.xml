@@ -344,4 +344,9 @@
     <string name="largest_files_hint">Delete unneeded large files to free up space</string>
     <string name="largest_files_empty">No large files found</string>
     <string name="rar5_unsupported">RAR5 format is not supported yet. Use legacy RAR, 7z, or ZIP.</string>
+    <string name="time_today">اليوم</string>
+    <string name="time_this_week">هذا الأسبوع</string>
+    <string name="time_last_week">الأسبوع الماضي</string>
+    <string name="time_last_month">الشهر الماضي</string>
+    <string name="time_older">أقدم</string>
 </resources>
