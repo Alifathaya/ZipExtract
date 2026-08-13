@@ -33,6 +33,11 @@
         <package android:name="com.google.android.apps.docs" />
         <package android:name="com.google.android.packageinstaller" />
         <package android:name="com.android.packageinstaller" />
+        <package android:name="com.samsung.android.packageinstaller" />
+        <package android:name="com.miui.packageinstaller" />
+        <package android:name="com.huawei.packageinstaller" />
+        <package android:name="com.oplus.packageinstaller" />
+        <package android:name="com.vivo.packageinstaller" />
     </queries>
 
     <application
@@ -112,5 +117,9 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <receiver
+            android:name=".data.ApkInstallReceiver"
+            android:exported="false" />
     </application>
 </manifest>

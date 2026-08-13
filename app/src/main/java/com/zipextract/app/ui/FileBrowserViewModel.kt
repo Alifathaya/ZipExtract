@@ -796,22 +796,34 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun installApkFile(file: File) {
-        when (val result = FileActions.installApk(getApplication(), file)) {
-            is FileActions.InstallApkResult.Started -> {
-                emit("Membuka installer…")
+        // PackageInstaller session I/O must not run on the main thread (large APKs ANR).
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    progress = ProgressState("Menyiapkan installer…", file.name),
+                )
             }
-            is FileActions.InstallApkResult.NeedInstallPermission -> {
-                emit("Izinkan FileNest menginstal aplikasi, lalu ketuk APK lagi")
+            val result = withContext(Dispatchers.IO) {
+                FileActions.installApk(getApplication(), file)
             }
-            is FileActions.InstallApkResult.Failed -> {
-                // Split packages (xapk/apks) or non-apk apps: fall back to extract / open-with.
-                val item = FileItem(file)
-                when {
-                    item.isApp && !item.isApk -> {
-                        emit("File ${item.extension.uppercase()} perlu diextract dulu")
-                        openExtractDialog(file)
+            _uiState.update { it.copy(progress = null) }
+            when (result) {
+                is FileActions.InstallApkResult.Started -> {
+                    emit("Membuka installer…")
+                }
+                is FileActions.InstallApkResult.NeedInstallPermission -> {
+                    emit("Izinkan FileNest menginstal aplikasi, lalu ketuk APK lagi")
+                }
+                is FileActions.InstallApkResult.Failed -> {
+                    // Split packages (xapk/apks) or non-apk apps: fall back to extract / open-with.
+                    val item = FileItem(file)
+                    when {
+                        item.isApp && !item.isApk -> {
+                            emit("File ${item.extension.uppercase()} perlu diextract dulu")
+                            openExtractDialog(file)
+                        }
+                        else -> emit(result.reason)
                     }
-                    else -> emit(result.reason)
                 }
             }
         }

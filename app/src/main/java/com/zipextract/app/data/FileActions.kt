@@ -1,7 +1,11 @@
 package com.zipextract.app.data
 
+import android.app.PendingIntent
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInstaller
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -11,6 +15,8 @@ import java.io.File
 import java.util.Locale
 
 object FileActions {
+
+    private const val APK_MIME = "application/vnd.android.package-archive"
 
     sealed class InstallApkResult {
         data object Started : InstallApkResult()
@@ -26,6 +32,7 @@ object FileActions {
                 type = mimeTypeFor(file)
                 putExtra(Intent.EXTRA_STREAM, uri)
                 putExtra(Intent.EXTRA_SUBJECT, file.name)
+                clipData = ClipData.newUri(context.contentResolver, file.name, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             context.startActivity(Intent.createChooser(intent, "Bagikan ${file.name}"))
@@ -42,6 +49,11 @@ object FileActions {
             val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
                 type = "*/*"
                 putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                if (uris.isNotEmpty()) {
+                    clipData = ClipData.newUri(context.contentResolver, "files", uris.first()).also { clip ->
+                        uris.drop(1).forEach { clip.addItem(ClipData.Item(it)) }
+                    }
+                }
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             context.startActivity(Intent.createChooser(intent, "Bagikan ${existing.size} file"))
@@ -63,6 +75,7 @@ object FileActions {
             val uri = uriFor(context, file)
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, mimeTypeFor(file))
+                clipData = ClipData.newUri(context.contentResolver, file.name, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
@@ -72,8 +85,10 @@ object FileActions {
     }
 
     /**
-     * Launch the system package installer for a plain `.apk` file.
-     * Does not show an app chooser — goes straight to the installer UI.
+     * Install a plain `.apk` via the system [PackageInstaller] session API
+     * (shows the confirmation UI). Falls back to ACTION_VIEW if needed.
+     *
+     * Safe to call from a background thread (staging / session I/O).
      */
     fun installApk(context: Context, file: File): InstallApkResult {
         if (!file.exists() || !file.isFile) {
@@ -85,59 +100,143 @@ object FileActions {
         if (file.length() <= 0L) {
             return InstallApkResult.Failed("File APK kosong")
         }
+        if (!file.canRead()) {
+            return InstallApkResult.Failed("APK tidak bisa dibaca. Cek izin penyimpanan.")
+        }
 
+        val appContext = context.applicationContext
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            !context.packageManager.canRequestPackageInstalls()
+            !appContext.packageManager.canRequestPackageInstalls()
         ) {
-            openUnknownSourcesSettings(context)
+            openUnknownSourcesSettings(appContext)
             return InstallApkResult.NeedInstallPermission
         }
 
-        return runCatching {
-            val uri = uriFor(context, file)
-            grantInstallUriPermission(context, uri)
-            val baseFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_CLEAR_TOP
-
-            val installerPackages = listOf(
-                "com.google.android.packageinstaller",
-                "com.android.packageinstaller",
-                "com.samsung.android.packageinstaller",
-                "com.miui.packageinstaller",
-            )
-            for (pkg in installerPackages) {
-                val direct = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, "application/vnd.android.package-archive")
-                    setPackage(pkg)
-                    addFlags(baseFlags)
-                }
-                if (direct.resolveActivity(context.packageManager) != null) {
-                    context.startActivity(direct)
-                    return@runCatching InstallApkResult.Started
-                }
-            }
-
-            val view = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/vnd.android.package-archive")
-                addFlags(baseFlags)
-            }
-            if (view.resolveActivity(context.packageManager) != null) {
-                context.startActivity(view)
-                return@runCatching InstallApkResult.Started
-            }
-
-            val install = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
-                setDataAndType(uri, "application/vnd.android.package-archive")
-                addFlags(baseFlags)
-                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-                putExtra(Intent.EXTRA_RETURN_RESULT, false)
-            }
-            context.startActivity(install)
-            InstallApkResult.Started
-        }.getOrElse { err ->
-            InstallApkResult.Failed(err.message ?: "Gagal membuka installer")
+        val sessionResult = runCatching { installViaPackageInstaller(appContext, file) }
+        if (sessionResult.isSuccess) {
+            return InstallApkResult.Started
         }
+
+        val viewResult = runCatching { installViaViewIntent(appContext, file) }
+        if (viewResult.isSuccess) {
+            return InstallApkResult.Started
+        }
+
+        val sessionErr = sessionResult.exceptionOrNull()?.message
+        val viewErr = viewResult.exceptionOrNull()?.message
+        return InstallApkResult.Failed(
+            listOfNotNull(sessionErr, viewErr).firstOrNull()
+                ?: "Gagal membuka installer",
+        )
+    }
+
+    private fun installViaPackageInstaller(context: Context, file: File) {
+        val installer = context.packageManager.packageInstaller
+        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                setInstallReason(PackageManager.INSTALL_REASON_USER)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED)
+            }
+            setSize(file.length())
+        }
+
+        val sessionId = installer.createSession(params)
+        val session = installer.openSession(sessionId)
+        try {
+            file.inputStream().use { input ->
+                session.openWrite("base.apk", 0, file.length()).use { out ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        out.write(buffer, 0, read)
+                    }
+                    session.fsync(out)
+                }
+            }
+
+            val statusIntent = Intent(context, ApkInstallReceiver::class.java).apply {
+                action = ApkInstallReceiver.ACTION_INSTALL_STATUS
+                setPackage(context.packageName)
+                putExtra(ApkInstallReceiver.EXTRA_FILE_NAME, file.name)
+            }
+            // MUTABLE is required so PackageInstaller can fill STATUS / confirmation Intent.
+            val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    PendingIntent.FLAG_MUTABLE
+                } else {
+                    0
+                }
+            val pending = PendingIntent.getBroadcast(context, sessionId, statusIntent, piFlags)
+            session.commit(pending.intentSender)
+        } catch (err: Exception) {
+            runCatching { session.abandon() }
+            throw err
+        } finally {
+            runCatching { session.close() }
+        }
+    }
+
+    private fun installViaViewIntent(context: Context, file: File) {
+        val staged = stageApkForInstall(context, file)
+        val uri = uriFor(context, staged)
+        grantInstallUriPermission(context, uri)
+
+        val baseFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+            Intent.FLAG_ACTIVITY_NEW_TASK or
+            Intent.FLAG_ACTIVITY_CLEAR_TOP
+
+        fun Intent.withApkUri(): Intent = apply {
+            setDataAndType(uri, APK_MIME)
+            clipData = ClipData.newUri(context.contentResolver, staged.name, uri)
+            addFlags(baseFlags)
+        }
+
+        val installerPackages = listOf(
+            "com.google.android.packageinstaller",
+            "com.android.packageinstaller",
+            "com.samsung.android.packageinstaller",
+            "com.miui.packageinstaller",
+            "com.huawei.packageinstaller",
+            "com.oplus.packageinstaller",
+            "com.vivo.packageinstaller",
+        )
+        for (pkg in installerPackages) {
+            val direct = Intent(Intent.ACTION_VIEW).withApkUri().apply { setPackage(pkg) }
+            if (direct.resolveActivity(context.packageManager) != null) {
+                context.startActivity(direct)
+                return
+            }
+        }
+
+        val view = Intent(Intent.ACTION_VIEW).withApkUri()
+        if (view.resolveActivity(context.packageManager) != null) {
+            context.startActivity(view)
+            return
+        }
+
+        @Suppress("DEPRECATION")
+        val install = Intent(Intent.ACTION_INSTALL_PACKAGE).withApkUri().apply {
+            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+            putExtra(Intent.EXTRA_RETURN_RESULT, false)
+        }
+        context.startActivity(install)
+    }
+
+    /** Copy APK into app cache so FileProvider + installer grants are reliable. */
+    private fun stageApkForInstall(context: Context, file: File): File {
+        val dir = File(context.cacheDir, "apk-install").apply { mkdirs() }
+        val target = File(dir, file.name.ifBlank { "app.apk" })
+        if (target.absolutePath == file.absolutePath) return file
+        if (target.exists() && target.length() == file.length() && target.lastModified() >= file.lastModified()) {
+            return target
+        }
+        file.inputStream().use { input ->
+            target.outputStream().use { output -> input.copyTo(output) }
+        }
+        return target
     }
 
     fun openUnknownSourcesSettings(context: Context) {
@@ -160,7 +259,9 @@ object FileActions {
             "com.android.packageinstaller",
             "com.samsung.android.packageinstaller",
             "com.miui.packageinstaller",
-            "com.google.android.apps.nbu.files",
+            "com.huawei.packageinstaller",
+            "com.oplus.packageinstaller",
+            "com.vivo.packageinstaller",
         )
         candidates.forEach { pkg ->
             runCatching {
@@ -173,16 +274,7 @@ object FileActions {
         if (!file.exists() || !file.isFile) return false
         val item = FileItem(file)
         if (!item.isVideo && !item.isAudio) return false
-        return runCatching {
-            val uri = uriFor(context, file)
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, mimeTypeFor(file))
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(Intent.createChooser(intent, "Buka dengan"))
-            true
-        }.getOrDefault(false)
+        return openWith(context, file)
     }
 
     fun uriFor(context: Context, file: File): Uri {
@@ -202,7 +294,7 @@ object FileActions {
                 FileItem(file).isAudio -> "audio/*"
                 FileItem(file).isPdf -> "application/pdf"
                 FileItem(file).isZip -> "application/zip"
-                FileItem(file).isApp -> "application/vnd.android.package-archive"
+                FileItem(file).isApp -> APK_MIME
                 else -> "*/*"
             }
     }
