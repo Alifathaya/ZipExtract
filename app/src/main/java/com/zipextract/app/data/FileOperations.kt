@@ -1,10 +1,12 @@
 package com.zipextract.app.data
 
 import android.content.ContentResolver
+import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.os.StatFs
 import android.provider.MediaStore
+import com.zipextract.app.R
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -367,59 +369,70 @@ object FileOperations {
             .orEmpty()
     }
 
-    fun createFolder(parent: File, name: String): OperationResult {
+    fun createFolder(context: Context, parent: File, name: String): OperationResult {
         val sanitized = name.trim()
-        if (sanitized.isEmpty()) return OperationResult.Error("Nama folder kosong")
+        if (sanitized.isEmpty()) {
+            return OperationResult.Error(context.getString(R.string.folder_name_empty))
+        }
         if (sanitized.contains('/') || sanitized.contains('\\')) {
-            return OperationResult.Error("Nama folder tidak valid")
+            return OperationResult.Error(context.getString(R.string.folder_name_invalid))
         }
         val target = File(parent, sanitized)
-        if (target.exists()) return OperationResult.Error("Folder sudah ada")
+        if (target.exists()) {
+            return OperationResult.Error(context.getString(R.string.folder_exists))
+        }
         return if (target.mkdirs()) {
-            OperationResult.Success("Folder \"$sanitized\" dibuat")
+            OperationResult.Success(context.getString(R.string.folder_created, sanitized))
         } else {
-            OperationResult.Error("Gagal membuat folder")
+            OperationResult.Error(context.getString(R.string.folder_create_failed))
         }
     }
 
-    fun rename(file: File, newName: String): OperationResult {
+    fun rename(context: Context, file: File, newName: String): OperationResult {
         val sanitized = newName.trim()
-        if (sanitized.isEmpty()) return OperationResult.Error("Nama baru kosong")
+        if (sanitized.isEmpty()) {
+            return OperationResult.Error(context.getString(R.string.name_empty))
+        }
         if (sanitized.contains('/') || sanitized.contains('\\')) {
-            return OperationResult.Error("Nama tidak valid")
+            return OperationResult.Error(context.getString(R.string.name_invalid))
         }
         val target = File(file.parentFile, sanitized)
-        if (target.exists()) return OperationResult.Error("Nama sudah dipakai")
+        if (target.exists()) {
+            return OperationResult.Error(context.getString(R.string.name_taken))
+        }
         return if (file.renameTo(target)) {
-            OperationResult.Success("Berhasil diganti nama")
+            OperationResult.Success(context.getString(R.string.rename_success))
         } else {
-            OperationResult.Error("Gagal mengganti nama")
+            OperationResult.Error(context.getString(R.string.rename_failed))
         }
     }
 
-    fun deleteRecursively(files: List<File>): OperationResult {
+    fun deleteRecursively(context: Context, files: List<File>): OperationResult {
         var failed = 0
         files.forEach { file ->
             if (!deleteDeep(file)) failed++
         }
         return if (failed == 0) {
-            OperationResult.Success("${files.size} item dihapus")
+            OperationResult.Success(context.getString(R.string.items_deleted, files.size))
         } else {
-            OperationResult.Error("$failed item gagal dihapus")
+            OperationResult.Error(context.getString(R.string.items_delete_partial, failed))
         }
     }
 
     fun paste(
+        context: Context,
         clipboard: ClipboardState,
         destinationDir: File,
         onProgress: ((Float, String) -> Unit)? = null,
     ): OperationResult {
         if (!destinationDir.isDirectory) {
-            return OperationResult.Error("Folder tujuan tidak valid")
+            return OperationResult.Error(context.getString(R.string.dest_folder_invalid))
         }
 
         val items = clipboard.items.filter { it.exists() }
-        if (items.isEmpty()) return OperationResult.Error("Clipboard kosong")
+        if (items.isEmpty()) {
+            return OperationResult.Error(context.getString(R.string.clipboard_empty))
+        }
 
         val total = items.size.coerceAtLeast(1)
         items.forEachIndexed { index, source ->
@@ -427,7 +440,7 @@ object FileOperations {
             val target = uniqueName(File(destinationDir, source.name))
 
             if (isNestedTarget(source, target)) {
-                return OperationResult.Error("Tidak bisa menempel ke dalam folder sumber")
+                return OperationResult.Error(context.getString(R.string.paste_into_source))
             }
 
             val ok = when (clipboard.mode) {
@@ -435,12 +448,20 @@ object FileOperations {
                 ClipboardMode.CUT -> moveDeep(source, target)
             }
             if (!ok) {
-                return OperationResult.Error("Gagal memproses ${source.name}")
+                return OperationResult.Error(
+                    context.getString(R.string.process_failed_item, source.name),
+                )
             }
         }
 
-        val action = if (clipboard.mode == ClipboardMode.COPY) "disalin" else "dipindahkan"
-        return OperationResult.Success("${items.size} item $action")
+        val action = if (clipboard.mode == ClipboardMode.COPY) {
+            context.getString(R.string.action_copied)
+        } else {
+            context.getString(R.string.action_moved)
+        }
+        return OperationResult.Success(
+            context.getString(R.string.items_pasted, items.size, action),
+        )
     }
 
     fun uniqueName(file: File): File {
