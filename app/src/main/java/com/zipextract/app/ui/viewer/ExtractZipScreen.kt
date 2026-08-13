@@ -290,10 +290,22 @@ private fun DestinationInfo(
             ) {
                 TextButton(
                     onClick = {
-                        onSetDestination(com.zipextract.app.data.ZipManager.defaultExtractDirectory(zipFile))
+                        onSetDestination(ZipManager.defaultExtractDirectory(zipFile))
                     },
                 ) {
                     Text("Folder ZIP")
+                }
+                TextButton(
+                    onClick = {
+                        onSetDestination(
+                            File(
+                                ZipManager.publicFileNestDir(),
+                                zipFile.nameWithoutExtension.ifBlank { "extract" },
+                            ),
+                        )
+                    },
+                ) {
+                    Text("FileNest")
                 }
                 TextButton(
                     onClick = {
