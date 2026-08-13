@@ -81,6 +81,14 @@ data class ExtractZipState(
     val error: String? = null,
 )
 
+data class ExtractResultState(
+    val success: Boolean,
+    val title: String,
+    val message: String,
+    val destination: File? = null,
+    val fileCount: Int = 0,
+)
+
 data class BrowserUiState(
     val showHome: Boolean = true,
     val activeCategory: FileCategory? = null,
@@ -121,6 +129,7 @@ data class BrowserUiState(
     val viewerReturnTarget: ViewerReturnTarget = ViewerReturnTarget.STAY,
     val launchedFromExternalIntent: Boolean = false,
     val extractDialog: ExtractZipState? = null,
+    val extractResult: ExtractResultState? = null,
 )
 
 class FileBrowserViewModel(application: Application) : AndroidViewModel(application) {
@@ -945,7 +954,11 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             emit("File ZIP tidak ditemukan")
             return
         }
-        val defaultDestination = ZipManager.defaultExtractDirectory(file)
+        if (!ZipManager.isSupportedZipFile(file)) {
+            emit("Format .${file.extension} belum didukung. Saat ini hanya ZIP/JAR/APK.")
+            return
+        }
+        val defaultDestination = ZipManager.defaultExtractDirectory(appContext, file)
         _uiState.update {
             it.copy(
                 extractDialog = ExtractZipState(
@@ -953,6 +966,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     destinationDir = defaultDestination,
                     isLoading = true,
                 ),
+                extractResult = null,
                 selectionMode = false,
                 selectedPaths = emptySet(),
             )
@@ -970,7 +984,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                                 zipFile = file,
                                 destinationDir = destination,
                                 isLoading = false,
-                                error = "File ZIP kosong",
+                                error = "File ZIP kosong atau tidak bisa dibaca",
                             ),
                         )
                     }
@@ -1047,57 +1061,75 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             return
         }
         val zip = dialog.zipFile
-        var destination = dialog.destinationDir
-
-        // Ensure destination is writable; fall back to public Download/FileNest.
-        if (!destination.exists()) {
-            destination.mkdirs()
-        }
-        if (!destination.exists() || !destination.isDirectory || !destination.canWrite()) {
-            val fallback = File(
-                ZipManager.publicFileNestDir(),
-                zip.nameWithoutExtension.ifBlank { "extract" },
-            )
-            fallback.mkdirs()
-            if (!fallback.exists() || !fallback.isDirectory) {
-                emit("Folder tujuan tidak bisa dibuat. Cek izin penyimpanan.")
-                return
-            }
-            destination = fallback
-        }
-
-        val deleteOriginal = dialog.deleteOriginal
         val selectedPaths = dialog.selectedPaths.toSet()
-        val destinationFinal = destination
+        val deleteOriginal = dialog.deleteOriginal
+        val preferred = dialog.destinationDir
         closeExtractDialog()
 
         runJob("Extract ZIP…", zip.name) {
             try {
+                val destination = ZipManager.resolveWritableExtractDir(
+                    context = appContext,
+                    zipFile = zip,
+                    preferred = preferred,
+                )
                 val written = ZipManager.extractZipEntries(
                     zipFile = zip,
-                    destinationDir = destinationFinal,
+                    destinationDir = destination,
                     selectedPaths = selectedPaths,
                 ) { progress, name ->
                     updateProgress("Extract ZIP…", name, progress)
                 }
                 if (deleteOriginal && zip.exists()) {
-                    if (!zip.delete()) {
-                        emit("Extract selesai, tetapi gagal menghapus ZIP asli")
-                    }
+                    runCatching { zip.delete() }
                 }
-                scanExtractedFiles(destinationFinal)
+                scanExtractedFiles(destination)
                 invalidateMediaLibraryCache()
-                openFolderAfterExtract(destinationFinal)
-                val suffix = if (deleteOriginal) " (ZIP asli dihapus)" else ""
-                if (written <= 0) {
-                    emit("Extract selesai tanpa file di ${destinationFinal.absolutePath}$suffix")
+                openFolderAfterExtract(destination)
+                val message = if (written <= 0) {
+                    "Extract selesai, tetapi tidak ada file yang ditulis.\n${destination.absolutePath}"
                 } else {
-                    emit("Berhasil extract $written file → ${destinationFinal.absolutePath}$suffix")
+                    "Berhasil extract $written file ke:\n${destination.absolutePath}"
                 }
+                _uiState.update {
+                    it.copy(
+                        extractResult = ExtractResultState(
+                            success = written > 0,
+                            title = if (written > 0) "Extract berhasil" else "Extract selesai",
+                            message = message,
+                            destination = destination,
+                            fileCount = written,
+                        ),
+                    )
+                }
+                emit(if (written > 0) "Extract berhasil ($written file)" else "Extract tanpa file")
             } catch (e: Exception) {
-                emit("Gagal extract: ${e.message ?: e.javaClass.simpleName}")
+                val err = e.message ?: e.javaClass.simpleName
+                _uiState.update {
+                    it.copy(
+                        extractResult = ExtractResultState(
+                            success = false,
+                            title = "Extract gagal",
+                            message = err,
+                            destination = null,
+                            fileCount = 0,
+                        ),
+                    )
+                }
+                emit("Gagal extract: $err")
             }
         }
+    }
+
+    fun dismissExtractResult() {
+        _uiState.update { it.copy(extractResult = null) }
+    }
+
+    fun openExtractResultFolder() {
+        val dest = _uiState.value.extractResult?.destination ?: return
+        _uiState.update { it.copy(extractResult = null) }
+        openFolderAfterExtract(dest)
+        refresh()
     }
 
     private fun scanExtractedFiles(root: File) {
