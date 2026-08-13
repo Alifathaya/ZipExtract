@@ -6,12 +6,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -103,6 +105,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
@@ -531,45 +534,6 @@ fun FileBrowserScreen(
                 }
             }
         },
-        bottomBar = {
-            AnimatedVisibility(
-                visible = state.selectionMode && selectedCount > 0,
-                enter = slideInVertically { it } + fadeIn(),
-                exit = slideOutVertically { it } + fadeOut(),
-            ) {
-                ActionBar(
-                    canExtract = canExtract,
-                    canRename = canRename,
-                    canFavoriteOrDetails = canFavoriteOrDetails,
-                    hasClipboard = state.clipboard != null,
-                    clipboardMode = state.clipboard?.mode,
-                    onCopy = onCopy,
-                    onCut = onCut,
-                    onPaste = onPaste,
-                    onDelete = { dialog = DialogType.DELETE_CONFIRM },
-                    onRename = {
-                        inputText = singleSelected?.name.orEmpty()
-                        dialog = DialogType.RENAME
-                    },
-                    onZip = {
-                        inputText = if (selectedCount == 1) {
-                            singleSelected?.nameWithoutZip().orEmpty()
-                        } else {
-                            "archive"
-                        }
-                        bestCompression = true
-                        dialog = DialogType.CREATE_ZIP
-                    },
-                    onExtract = {
-                        singleSelected?.let { onOpenExtract(it) }
-                    },
-                    onShare = onShareSelected,
-                    onOpenWith = onOpenWithSelected,
-                    onFavorite = onToggleFavoriteSelected,
-                    onDetails = onShowSelectedDetails,
-                )
-            }
-        },
     ) { padding ->
         Box(
             modifier = Modifier
@@ -585,6 +549,12 @@ fun FileBrowserScreen(
                 )
                 .padding(padding),
         ) {
+            val showSelectionRail = state.selectionMode && selectedCount > 0
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = if (showSelectionRail) 76.dp else 0.dp),
+            ) {
             when {
                 !state.storageGranted -> PermissionPane(onRequestPermission)
                 state.showDuplicates -> {
@@ -736,6 +706,48 @@ fun FileBrowserScreen(
             state.progress?.let { progress ->
                 ProgressOverlay(progress = progress, onCancel = onCancelProgress)
             }
+            } // content (shifted when selection rail is open)
+
+            AnimatedVisibility(
+                visible = showSelectionRail,
+                enter = slideInHorizontally { -it } + fadeIn(),
+                exit = slideOutHorizontally { -it } + fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .fillMaxHeight(),
+            ) {
+                ActionBar(
+                    canExtract = canExtract,
+                    canRename = canRename,
+                    canFavoriteOrDetails = canFavoriteOrDetails,
+                    hasClipboard = state.clipboard != null,
+                    clipboardMode = state.clipboard?.mode,
+                    onCopy = onCopy,
+                    onCut = onCut,
+                    onPaste = onPaste,
+                    onDelete = { dialog = DialogType.DELETE_CONFIRM },
+                    onRename = {
+                        inputText = singleSelected?.name.orEmpty()
+                        dialog = DialogType.RENAME
+                    },
+                    onZip = {
+                        inputText = if (selectedCount == 1) {
+                            singleSelected?.nameWithoutZip().orEmpty()
+                        } else {
+                            "archive"
+                        }
+                        bestCompression = true
+                        dialog = DialogType.CREATE_ZIP
+                    },
+                    onExtract = {
+                        singleSelected?.let { onOpenExtract(it) }
+                    },
+                    onShare = onShareSelected,
+                    onOpenWith = onOpenWithSelected,
+                    onFavorite = onToggleFavoriteSelected,
+                    onDetails = onShowSelectedDetails,
+                )
+            }
         }
     }
     }
@@ -842,17 +854,19 @@ private fun ActionBar(
         tonalElevation = 3.dp,
         shadowElevation = 8.dp,
         color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxHeight(),
     ) {
-        Row(
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxHeight()
+                .width(76.dp)
                 .navigationBarsPadding()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 8.dp, horizontal = 2.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Favorit & Detail first so they are not cut off / off-screen on the right.
+            // Favorit & Detail first so they stay reachable at the top of the rail.
             ActionIcon(
                 Icons.Default.Star,
                 stringResource(R.string.favorites),
@@ -889,18 +903,29 @@ private fun ActionIcon(
     onClick: () -> Unit,
     enabled: Boolean = true,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        IconButton(onClick = onClick, enabled = enabled) {
-            Icon(icon, contentDescription = label)
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .width(72.dp)
+            .padding(vertical = 2.dp),
+    ) {
+        IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(40.dp)) {
+            Icon(icon, contentDescription = label, modifier = Modifier.size(22.dp))
         }
         Text(
             text = label,
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.labelSmall,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             color = if (enabled) {
                 MaterialTheme.colorScheme.onSurfaceVariant
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
             },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp),
         )
     }
 }
