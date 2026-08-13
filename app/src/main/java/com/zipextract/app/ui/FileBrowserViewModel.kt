@@ -17,8 +17,8 @@ import com.zipextract.app.data.FileCategory
 import com.zipextract.app.data.FileFilter
 import com.zipextract.app.data.FileItem
 import com.zipextract.app.data.FileOperations
-import com.zipextract.app.data.ImageAlbum
-import com.zipextract.app.data.ImageAlbumChip
+import com.zipextract.app.data.MediaAlbum
+import com.zipextract.app.data.MediaAlbumChip
 import com.zipextract.app.data.LibrarySubFilter
 import com.zipextract.app.data.LocaleHelper
 import com.zipextract.app.data.MediaLibrary
@@ -103,8 +103,8 @@ data class BrowserUiState(
     val sortNewestFirst: Boolean = false,
     val libraryMode: Boolean = false,
     val librarySubFilter: LibrarySubFilter = LibrarySubFilter.ALL,
-    val imageAlbumId: String = ImageAlbum.ALL,
-    val imageAlbums: List<ImageAlbumChip> = emptyList(),
+    val mediaAlbumId: String = MediaAlbum.ALL,
+    val mediaAlbums: List<MediaAlbumChip> = emptyList(),
     val favoritePaths: Set<String> = emptySet(),
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val appLanguage: AppLanguage = AppLanguage.SYSTEM,
@@ -285,13 +285,13 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                         val category = state.activeCategory
                         val files = library.forCategory(category)
                         when (category) {
-                            FileCategory.IMAGES -> {
-                                val albums = ImageAlbum.buildChips(files)
-                                val albumId = ImageAlbum.sanitizeSelection(state.imageAlbumId, albums)
-                                val sorted = sortLibraryFiles(ImageAlbum.filter(files, albumId))
+                            FileCategory.IMAGES, FileCategory.VIDEOS -> {
+                                val albums = MediaAlbum.buildChips(files)
+                                val albumId = MediaAlbum.sanitizeSelection(state.mediaAlbumId, albums)
+                                val sorted = sortLibraryFiles(MediaAlbum.filter(files, albumId))
                                 base.copy(
-                                    imageAlbums = albums,
-                                    imageAlbumId = albumId,
+                                    mediaAlbums = albums,
+                                    mediaAlbumId = albumId,
                                     items = sorted,
                                     selectedPaths = state.selectedPaths.filter { path ->
                                         sorted.any { item -> item.path == path }
@@ -370,15 +370,16 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             } else {
                 LibrarySubFilter.ALL
             }
-            val imageAlbums = if (category == FileCategory.IMAGES) {
-                ImageAlbum.buildChips(cachedFiles)
+            val usesMediaAlbums = category == FileCategory.IMAGES || category == FileCategory.VIDEOS
+            val mediaAlbums = if (usesMediaAlbums) {
+                MediaAlbum.buildChips(cachedFiles)
             } else {
                 emptyList()
             }
-            val imageAlbumId = if (category == FileCategory.IMAGES) ImageAlbum.ALL else ImageAlbum.ALL
+            val mediaAlbumId = MediaAlbum.ALL
             val filtered = when (category) {
                 FileCategory.DOCUMENTS -> cachedFiles.filter { subFilter.matches(it) }
-                FileCategory.IMAGES -> ImageAlbum.filter(cachedFiles, imageAlbumId)
+                FileCategory.IMAGES, FileCategory.VIDEOS -> MediaAlbum.filter(cachedFiles, mediaAlbumId)
                 else -> cachedFiles
             }
             val sorted = sortLibraryFiles(filtered)
@@ -391,8 +392,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     fileFilter = FileFilter.forCategory(category),
                     libraryMode = true,
                     librarySubFilter = subFilter,
-                    imageAlbums = imageAlbums,
-                    imageAlbumId = imageAlbumId,
+                    mediaAlbums = mediaAlbums,
+                    mediaAlbumId = mediaAlbumId,
                     showFavoritesOnly = false,
                     showDuplicates = false,
                     selectionMode = false,
@@ -417,8 +418,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 currentDir = folder,
                 fileFilter = FileFilter.forCategory(category),
                 libraryMode = true,
-                imageAlbums = emptyList(),
-                imageAlbumId = ImageAlbum.ALL,
+                mediaAlbums = emptyList(),
+                mediaAlbumId = MediaAlbum.ALL,
                 selectionMode = false,
                 selectedPaths = emptySet(),
                 searchQuery = "",
@@ -443,15 +444,16 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             }
             val subFilter = _uiState.value.librarySubFilter
             val base = library.forCategory(category)
-            val imageAlbums = if (category == FileCategory.IMAGES) {
-                ImageAlbum.buildChips(base)
+            val usesMediaAlbums = category == FileCategory.IMAGES || category == FileCategory.VIDEOS
+            val mediaAlbums = if (usesMediaAlbums) {
+                MediaAlbum.buildChips(base)
             } else {
                 emptyList()
             }
-            val imageAlbumId = ImageAlbum.ALL
+            val mediaAlbumId = MediaAlbum.ALL
             val filtered = when (category) {
                 FileCategory.DOCUMENTS -> base.filter { subFilter.matches(it) }
-                FileCategory.IMAGES -> ImageAlbum.filter(base, imageAlbumId)
+                FileCategory.IMAGES, FileCategory.VIDEOS -> MediaAlbum.filter(base, mediaAlbumId)
                 else -> base
             }
             val sorted = sortLibraryFiles(filtered)
@@ -461,8 +463,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     progress = null,
                     canGoUp = true,
                     librarySubFilter = if (category == FileCategory.DOCUMENTS) subFilter else LibrarySubFilter.ALL,
-                    imageAlbums = imageAlbums,
-                    imageAlbumId = imageAlbumId,
+                    mediaAlbums = mediaAlbums,
+                    mediaAlbumId = mediaAlbumId,
                     selectedPaths = it.selectedPaths.filter { path ->
                         sorted.any { item -> item.path == path }
                     }.toSet(),
@@ -690,8 +692,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 showDuplicates = false,
                 duplicateGroups = emptyList(),
                 librarySubFilter = LibrarySubFilter.ALL,
-                imageAlbumId = ImageAlbum.ALL,
-                imageAlbums = emptyList(),
+                mediaAlbumId = MediaAlbum.ALL,
+                mediaAlbums = emptyList(),
                 selectionMode = false,
                 selectedPaths = emptySet(),
                 items = emptyList(),
@@ -916,8 +918,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 showDuplicates = false,
                 duplicateGroups = emptyList(),
                 librarySubFilter = LibrarySubFilter.ALL,
-                imageAlbumId = ImageAlbum.ALL,
-                imageAlbums = emptyList(),
+                mediaAlbumId = MediaAlbum.ALL,
+                mediaAlbums = emptyList(),
                 selectionMode = false,
                 selectedPaths = emptySet(),
                 items = emptyList(),
@@ -1465,18 +1467,24 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun setImageAlbum(albumId: String) {
+    fun setMediaAlbum(albumId: String) {
         val state = _uiState.value
-        if (!state.libraryMode || state.activeCategory != FileCategory.IMAGES) return
-        val images = mediaLibraryCache?.images
-            ?: state.items.filter { it.isImage }
-        val albums = ImageAlbum.buildChips(images).ifEmpty { state.imageAlbums }
-        val selected = ImageAlbum.sanitizeSelection(albumId, albums)
-        val filtered = ImageAlbum.filter(images, selected)
+        val category = state.activeCategory
+        if (!state.libraryMode || (category != FileCategory.IMAGES && category != FileCategory.VIDEOS)) {
+            return
+        }
+        val source = when (category) {
+            FileCategory.IMAGES -> mediaLibraryCache?.images ?: state.items.filter { it.isImage }
+            FileCategory.VIDEOS -> mediaLibraryCache?.videos ?: state.items.filter { it.isVideo }
+            else -> return
+        }
+        val albums = MediaAlbum.buildChips(source).ifEmpty { state.mediaAlbums }
+        val selected = MediaAlbum.sanitizeSelection(albumId, albums)
+        val filtered = MediaAlbum.filter(source, selected)
         _uiState.update {
             it.copy(
-                imageAlbumId = selected,
-                imageAlbums = albums,
+                mediaAlbumId = selected,
+                mediaAlbums = albums,
                 items = sortLibraryFiles(filtered),
                 selectedPaths = emptySet(),
                 selectionMode = false,

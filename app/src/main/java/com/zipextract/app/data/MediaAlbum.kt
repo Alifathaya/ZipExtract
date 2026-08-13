@@ -3,15 +3,16 @@ package com.zipextract.app.data
 import java.io.File
 
 /**
- * Album chips inside the Images gallery (All / Camera / Screenshots / WhatsApp / other folders).
+ * Album chips for Images / Videos galleries
+ * (All / Camera / Screenshots / WhatsApp / other folders).
  */
-data class ImageAlbumChip(
+data class MediaAlbumChip(
     val id: String,
     val label: String,
     val count: Int,
 )
 
-object ImageAlbum {
+object MediaAlbum {
     const val ALL = "all"
     const val CAMERA = "camera"
     const val SCREENSHOTS = "screenshots"
@@ -30,9 +31,9 @@ object ImageAlbum {
      * Build chip list: fixed albums first (only if they have items), then other parent folders
      * by descending count.
      */
-    fun buildChips(images: List<FileItem>): List<ImageAlbumChip> {
-        if (images.isEmpty()) {
-            return listOf(ImageAlbumChip(ALL, "Semua", 0))
+    fun buildChips(items: List<FileItem>): List<MediaAlbumChip> {
+        if (items.isEmpty()) {
+            return listOf(MediaAlbumChip(ALL, "Semua", 0))
         }
 
         var camera = 0
@@ -40,7 +41,7 @@ object ImageAlbum {
         var whatsapp = 0
         val folders = LinkedHashMap<String, Int>()
 
-        images.forEach { item ->
+        items.forEach { item ->
             when (val kind = classify(item)) {
                 Kind.CAMERA -> camera++
                 Kind.SCREENSHOTS -> screenshots++
@@ -51,15 +52,15 @@ object ImageAlbum {
             }
         }
 
-        val chips = mutableListOf(ImageAlbumChip(ALL, "Semua", images.size))
-        if (camera > 0) chips += ImageAlbumChip(CAMERA, "Kamera", camera)
-        if (screenshots > 0) chips += ImageAlbumChip(SCREENSHOTS, "Screenshot", screenshots)
-        if (whatsapp > 0) chips += ImageAlbumChip(WHATSAPP, "WhatsApp", whatsapp)
+        val chips = mutableListOf(MediaAlbumChip(ALL, "Semua", items.size))
+        if (camera > 0) chips += MediaAlbumChip(CAMERA, "Kamera", camera)
+        if (screenshots > 0) chips += MediaAlbumChip(SCREENSHOTS, "Screenshot", screenshots)
+        if (whatsapp > 0) chips += MediaAlbumChip(WHATSAPP, "WhatsApp", whatsapp)
 
         folders.entries
             .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { folderLabel(it.key) })
             .forEach { (path, count) ->
-                chips += ImageAlbumChip(
+                chips += MediaAlbumChip(
                     id = folderId(path),
                     label = folderLabel(path),
                     count = count,
@@ -69,10 +70,10 @@ object ImageAlbum {
         return chips
     }
 
-    fun filter(images: List<FileItem>, albumId: String): List<FileItem> {
-        if (albumId == ALL || albumId.isBlank()) return images
+    fun filter(items: List<FileItem>, albumId: String): List<FileItem> {
+        if (albumId == ALL || albumId.isBlank()) return items
         val folderPath = folderPathFromId(albumId)
-        return images.filter { item ->
+        return items.filter { item ->
             when (val kind = classify(item)) {
                 Kind.CAMERA -> albumId == CAMERA
                 Kind.SCREENSHOTS -> albumId == SCREENSHOTS
@@ -82,7 +83,7 @@ object ImageAlbum {
         }
     }
 
-    fun sanitizeSelection(albumId: String, chips: List<ImageAlbumChip>): String {
+    fun sanitizeSelection(albumId: String, chips: List<MediaAlbumChip>): String {
         if (chips.any { it.id == albumId }) return albumId
         return ALL
     }
@@ -129,6 +130,7 @@ object ImageAlbum {
         }
         return path.contains("/dcim/camera/") ||
             path.contains("/pictures/camera/") ||
+            path.contains("/movies/camera/") ||
             path.contains("/dcim/100andro/") ||
             path.contains("/dcim/100media/")
     }
