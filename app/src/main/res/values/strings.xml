@@ -347,4 +347,5 @@
     <string name="largest_files">File besar</string>
     <string name="largest_files_hint">Hapus file besar yang tidak perlu untuk hemat ruang</string>
     <string name="largest_files_empty">Tidak ada file besar ditemukan</string>
+    <string name="rar5_unsupported">Format RAR5 belum didukung. Gunakan RAR versi lama, 7z, atau ZIP.</string>
 </resources>

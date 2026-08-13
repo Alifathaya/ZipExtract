@@ -32,6 +32,7 @@ import com.zipextract.app.data.ProgressState
 import com.zipextract.app.data.SharedFileResolver
 import com.zipextract.app.data.StorageInfo
 import com.zipextract.app.data.ThemeMode
+import com.zipextract.app.data.ArchiveManager
 import com.zipextract.app.data.ZipManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -1093,7 +1094,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             emit(str(R.string.zip_not_found))
             return
         }
-        if (!ZipManager.isSupportedZipFile(file)) {
+        if (!ArchiveManager.isSupportedArchive(file)) {
             emit(str(R.string.format_unsupported_ext, file.extension))
             return
         }
@@ -1114,7 +1115,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
         // Detect password protection off the main thread, then show the password field.
         viewModelScope.launch {
-            val encrypted = withContext(Dispatchers.IO) { ZipManager.isEncryptedZip(file) }
+            val encrypted = withContext(Dispatchers.IO) { ArchiveManager.isPasswordProtected(file) }
             if (!encrypted) return@launch
             _uiState.update { state ->
                 val dialog = state.extractDialog
@@ -1189,15 +1190,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     zipFile = zip,
                     preferred = preferred,
                 )
-                val allPaths = ZipManager.listZipEntryDetails(localizedContext(), zip).map { it.path }.toSet()
-                if (allPaths.isEmpty()) {
-                    error(str(R.string.zip_empty_unreadable))
-                }
-                val written = ZipManager.extractZipEntries(
+                val written = ArchiveManager.extractArchive(
                     context = localizedContext(),
-                    zipFile = zip,
+                    file = zip,
                     destinationDir = destination,
-                    selectedPaths = allPaths,
                     password = password,
                 ) { progress, name ->
                     updateProgress(str(R.string.progress_extract_zip), name, progress)
