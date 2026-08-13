@@ -25,6 +25,9 @@ object MediaLibraryCache {
     /** Minimum gap between automatic background rescans (onResume / open category). */
     const val RESUME_REFRESH_DEBOUNCE_MS = 5 * 1000L
 
+    /** Faster gap when MediaStore reports a new download / photo. */
+    const val MEDIA_OBSERVER_DEBOUNCE_MS = 900L
+
     fun cacheFile(context: Context): File =
         File(context.applicationContext.filesDir, CACHE_FILE)
 
