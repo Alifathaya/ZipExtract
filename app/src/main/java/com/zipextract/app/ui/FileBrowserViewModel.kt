@@ -1303,10 +1303,89 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             emit("Pilih file terlebih dahulu")
             return
         }
-        runJob("Menghapus…", "Menghapus file") {
-            val result = FileOperations.deleteRecursively(files)
-            _uiState.update { it.copy(selectionMode = false, selectedPaths = emptySet()) }
-            handleResult(result)
+        val removedPaths = files.mapTo(LinkedHashSet()) { file ->
+            runCatching { file.canonicalPath }.getOrDefault(file.absolutePath)
+        }
+        // Keep delete snappy: brief "Menghapus…" only — never kick off a full-library
+        // "Mencari semua … di perangkat" scan in the progress overlay.
+        activeJob?.cancel()
+        activeJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    progress = ProgressState(
+                        title = "Menghapus…",
+                        message = files.firstOrNull()?.name ?: "Menghapus file",
+                        indeterminate = true,
+                    ),
+                    selectionMode = false,
+                    selectedPaths = emptySet(),
+                )
+            }
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    FileOperations.deleteRecursively(files)
+                }
+                applyLocalRemovals(removedPaths)
+                when (result) {
+                    is OperationResult.Success -> emit(result.message)
+                    is OperationResult.Error -> emit(result.message)
+                }
+                // Quiet background resync (no searching overlay).
+                softRefreshMediaInBackground(reason = "after-delete")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                emit("Dibatalkan")
+                throw e
+            } finally {
+                _uiState.update { it.copy(progress = null) }
+                if (activeJob === this) activeJob = null
+            }
+        }
+    }
+
+    /**
+     * Instantly drop deleted paths from the visible list and in-memory library cache
+     * so the UI updates without a full device scan.
+     */
+    private fun applyLocalRemovals(removedPaths: Set<String>) {
+        if (removedPaths.isEmpty()) return
+        fun gone(path: String): Boolean {
+            val canonical = runCatching { File(path).canonicalPath }.getOrDefault(path)
+            return path in removedPaths || canonical in removedPaths ||
+                removedPaths.any { removed ->
+                    path == removed ||
+                        canonical == removed ||
+                        path.startsWith(removed + File.separator) ||
+                        canonical.startsWith(removed + File.separator)
+                }
+        }
+        mediaLibraryCache = mediaLibraryCache?.let { library ->
+            MediaLibrary(
+                downloads = library.downloads.filterNot { gone(it.path) },
+                images = library.images.filterNot { gone(it.path) },
+                videos = library.videos.filterNot { gone(it.path) },
+                documents = library.documents.filterNot { gone(it.path) },
+                archives = library.archives.filterNot { gone(it.path) },
+                apps = library.apps.filterNot { gone(it.path) },
+                others = library.others.filterNot { gone(it.path) },
+            )
+        }
+        val patchedLibrary = mediaLibraryCache
+        _uiState.update { state ->
+            val nextItems = state.items.filterNot { gone(it.path) }
+            val nextRecent = state.recentFiles.filterNot { gone(it.path) }
+            val nextCategories = if (patchedLibrary != null) {
+                FileOperations.getCategorySummaries(patchedLibrary)
+            } else {
+                state.categorySummaries
+            }
+            state.copy(
+                items = nextItems,
+                recentFiles = nextRecent,
+                categorySummaries = nextCategories,
+                selectedPaths = emptySet(),
+                selectionMode = false,
+                progress = null,
+            )
         }
     }
 
