@@ -119,7 +119,7 @@ object ZipManager {
         onProgress: ((Float, String) -> Unit)? = null,
     ) {
         val entries = listZipEntryDetails(context, zipFile).map { it.path }.toSet()
-        extractZipEntries(context, zipFile, destinationDir, entries, onProgress)
+        extractZipEntries(context, zipFile, destinationDir, entries, onProgress = onProgress)
     }
 
     fun listZipEntries(context: Context, zipFile: File): List<String> {
