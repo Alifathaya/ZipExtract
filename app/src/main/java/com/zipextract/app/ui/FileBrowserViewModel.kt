@@ -849,7 +849,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
             val item = FileItem(resolved.file)
             when {
-                item.isArchive -> extractZipFile(resolved.file)
+                item.isArchive || ZipManager.isSupportedZipFile(resolved.file) -> {
+                    extractZipFile(resolved.file)
+                }
                 SharedFileResolver.isPdf(resolved.file, resolved.mimeType) -> {
                     openViewer(
                         ViewerContent.Pdf(
@@ -955,7 +957,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             return
         }
         if (!ZipManager.isSupportedZipFile(file)) {
-            emit("Format .${file.extension} belum didukung. Saat ini hanya ZIP/JAR/APK.")
+            emit(ZipManager.unsupportedArchiveMessage(file))
             return
         }
         val defaultDestination = ZipManager.defaultExtractDirectory(appContext, file)
@@ -1063,46 +1065,42 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         val zip = dialog.zipFile
         val selectedPaths = dialog.selectedPaths.toSet()
         val deleteOriginal = dialog.deleteOriginal
-        val preferred = dialog.destinationDir
         closeExtractDialog()
 
         runJob("Extract ZIP…", zip.name) {
             try {
-                val destination = ZipManager.resolveWritableExtractDir(
+                val outcome = ZipManager.extractAndPublish(
                     context = appContext,
                     zipFile = zip,
-                    preferred = preferred,
-                )
-                val written = ZipManager.extractZipEntries(
-                    zipFile = zip,
-                    destinationDir = destination,
                     selectedPaths = selectedPaths,
+                    folderName = zip.nameWithoutExtension,
                 ) { progress, name ->
                     updateProgress("Extract ZIP…", name, progress)
                 }
+                val destination = outcome.destination
                 if (deleteOriginal && zip.exists()) {
                     runCatching { zip.delete() }
                 }
                 scanExtractedFiles(destination)
                 invalidateMediaLibraryCache()
                 openFolderAfterExtract(destination)
-                val message = if (written <= 0) {
-                    "Extract selesai, tetapi tidak ada file yang ditulis.\n${destination.absolutePath}"
-                } else {
-                    "Berhasil extract $written file ke:\n${destination.absolutePath}"
+                val friendly = friendlyExtractPath(destination)
+                val message = buildString {
+                    append("Berhasil extract ${outcome.fileCount} file.\n\n")
+                    append("Lokasi:\n$friendly")
                 }
                 _uiState.update {
                     it.copy(
                         extractResult = ExtractResultState(
-                            success = written > 0,
-                            title = if (written > 0) "Extract berhasil" else "Extract selesai",
+                            success = true,
+                            title = "Extract berhasil",
                             message = message,
                             destination = destination,
-                            fileCount = written,
+                            fileCount = outcome.fileCount,
                         ),
                     )
                 }
-                emit(if (written > 0) "Extract berhasil ($written file)" else "Extract tanpa file")
+                emit("Extract berhasil (${outcome.fileCount} file) → $friendly")
             } catch (e: Exception) {
                 val err = e.message ?: e.javaClass.simpleName
                 _uiState.update {
@@ -1119,6 +1117,19 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 emit("Gagal extract: $err")
             }
         }
+    }
+
+    private fun friendlyExtractPath(dir: File): String {
+        val path = dir.absolutePath
+        val marker = "/Download/FileNest/"
+        val idx = path.indexOf(marker)
+        if (idx >= 0) {
+            return "Download/FileNest/" + path.substring(idx + marker.length)
+        }
+        if (path.contains("/files/Extract/")) {
+            return "Folder aman FileNest (Extract)/" + path.substringAfterLast("/Extract/")
+        }
+        return path
     }
 
     fun dismissExtractResult() {
@@ -1173,6 +1184,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 progress = null,
             )
         }
+        // Explicit refresh so the folder listing is visible immediately (also refreshed in runJob finally).
+        refresh()
     }
 
     fun goUp() {

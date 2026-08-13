@@ -1,8 +1,6 @@
 package com.zipextract.app.ui.viewer
 
-import android.os.Environment
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -20,7 +18,6 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
@@ -43,7 +40,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
@@ -53,7 +49,6 @@ import androidx.compose.ui.unit.max
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.zipextract.app.data.ZipEntryItem
-import com.zipextract.app.data.ZipManager
 import com.zipextract.app.ui.ExtractZipState
 import java.io.File
 
@@ -184,11 +179,7 @@ fun ExtractZipScreen(
                         .fillMaxSize()
                         .padding(padding),
                 ) {
-                    DestinationInfo(
-                        destination = state.destinationDir,
-                        zipFile = state.zipFile,
-                        onSetDestination = onSetDestination,
-                    )
+                    DestinationInfo(zipFile = state.zipFile)
 
                     Row(
                         modifier = Modifier
@@ -252,11 +243,8 @@ private fun systemBottomInset(minimum: Dp): Dp {
 
 @Composable
 private fun DestinationInfo(
-    destination: File,
     zipFile: File,
-    onSetDestination: (File) -> Unit,
 ) {
-    val context = LocalContext.current
     Surface(
         tonalElevation = 1.dp,
         modifier = Modifier
@@ -265,76 +253,24 @@ private fun DestinationInfo(
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(
-                text = "Lokasi extract",
+                text = "Lokasi hasil",
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = destination.absolutePath,
+                text = "Download/FileNest/${zipFile.nameWithoutExtension.ifBlank { "extract" }}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 3,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Setelah extract, hasil akan dibuka otomatis. Jika gagal tulis, app memilih folder aman.",
+                text = "Hasil extract selalu disimpan di Download/FileNest agar mudah ditemukan, lalu folder itu dibuka otomatis.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                TextButton(
-                    onClick = {
-                        onSetDestination(ZipManager.defaultExtractDirectory(context, zipFile))
-                    },
-                ) {
-                    Text("Otomatis")
-                }
-                TextButton(
-                    onClick = {
-                        onSetDestination(
-                            File(
-                                ZipManager.publicFileNestDir(),
-                                zipFile.nameWithoutExtension.ifBlank { "extract" },
-                            ),
-                        )
-                    },
-                ) {
-                    Text("FileNest")
-                }
-                TextButton(
-                    onClick = {
-                        zipFile.parentFile?.let(onSetDestination)
-                    },
-                ) {
-                    Text("Folder yang sama")
-                }
-                TextButton(
-                    onClick = {
-                        onSetDestination(
-                            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                        )
-                    },
-                ) {
-                    Text("Download")
-                }
-                TextButton(
-                    onClick = {
-                        val appDir = context.getExternalFilesDir("Extract")
-                            ?: File(context.filesDir, "Extract")
-                        onSetDestination(File(appDir, zipFile.nameWithoutExtension.ifBlank { "extract" }))
-                    },
-                ) {
-                    Text("Aman (app)")
-                }
-            }
         }
     }
     HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
