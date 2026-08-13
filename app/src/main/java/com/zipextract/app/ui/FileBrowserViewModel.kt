@@ -1330,7 +1330,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     is OperationResult.Success -> emit(result.message)
                     is OperationResult.Error -> emit(result.message)
                 }
-                // Quiet background resync (no searching overlay).
+                // Quiet background resync (no searching overlay). Bypass debounce so
+                // the library catches up even right after opening a category.
+                lastSoftRefreshAtMs = 0L
                 softRefreshMediaInBackground(reason = "after-delete")
             } catch (e: kotlinx.coroutines.CancellationException) {
                 emit("Dibatalkan")
