@@ -145,6 +145,7 @@ class MainActivity : ComponentActivity() {
                         onSetThemeMode = viewModel::setThemeMode,
                         onSetAppLanguage = viewModel::setAppLanguage,
                         onSetLibrarySubFilter = viewModel::setLibrarySubFilter,
+                        onSetImageAlbum = viewModel::setImageAlbum,
                         onFindDuplicates = viewModel::findDuplicates,
                         onCloseDuplicates = viewModel::closeDuplicates,
                         onDeleteDuplicateExtras = viewModel::deleteDuplicateExtras,

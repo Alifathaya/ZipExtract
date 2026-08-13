@@ -114,6 +114,8 @@ import com.zipextract.app.data.DuplicateGroup
 import com.zipextract.app.data.FileFilter
 import com.zipextract.app.data.FileCategory
 import com.zipextract.app.data.FileItem
+import com.zipextract.app.data.ImageAlbum
+import com.zipextract.app.data.ImageAlbumChip
 import com.zipextract.app.data.LibrarySubFilter
 import com.zipextract.app.data.ThemeMode
 import com.zipextract.app.data.VideoThumbnailLoader
@@ -181,6 +183,7 @@ fun FileBrowserScreen(
     onSetThemeMode: (ThemeMode) -> Unit,
     onSetAppLanguage: (AppLanguage) -> Unit,
     onSetLibrarySubFilter: (LibrarySubFilter) -> Unit,
+    onSetImageAlbum: (String) -> Unit,
     onFindDuplicates: () -> Unit,
     onCloseDuplicates: () -> Unit,
     onDeleteDuplicateExtras: () -> Unit,
@@ -632,15 +635,23 @@ fun FileBrowserScreen(
                     state.activeCategory == FileCategory.IMAGES ||
                         state.fileFilter == FileFilter.IMAGES
                     ) -> {
-                    ImageGalleryGrid(
-                        items = state.items.filter { it.isImage },
-                        selectedPaths = state.selectedPaths,
-                        favoritePaths = state.favoritePaths,
-                        selectionMode = state.selectionMode,
-                        onOpenItem = onOpenItem,
-                        onToggleSelect = onToggleSelect,
-                        onToggleFavorite = onToggleFavoritePath,
-                    )
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        ImageAlbumChips(
+                            albums = state.imageAlbums,
+                            selectedId = state.imageAlbumId,
+                            onSelect = onSetImageAlbum,
+                        )
+                        ImageGalleryGrid(
+                            items = state.items.filter { it.isImage },
+                            selectedPaths = state.selectedPaths,
+                            favoritePaths = state.favoritePaths,
+                            selectionMode = state.selectionMode,
+                            onOpenItem = onOpenItem,
+                            onToggleSelect = onToggleSelect,
+                            onToggleFavorite = onToggleFavoritePath,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
                 state.libraryMode && (
                     state.activeCategory == FileCategory.VIDEOS ||
@@ -1312,9 +1323,10 @@ private fun ImageGalleryGrid(
     onOpenItem: (FileItem) -> Unit,
     onToggleSelect: (FileItem) -> Unit,
     onToggleFavorite: (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     if (items.isEmpty()) {
-        EmptyPane(message = "Tidak ada foto ditemukan di perangkat")
+        EmptyPane(message = "Tidak ada foto di album ini")
         return
     }
 
@@ -1323,7 +1335,7 @@ private fun ImageGalleryGrid(
         contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 96.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize(),
     ) {
         gridItems(items, key = { it.path }) { item ->
             ImageThumbnailCell(
@@ -1613,6 +1625,44 @@ private fun FileFilterChips(
                 selected = selected == filter,
                 onClick = { onSelect(filter) },
                 label = { Text(filter.label) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ImageAlbumChips(
+    albums: List<ImageAlbumChip>,
+    selectedId: String,
+    onSelect: (String) -> Unit,
+) {
+    if (albums.isEmpty()) return
+    val scrollState = rememberScrollState()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(scrollState)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        albums.forEach { album ->
+            val label = when (album.id) {
+                ImageAlbum.ALL -> stringResource(R.string.album_all)
+                ImageAlbum.CAMERA -> stringResource(R.string.album_camera)
+                ImageAlbum.SCREENSHOTS -> stringResource(R.string.album_screenshots)
+                ImageAlbum.WHATSAPP -> stringResource(R.string.album_whatsapp)
+                else -> album.label
+            }
+            FilterChip(
+                selected = selectedId == album.id,
+                onClick = { onSelect(album.id) },
+                label = {
+                    Text(
+                        text = if (album.count > 0) "$label (${album.count})" else label,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
             )
         }
     }
