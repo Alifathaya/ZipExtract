@@ -21,6 +21,10 @@
     <string name="all_files">Semua</string>
     <string name="zips">ZIP</string>
     <string name="view_all">Lihat semua</string>
+    <string name="album_all">Semua</string>
+    <string name="album_camera">Kamera</string>
+    <string name="album_screenshots">Screenshot</string>
+    <string name="album_whatsapp">WhatsApp</string>
     <string name="recent_photos">Foto terbaru</string>
     <string name="categories">Kategori</string>
     <string name="storage">Penyimpanan</string>

@@ -21,6 +21,10 @@
     <string name="all_files">All</string>
     <string name="zips">ZIP</string>
     <string name="view_all">View all</string>
+    <string name="album_all">All</string>
+    <string name="album_camera">Camera</string>
+    <string name="album_screenshots">Screenshots</string>
+    <string name="album_whatsapp">WhatsApp</string>
     <string name="recent_photos">Recent photos</string>
     <string name="categories">Categories</string>
     <string name="storage">Storage</string>
