@@ -138,6 +138,23 @@ object FileOperations {
                 collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
                 into = videos,
             )
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                mergeMediaStoreFiles(
+                    resolver = resolver,
+                    collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    into = downloads,
+                    alsoClassify = { item ->
+                        when {
+                            item.isImage -> addItem(images, item)
+                            item.isVideo -> addItem(videos, item)
+                            item.isApp -> addItem(apps, item)
+                            item.isArchive -> addItem(archives, item)
+                            item.isDocument -> addItem(documents, item)
+                            item.isAudio -> addItem(others, item)
+                        }
+                    },
+                )
+            }
         }
 
         fun newest(map: Map<String, FileItem>): List<FileItem> {
@@ -166,6 +183,7 @@ object FileOperations {
         resolver: ContentResolver,
         collection: Uri,
         into: MutableMap<String, FileItem>,
+        alsoClassify: ((FileItem) -> Unit)? = null,
     ) {
         val projection = arrayOf(
             MediaStore.MediaColumns.DATA,
@@ -184,7 +202,9 @@ object FileOperations {
                 val sizeIdx = cursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
                 val modIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
                 if (dataIdx < 0) return
+                var merged = 0
                 while (cursor.moveToNext()) {
+                    if (merged >= 800) break
                     val path = cursor.getString(dataIdx)?.takeIf { it.isNotBlank() } ?: continue
                     if (into.containsKey(path)) continue
                     val file = File(path)
@@ -201,7 +221,7 @@ object FileOperations {
                     } else {
                         file.lastModified()
                     }
-                    into[path] = FileItem(
+                    val item = FileItem(
                         file = file,
                         name = file.name,
                         path = file.absolutePath,
@@ -209,8 +229,19 @@ object FileOperations {
                         sizeBytes = size,
                         lastModified = modified,
                     )
+                    into[path] = item
+                    alsoClassify?.invoke(item)
+                    merged++
                 }
             }
+        }
+    }
+
+    fun isUnderDownloads(dir: File): Boolean {
+        val path = runCatching { dir.canonicalPath }.getOrDefault(dir.absolutePath)
+        return downloadScanRoots().any { root ->
+            val rootPath = runCatching { root.canonicalPath }.getOrDefault(root.absolutePath)
+            path == rootPath || path.startsWith(rootPath + File.separator)
         }
     }
 
