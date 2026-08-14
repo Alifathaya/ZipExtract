@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Movie
@@ -800,8 +801,8 @@ private fun QuickActionsRow(
         ) {
             QuickActionChip(
                 modifier = Modifier.weight(1f),
-                icon = Icons.Default.FolderOpen,
-                label = stringResource(R.string.all_files),
+                icon = Icons.Default.PhoneAndroid,
+                label = stringResource(R.string.explorer_title),
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onClick = onBrowseAll,
             )

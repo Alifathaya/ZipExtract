@@ -19,6 +19,13 @@
     <string name="cloud">Cloud</string>
     <string name="favorites">Favorit</string>
     <string name="all_files">Semua</string>
+    <string name="explorer_title">Explorer</string>
+    <string name="explorer_my_phone">My Phone</string>
+    <string name="explorer_pick_storage">Pilih penyimpanan</string>
+    <string name="explorer_hint">Buka seperti file manager — masuk sampai subfolder terdalam.</string>
+    <string name="explorer_no_storage">Tidak ada penyimpanan yang bisa dibuka.</string>
+    <string name="explorer_folder_empty">Folder ini kosong</string>
+    <string name="explorer_browse_hint">Ketuk folder untuk masuk lebih dalam</string>
     <string name="zips">ZIP</string>
     <string name="view_all">Lihat semua</string>
     <string name="album_all">Semua</string>

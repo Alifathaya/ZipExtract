@@ -127,6 +127,9 @@ import com.zipextract.app.data.ThemeMode
 import com.zipextract.app.data.VideoThumbnailLoader
 import com.zipextract.app.data.cloud.SafCloudAccess
 import com.zipextract.app.ui.viewer.ExtractZipDialog
+import com.zipextract.app.ui.viewer.ExplorerBreadcrumbBar
+import com.zipextract.app.ui.viewer.ExplorerRootsScreen
+import com.zipextract.app.ui.viewer.buildExplorerBreadcrumbs
 import com.zipextract.app.ui.viewer.ImageViewerScreen
 import com.zipextract.app.ui.viewer.PdfViewerScreen
 import com.zipextract.app.ui.viewer.VideoPlayerScreen
@@ -217,6 +220,8 @@ fun FileBrowserScreen(
     onOpenCategory: (com.zipextract.app.data.FileCategory) -> Unit,
     onBrowseAll: () -> Unit,
     onOpenStorageVolume: (com.zipextract.app.data.DeviceStorageVolume) -> Unit,
+    onOpenExplorerVolume: (com.zipextract.app.data.DeviceStorageVolume) -> Unit,
+    onNavigateTo: (java.io.File) -> Unit,
     onGoHome: () -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onClearSearch: () -> Unit,
@@ -339,6 +344,7 @@ fun FileBrowserScreen(
             state.viewer != null ||
             state.fileDetails != null ||
             state.selectionMode ||
+            state.showExplorerRoots ||
             !state.showHome,
     ) {
         when {
@@ -347,6 +353,7 @@ fun FileBrowserScreen(
             state.fileDetails != null -> onCloseFileDetails()
             state.selectionMode -> onClearSelection()
             state.showDuplicates -> onCloseDuplicates()
+            state.showExplorerRoots -> onGoHome()
             !state.showHome -> onGoUp()
         }
     }
@@ -427,6 +434,18 @@ fun FileBrowserScreen(
         return
     }
 
+    if (state.showExplorerRoots) {
+        ExplorerRootsScreen(
+            volumes = state.storageVolumes,
+            onBack = onGoHome,
+            onRefresh = {
+                onRefresh()
+            },
+            onOpenVolume = onOpenExplorerVolume,
+        )
+        return
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         topBar = {
@@ -443,7 +462,20 @@ fun FileBrowserScreen(
                                     stringResource(state.activeCategory.titleRes)
                                 state.activeCategory != null ->
                                     stringResource(state.activeCategory.titleRes)
-                                else -> stringResource(R.string.all_files)
+                                state.explorerMode -> {
+                                    if (state.categoryRoot != null &&
+                                        state.currentDir.absolutePath == state.categoryRoot.absolutePath
+                                    ) {
+                                        state.explorerRootLabel.ifBlank {
+                                            stringResource(R.string.explorer_title)
+                                        }
+                                    } else {
+                                        state.currentDir.name.ifBlank {
+                                            stringResource(R.string.explorer_title)
+                                        }
+                                    }
+                                }
+                                else -> stringResource(R.string.explorer_title)
                             },
                             style = MaterialTheme.typography.titleLarge,
                             maxLines = 1,
@@ -468,6 +500,7 @@ fun FileBrowserScreen(
                                         stringResource(state.activeCategory.nounRes),
                                     )
                                 state.libraryMode -> stringResource(R.string.library_all_files_in_device)
+                                state.explorerMode -> stringResource(R.string.explorer_browse_hint)
                                 else -> state.currentDir.absolutePath
                             },
                             style = MaterialTheme.typography.bodyMedium,
@@ -652,9 +685,30 @@ fun FileBrowserScreen(
                 )
                 .padding(padding),
         ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                if (state.explorerMode && state.categoryRoot != null) {
+                    val fallbackRootLabel = stringResource(R.string.explorer_my_phone)
+                    val crumbs = remember(
+                        state.categoryRoot,
+                        state.currentDir,
+                        state.explorerRootLabel,
+                        fallbackRootLabel,
+                    ) {
+                        buildExplorerBreadcrumbs(
+                            root = state.categoryRoot,
+                            rootLabel = state.explorerRootLabel.ifBlank { fallbackRootLabel },
+                            current = state.currentDir,
+                        )
+                    }
+                    ExplorerBreadcrumbBar(
+                        segments = crumbs,
+                        onNavigate = onNavigateTo,
+                    )
+                }
             val showSelectionRail = state.selectionMode && selectedCount > 0
             Box(
                 modifier = Modifier
+                    .weight(1f)
                     .fillMaxSize()
                     .padding(start = if (showSelectionRail) 76.dp else 0.dp),
             ) {
@@ -685,6 +739,7 @@ fun FileBrowserScreen(
                     message = when {
                         state.showFavoritesOnly -> stringResource(R.string.no_favorites)
                         state.showLargestFiles -> stringResource(R.string.largest_files_empty)
+                        state.explorerMode -> stringResource(R.string.explorer_folder_empty)
                         state.libraryMode && state.activeCategory != null ->
                             stringResource(
                                 R.string.library_empty_category,
@@ -795,7 +850,7 @@ fun FileBrowserScreen(
                                     selected = item.path in state.selectedPaths,
                                     selectionMode = state.selectionMode,
                                     isFavorite = item.path in state.favoritePaths,
-                                    showFolder = state.showFavoritesOnly,
+                                    showFolder = state.showFavoritesOnly || state.explorerMode,
                                     onClick = {
                                         when {
                                             item.isArchive -> onOpenExtract(item)
@@ -817,6 +872,7 @@ fun FileBrowserScreen(
                 ProgressOverlay(progress = progress, onCancel = onCancelProgress)
             }
             } // content (shifted when selection rail is open)
+            } // explorer column (breadcrumb + content)
 
             AnimatedVisibility(
                 visible = showSelectionRail,

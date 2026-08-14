@@ -123,6 +123,8 @@ class MainActivity : AppCompatActivity() {
                         onOpenCategory = viewModel::openCategory,
                         onBrowseAll = viewModel::browseAllFiles,
                         onOpenStorageVolume = viewModel::openStorageVolume,
+                        onOpenExplorerVolume = viewModel::openExplorerVolume,
+                        onNavigateTo = viewModel::navigateTo,
                         onGoHome = viewModel::goHome,
                         onSearchQueryChange = viewModel::updateSearchQuery,
                         onClearSearch = viewModel::clearSearch,

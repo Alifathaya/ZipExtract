@@ -19,6 +19,13 @@
     <string name="cloud">雲端</string>
     <string name="favorites">我的最愛</string>
     <string name="all_files">全部</string>
+    <string name="explorer_title">Explorer</string>
+    <string name="explorer_my_phone">My Phone</string>
+    <string name="explorer_pick_storage">Choose storage</string>
+    <string name="explorer_hint">Browse like a file manager — open folders as deep as you need.</string>
+    <string name="explorer_no_storage">No browsable storage found.</string>
+    <string name="explorer_folder_empty">This folder is empty</string>
+    <string name="explorer_browse_hint">Tap a folder to go deeper</string>
     <string name="zips">ZIP</string>
     <string name="view_all">查看全部</string>
     <string name="recent_photos">最近照片</string>

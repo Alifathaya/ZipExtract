@@ -33,6 +33,7 @@ import com.zipextract.app.data.OperationResult
 import com.zipextract.app.data.ProgressState
 import com.zipextract.app.data.SharedFileResolver
 import com.zipextract.app.data.StorageInfo
+import com.zipextract.app.data.StorageKind
 import com.zipextract.app.data.ThemeMode
 import com.zipextract.app.data.ArchiveManager
 import com.zipextract.app.data.ZipManager
@@ -111,6 +112,9 @@ data class ExtractResultState(
 
 data class BrowserUiState(
     val showHome: Boolean = true,
+    val showExplorerRoots: Boolean = false,
+    val explorerMode: Boolean = false,
+    val explorerRootLabel: String = "",
     val activeCategory: FileCategory? = null,
     val categoryRoot: File? = null,
     val storageInfo: StorageInfo? = null,
@@ -730,34 +734,63 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun browseAllFiles() {
+        openExplorer()
+    }
+
+    /** Open the Explorer storage picker (Internal / SD / USB). */
+    fun openExplorer() {
+        refreshStorageVolumes()
         _uiState.update {
             it.copy(
                 showHome = false,
+                showExplorerRoots = true,
+                explorerMode = false,
+                explorerRootLabel = "",
+                showCloud = false,
+                showFavoritesOnly = false,
+                showLargestFiles = false,
+                showDuplicates = false,
+                libraryMode = false,
                 activeCategory = null,
                 categoryRoot = null,
-                currentDir = root,
-                fileFilter = FileFilter.ALL,
-                libraryMode = false,
                 selectionMode = false,
                 selectedPaths = emptySet(),
                 searchQuery = "",
                 searchResults = emptyList(),
+                mediaAlbums = emptyList(),
+                mediaAlbumId = MediaAlbum.ALL,
+                items = emptyList(),
+                canGoUp = true,
+                progress = null,
             )
         }
-        refresh()
     }
 
-    /** Open a detected volume root (internal / microSD / USB). */
-    fun openStorageVolume(volume: DeviceStorageVolume) {
+    fun closeExplorerRoots() {
+        goHome()
+    }
+
+    /** Open a volume inside Explorer with breadcrumb navigation. */
+    fun openExplorerVolume(volume: DeviceStorageVolume) {
         val dir = volume.root
         if (dir == null || !dir.exists() || !dir.isDirectory) {
             emit(str(R.string.storage_unavailable))
             refreshStorageVolumes()
             return
         }
+        val label = when {
+            volume.isPrimary -> str(R.string.explorer_my_phone)
+            volume.label.isNotBlank() -> volume.label
+            volume.kind == StorageKind.SD_CARD -> str(R.string.storage_sd_card)
+            volume.kind == StorageKind.USB -> str(R.string.storage_usb)
+            else -> str(R.string.storage_external)
+        }
         _uiState.update {
             it.copy(
                 showHome = false,
+                showExplorerRoots = false,
+                explorerMode = true,
+                explorerRootLabel = label,
                 showCloud = false,
                 showFavoritesOnly = false,
                 showLargestFiles = false,
@@ -773,9 +806,16 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 searchResults = emptyList(),
                 mediaAlbums = emptyList(),
                 mediaAlbumId = MediaAlbum.ALL,
+                sortNewestFirst = false,
             )
         }
         refresh()
+    }
+
+    /** Open a detected volume root (internal / microSD / USB). */
+    fun openStorageVolume(volume: DeviceStorageVolume) {
+        // Storage cards on home also enter the full Explorer flow.
+        openExplorerVolume(volume)
     }
 
     /** Re-detect volumes (e.g. after inserting SD / plugging USB Type-C). */
@@ -852,6 +892,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update {
             it.copy(
                 showHome = true,
+                showExplorerRoots = false,
+                explorerMode = false,
+                explorerRootLabel = "",
                 showCloud = false,
                 cloudExportFile = null,
                 activeCategory = null,
@@ -892,6 +935,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             loadHomeData(forceRefresh = true)
             return
         }
+        if (_uiState.value.showExplorerRoots) {
+            refreshStorageVolumes()
+            return
+        }
         if (_uiState.value.libraryMode) {
             val category = _uiState.value.activeCategory ?: return
             invalidateMediaLibraryCache()
@@ -929,6 +976,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update {
             it.copy(
                 showHome = false,
+                showExplorerRoots = false,
                 currentDir = item.file,
                 selectionMode = false,
                 selectedPaths = emptySet(),
@@ -1190,6 +1238,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update {
             it.copy(
                 showHome = true,
+                showExplorerRoots = false,
+                explorerMode = false,
+                explorerRootLabel = "",
                 showCloud = false,
                 cloudExportFile = null,
                 activeCategory = null,
@@ -1615,13 +1666,21 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
 
         if (atCategoryRoot || atStorageRoot || atVolumeRoot) {
-            goHome()
+            if (state.explorerMode) {
+                openExplorer()
+            } else {
+                goHome()
+            }
             return
         }
 
         val parent = dir.parentFile
         if (parent == null || !parent.exists()) {
-            goHome()
+            if (state.explorerMode) {
+                openExplorer()
+            } else {
+                goHome()
+            }
             return
         }
 
@@ -1640,6 +1699,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update {
             it.copy(
                 showHome = false,
+                showExplorerRoots = false,
                 currentDir = path,
                 selectionMode = false,
                 selectedPaths = emptySet(),
