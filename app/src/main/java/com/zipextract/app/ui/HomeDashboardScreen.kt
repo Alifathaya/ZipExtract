@@ -39,7 +39,9 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SdCard
 import androidx.compose.material.icons.filled.Star
@@ -53,7 +55,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -61,7 +67,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -96,7 +105,9 @@ fun HomeDashboardScreen(
     searchResults: List<FileItem>,
     searchLoading: Boolean,
     isLoading: Boolean,
+    isRefreshing: Boolean = false,
     onRefresh: () -> Unit,
+    onFullRescan: () -> Unit = {},
     onSearchQueryChange: (String) -> Unit,
     onClearSearch: () -> Unit,
     onOpenCategory: (FileCategory) -> Unit,
@@ -142,11 +153,42 @@ fun HomeDashboardScreen(
                             contentDescription = stringResource(R.string.refresh),
                         )
                     }
+                    var menuExpanded by remember { mutableStateOf(false) }
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = stringResource(R.string.menu),
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.full_rescan)) },
+                            onClick = {
+                                menuExpanded = false
+                                onFullRescan()
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.TravelExplore, contentDescription = null)
+                            },
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
             )
         },
     ) { padding ->
+        val pullState = rememberPullToRefreshState()
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
+            state = pullState,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+        ) {
         val pageModifier = Modifier
             .fillMaxSize()
             .background(
@@ -158,7 +200,6 @@ fun HomeDashboardScreen(
                     ),
                 ),
             )
-            .padding(padding)
             .padding(horizontal = 16.dp)
 
         if (isSearching) {
@@ -279,6 +320,7 @@ fun HomeDashboardScreen(
                     }
                 }
             }
+        }
         }
     }
 }

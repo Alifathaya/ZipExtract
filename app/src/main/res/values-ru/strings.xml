@@ -11,6 +11,8 @@
     <string name="cancel">Отмена</string>
     <string name="save">Сохранить</string>
     <string name="refresh">Обновить</string>
+    <string name="full_rescan">Full rescan</string>
+    <string name="soft_refresh_done">Updated (new files)</string>
     <string name="menu">Меню</string>
     <string name="back">Назад</string>
     <string name="search">Поиск</string>

@@ -74,6 +74,7 @@ import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Sort
@@ -85,6 +86,8 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
@@ -205,6 +208,7 @@ fun FileBrowserScreen(
     onOpenItem: (FileItem) -> Unit,
     onGoUp: () -> Unit,
     onRefresh: () -> Unit,
+    onFullRescan: () -> Unit,
     onToggleSelect: (FileItem) -> Unit,
     onToggleSelectionMode: () -> Unit,
     onSelectAll: () -> Unit,
@@ -407,7 +411,9 @@ fun FileBrowserScreen(
             searchResults = state.searchResults,
             searchLoading = state.searchLoading,
             isLoading = state.homeLoading,
+            isRefreshing = state.isSoftRefreshing,
             onRefresh = onRefresh,
+            onFullRescan = onFullRescan,
             onSearchQueryChange = onSearchQueryChange,
             onClearSearch = onClearSearch,
             onOpenCategory = onOpenCategory,
@@ -598,6 +604,14 @@ fun FileBrowserScreen(
                             leadingIcon = { Icon(Icons.Default.Sort, contentDescription = null) },
                         )
                         DropdownMenuItem(
+                            text = { Text(stringResource(R.string.full_rescan)) },
+                            onClick = {
+                                menuExpanded = false
+                                onFullRescan()
+                            },
+                            leadingIcon = { Icon(Icons.Default.TravelExplore, contentDescription = null) },
+                        )
+                        DropdownMenuItem(
                             text = { Text(stringResource(R.string.create_folder)) },
                             onClick = {
                                 menuExpanded = false
@@ -671,6 +685,15 @@ fun FileBrowserScreen(
             }
         },
     ) { padding ->
+        val pullState = rememberPullToRefreshState()
+        PullToRefreshBox(
+            isRefreshing = state.isSoftRefreshing,
+            onRefresh = onRefresh,
+            state = pullState,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+        ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -682,8 +705,7 @@ fun FileBrowserScreen(
                             MaterialTheme.colorScheme.background,
                         )
                     )
-                )
-                .padding(padding),
+                ),
         ) {
             val showSelectionRail = state.selectionMode && selectedCount > 0
             Column(modifier = Modifier.fillMaxSize()) {
@@ -914,6 +936,7 @@ fun FileBrowserScreen(
                     onDetails = onShowSelectedDetails,
                 )
             }
+        }
         }
     }
     }

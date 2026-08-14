@@ -11,6 +11,8 @@
     <string name="cancel">취소</string>
     <string name="save">저장</string>
     <string name="refresh">새로고침</string>
+    <string name="full_rescan">Full rescan</string>
+    <string name="soft_refresh_done">Updated (new files)</string>
     <string name="menu">메뉴</string>
     <string name="back">뒤로</string>
     <string name="search">검색</string>

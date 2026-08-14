@@ -125,6 +125,7 @@ data class BrowserUiState(
     val searchResults: List<FileItem> = emptyList(),
     val searchLoading: Boolean = false,
     val homeLoading: Boolean = false,
+    val isSoftRefreshing: Boolean = false,
     val fileFilter: FileFilter = FileFilter.ALL,
     val currentDir: File = FileOperations.defaultRoot(),
     val items: List<FileItem> = emptyList(),
@@ -191,6 +192,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     private var searchJob: Job? = null
     private var libraryJob: Job? = null
     private var homeJob: Job? = null
+    private var softRefreshJob: Job? = null
     private var cloudImportJob: Job? = null
     private var activeJob: Job? = null
     private var mediaWatcher: MediaChangeWatcher? = null
@@ -318,7 +320,127 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
     /** Query only rows newer than the last cache/update timestamp. */
     private fun catchUpMediaStoreChanges() {
-        applyMediaStoreChange(MediaStoreChange(source = "files", uri = null))
+        viewModelScope.launch(Dispatchers.IO) {
+            catchUpMediaStoreChangesSync()
+        }
+    }
+
+    /** Soft refresh: only upsert MediaStore rows newer than the last update. */
+    private suspend fun catchUpMediaStoreChangesSync() {
+        applyMediaStoreChangeSync(MediaStoreChange(source = "files", uri = null))
+    }
+
+    /**
+     * Fast refresh used by the Refresh button and pull-to-refresh.
+     * Does not walk the whole storage tree.
+     */
+    fun softRefresh() {
+        softRefreshJob?.cancel()
+        softRefreshJob = viewModelScope.launch {
+            _uiState.update { it.copy(isSoftRefreshing = true) }
+            try {
+                val volumes = withContext(Dispatchers.IO) {
+                    FileOperations.listDeviceStorages(appContext)
+                }
+                val storage = volumes.firstOrNull { it.isPrimary }?.let {
+                    StorageInfo(totalBytes = it.totalBytes, freeBytes = it.freeBytes)
+                } ?: withContext(Dispatchers.IO) { FileOperations.getStorageInfo() }
+                prefs.saveStorageInfo(storage)
+                _uiState.update {
+                    it.copy(storageVolumes = volumes, storageInfo = storage)
+                }
+
+                val state = _uiState.value
+                when {
+                    state.showExplorerRoots -> Unit
+                    state.showHome || state.libraryMode || state.showLargestFiles ||
+                        state.showFavoritesOnly -> {
+                        if (mediaLibraryCache == null) {
+                            mediaLibraryCache = withContext(Dispatchers.IO) {
+                                MediaLibraryCache.load(appContext)
+                            }
+                        }
+                        if (mediaLibraryCache == null) {
+                            // No baseline yet — one full build, then future refreshes stay soft.
+                            loadHomeData(forceRefresh = true)
+                            // loadHomeData is async; wait briefly for indicator
+                            delay(300)
+                        } else {
+                            catchUpMediaStoreChangesSync()
+                        }
+                    }
+                    !state.showHome && !state.libraryMode -> {
+                        // Explorer / folder list: re-list current folder + soft media catch-up.
+                        catchUpMediaStoreChangesSync()
+                        withContext(Dispatchers.IO) {
+                            refreshCurrentFolderListing()
+                        }
+                    }
+                }
+            } finally {
+                _uiState.update { it.copy(isSoftRefreshing = false) }
+            }
+        }
+    }
+
+    /** Full storage walk — slower; available from the menu. */
+    fun fullRescan() {
+        softRefreshJob?.cancel()
+        _uiState.update { it.copy(isSoftRefreshing = false) }
+        when {
+            _uiState.value.showLargestFiles -> {
+                invalidateMediaLibraryCache()
+                openLargestFiles()
+            }
+            _uiState.value.showHome || _uiState.value.showExplorerRoots -> {
+                invalidateMediaLibraryCache()
+                loadHomeData(forceRefresh = true)
+            }
+            _uiState.value.libraryMode -> {
+                val category = _uiState.value.activeCategory ?: return
+                invalidateMediaLibraryCache()
+                openCategoryLibrary(category, forceRefresh = true)
+            }
+            else -> {
+                // Folder browser: re-list folder; also rebuild library cache in background.
+                refreshCurrentFolderListing()
+                viewModelScope.launch(Dispatchers.IO) {
+                    obtainMediaLibrary(forceRefresh = true)
+                }
+            }
+        }
+    }
+
+    private fun refreshCurrentFolderListing() {
+        val state = _uiState.value
+        if (state.showHome || state.libraryMode || state.showExplorerRoots ||
+            state.showFavoritesOnly || state.showLargestFiles || state.showDuplicates
+        ) {
+            return
+        }
+        val dir = state.currentDir
+        val filter = state.fileFilter
+        val items = FileOperations.listFiles(dir)
+            .filter { it.matchesFilter(filter) }
+            .let { list ->
+                if (state.sortNewestFirst) {
+                    list.sortedWith(
+                        compareByDescending<FileItem> { it.isDirectory }
+                            .thenByDescending { it.lastModified },
+                    )
+                } else {
+                    list
+                }
+            }
+        _uiState.update {
+            it.copy(
+                items = items,
+                canGoUp = true,
+                selectedPaths = it.selectedPaths.filter { path ->
+                    items.any { item -> item.path == path }
+                }.toSet(),
+            )
+        }
     }
 
     /**
@@ -327,6 +449,12 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
      */
     private fun applyMediaStoreChange(change: MediaStoreChange) {
         viewModelScope.launch(Dispatchers.IO) {
+            applyMediaStoreChangeSync(change)
+        }
+    }
+
+    private suspend fun applyMediaStoreChangeSync(change: MediaStoreChange) {
+        withContext(Dispatchers.IO) {
             incrementalUpdateMutex.withLock {
                 val base = mediaLibraryCache ?: MediaLibraryCache.load(appContext)
                 if (base == null) {
@@ -895,6 +1023,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 showExplorerRoots = false,
                 explorerMode = false,
                 explorerRootLabel = "",
+                isSoftRefreshing = false,
                 showCloud = false,
                 cloudExportFile = null,
                 activeCategory = null,
@@ -925,50 +1054,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun refresh() {
-        if (_uiState.value.showLargestFiles) {
-            invalidateMediaLibraryCache()
-            openLargestFiles()
-            return
-        }
-        if (_uiState.value.showHome) {
-            invalidateMediaLibraryCache()
-            loadHomeData(forceRefresh = true)
-            return
-        }
-        if (_uiState.value.showExplorerRoots) {
-            refreshStorageVolumes()
-            return
-        }
-        if (_uiState.value.libraryMode) {
-            val category = _uiState.value.activeCategory ?: return
-            invalidateMediaLibraryCache()
-            openCategoryLibrary(category, forceRefresh = true)
-            return
-        }
-        val dir = _uiState.value.currentDir
-        val filter = _uiState.value.fileFilter
-        val items = FileOperations.listFiles(dir)
-            .filter { it.matchesFilter(filter) }
-            .let { list ->
-            if (_uiState.value.sortNewestFirst) {
-                list.sortedWith(
-                    compareByDescending<FileItem> { it.isDirectory }
-                        .thenByDescending { it.lastModified }
-                )
-            } else {
-                list
-            }
-        }
-        val canGoUp = !_uiState.value.showHome
-        _uiState.update {
-            it.copy(
-                items = items,
-                canGoUp = canGoUp,
-                selectedPaths = it.selectedPaths.filter { path ->
-                    items.any { item -> item.path == path }
-                }.toSet(),
-            )
-        }
+        softRefresh()
     }
 
     fun openDirectory(item: FileItem) {

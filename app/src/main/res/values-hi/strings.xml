@@ -11,6 +11,8 @@
     <string name="cancel">रद्द करें</string>
     <string name="save">सहेजें</string>
     <string name="refresh">रीफ़्रेश</string>
+    <string name="full_rescan">Full rescan</string>
+    <string name="soft_refresh_done">Updated (new files)</string>
     <string name="menu">मेनू</string>
     <string name="back">वापस</string>
     <string name="search">खोजें</string>

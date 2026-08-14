@@ -11,6 +11,8 @@
     <string name="cancel">Batal</string>
     <string name="save">Simpan</string>
     <string name="refresh">Muat ulang</string>
+    <string name="full_rescan">Scan ulang semua</string>
+    <string name="soft_refresh_done">Diperbarui (file baru)</string>
     <string name="menu">Menu</string>
     <string name="back">Kembali</string>
     <string name="search">Cari</string>

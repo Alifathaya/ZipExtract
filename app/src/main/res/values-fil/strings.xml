@@ -11,6 +11,8 @@
     <string name="cancel">Kanselahin</string>
     <string name="save">I-save</string>
     <string name="refresh">I-refresh</string>
+    <string name="full_rescan">Full rescan</string>
+    <string name="soft_refresh_done">Updated (new files)</string>
     <string name="menu">Menu</string>
     <string name="back">Bumalik</string>
     <string name="search">Maghanap</string>

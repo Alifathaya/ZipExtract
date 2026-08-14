@@ -11,6 +11,8 @@
     <string name="cancel">Hủy</string>
     <string name="save">Lưu</string>
     <string name="refresh">Làm mới</string>
+    <string name="full_rescan">Full rescan</string>
+    <string name="soft_refresh_done">Updated (new files)</string>
     <string name="menu">Menu</string>
     <string name="back">Quay lại</string>
     <string name="search">Tìm kiếm</string>

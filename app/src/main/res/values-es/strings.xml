@@ -11,6 +11,8 @@
     <string name="cancel">Cancelar</string>
     <string name="save">Guardar</string>
     <string name="refresh">Actualizar</string>
+    <string name="full_rescan">Full rescan</string>
+    <string name="soft_refresh_done">Updated (new files)</string>
     <string name="menu">Menú</string>
     <string name="back">Atrás</string>
     <string name="search">Buscar</string>

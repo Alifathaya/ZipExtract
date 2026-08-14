@@ -11,6 +11,8 @@
     <string name="cancel">إلغاء</string>
     <string name="save">حفظ</string>
     <string name="refresh">تحديث</string>
+    <string name="full_rescan">Full rescan</string>
+    <string name="soft_refresh_done">Updated (new files)</string>
     <string name="menu">القائمة</string>
     <string name="back">رجوع</string>
     <string name="search">بحث</string>

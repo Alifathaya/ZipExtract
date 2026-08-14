@@ -11,6 +11,8 @@
     <string name="cancel">キャンセル</string>
     <string name="save">保存</string>
     <string name="refresh">更新</string>
+    <string name="full_rescan">Full rescan</string>
+    <string name="soft_refresh_done">Updated (new files)</string>
     <string name="menu">メニュー</string>
     <string name="back">戻る</string>
     <string name="search">検索</string>
