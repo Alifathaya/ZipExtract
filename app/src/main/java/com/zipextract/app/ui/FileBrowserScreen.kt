@@ -833,7 +833,7 @@ fun FileBrowserScreen(
                 }
                 else -> {
                     Column(modifier = Modifier.fillMaxSize()) {
-                        if (!state.selectionMode && !state.showFavoritesOnly) {
+                        if (!state.selectionMode && !state.showFavoritesOnly && !state.explorerMode) {
                             FileFilterChips(
                                 selected = state.fileFilter,
                                 onSelect = onSetFileFilter,
