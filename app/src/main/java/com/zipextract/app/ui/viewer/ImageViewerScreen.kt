@@ -11,11 +11,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material.icons.filled.ZoomOutMap
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -23,6 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -47,11 +50,13 @@ import java.io.File
 fun ImageViewerScreen(
     file: File,
     onClose: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     BackHandler(onBack = onClose)
     val context = LocalContext.current
     val zoomState = rememberZoomState()
     var editing by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
     val imageRequest = remember(file.absolutePath, file.length(), file.lastModified()) {
         ImageRequest.Builder(context)
             .data(file)
@@ -68,6 +73,29 @@ fun ImageViewerScreen(
             onClose = { editing = false },
         )
         return
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(stringResource(R.string.dialog_delete_title)) },
+            text = { Text(stringResource(R.string.dialog_delete_file_body, file.name)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDelete = false
+                        onDelete()
+                    },
+                ) {
+                    Text(stringResource(R.string.delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
     }
 
     Scaffold(
@@ -104,6 +132,13 @@ fun ImageViewerScreen(
                         },
                     ) {
                         Icon(Icons.Default.Share, contentDescription = stringResource(R.string.share))
+                    }
+                    IconButton(onClick = { confirmDelete = true }) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = stringResource(R.string.delete),
+                            tint = MaterialTheme.colorScheme.error,
+                        )
                     }
                     IconButton(onClick = { zoomState.zoomOut() }) {
                         Icon(Icons.Default.ZoomOut, contentDescription = stringResource(R.string.zoom_out))

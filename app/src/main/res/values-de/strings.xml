@@ -248,6 +248,7 @@
     <string name="error_generic">error</string>
     <string name="dialog_delete_title">Delete items?</string>
     <string name="dialog_delete_body">%1$d items will be permanently deleted.</string>
+    <string name="dialog_delete_file_body">Permanently delete "%1$s"?</string>
     <string name="dialog_folder_title">New folder</string>
     <string name="dialog_folder_hint">Folder name</string>
     <string name="dialog_folder_confirm">Create</string>

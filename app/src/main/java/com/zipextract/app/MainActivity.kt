@@ -135,6 +135,11 @@ class MainActivity : AppCompatActivity() {
                                 finish()
                             }
                         },
+                        onDeleteViewerFile = {
+                            if (viewModel.deleteViewerFile()) {
+                                finish()
+                            }
+                        },
                         onCloseExtract = viewModel::closeExtractDialog,
                         onDeleteOriginalZipChange = viewModel::setDeleteOriginalZip,
                         onExtractPasswordChange = viewModel::setExtractPassword,

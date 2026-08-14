@@ -32,11 +32,13 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material.icons.filled.ZoomOutMap
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -44,6 +46,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -90,6 +93,7 @@ fun PdfViewerScreen(
     file: File,
     sourceUri: Uri? = null,
     onClose: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     BackHandler(onBack = onClose)
     val context = LocalContext.current
@@ -115,6 +119,7 @@ fun PdfViewerScreen(
     val listState = rememberLazyListState()
     val openKey = sourceUri?.toString() ?: file.absolutePath
 
+    var confirmDelete by remember { mutableStateOf(false) }
     var editBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var editTitle by remember { mutableStateOf("") }
     var preparingEdit by remember { mutableStateOf(false) }
@@ -192,6 +197,29 @@ fun PdfViewerScreen(
         }
     }
 
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(stringResource(R.string.dialog_delete_title)) },
+            text = { Text(stringResource(R.string.dialog_delete_file_body, file.name)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDelete = false
+                        onDelete()
+                    },
+                ) {
+                    Text(stringResource(R.string.delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -235,6 +263,13 @@ fun PdfViewerScreen(
                         },
                     ) {
                         Icon(Icons.Default.Share, contentDescription = stringResource(R.string.share))
+                    }
+                    IconButton(onClick = { confirmDelete = true }) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = stringResource(R.string.delete),
+                            tint = MaterialTheme.colorScheme.error,
+                        )
                     }
                     IconButton(onClick = { zoomState.zoomOut() }) {
                         Icon(Icons.Default.ZoomOut, contentDescription = stringResource(R.string.zoom_out))

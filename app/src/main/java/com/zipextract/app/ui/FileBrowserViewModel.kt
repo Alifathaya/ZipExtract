@@ -1125,6 +1125,64 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         return false
     }
 
+    /**
+     * Delete the file currently open in the image/PDF viewer, then leave the viewer.
+     * Returns true when the Activity should finish (opened via external VIEW/SEND intent).
+     */
+    fun deleteViewerFile(): Boolean {
+        val state = _uiState.value
+        val viewer = state.viewer ?: return false
+        val file = viewer.file
+        val path = runCatching { file.canonicalPath }.getOrDefault(file.absolutePath)
+        val shouldFinish = state.launchedFromExternalIntent
+        val returnTarget = state.viewerReturnTarget
+
+        _uiState.update {
+            it.copy(
+                viewer = null,
+                viewerReturnTarget = ViewerReturnTarget.STAY,
+                launchedFromExternalIntent = false,
+            )
+        }
+        applyLocalRemovals(setOf(path))
+        if (path in prefs.getFavoritePaths()) {
+            prefs.toggleFavorite(path)
+            _uiState.update { it.copy(favoritePaths = prefs.getFavoritePaths()) }
+        }
+
+        activeJob?.cancel()
+        activeJob = viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    FileOperations.deleteRecursively(localizedContext(), listOf(file))
+                }
+                when (result) {
+                    is OperationResult.Success -> emit(result.message)
+                    is OperationResult.Error -> emit(result.message)
+                }
+                mediaLibraryCache?.let(::scheduleIncrementalCacheSave)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                emit(str(R.string.cancelled))
+                throw e
+            } finally {
+                _uiState.update { it.copy(progress = null) }
+                if (activeJob === this) activeJob = null
+            }
+        }
+
+        if (shouldFinish) {
+            goHome()
+            return true
+        }
+        when (returnTarget) {
+            ViewerReturnTarget.HOME,
+            ViewerReturnTarget.CLOUD,
+            -> restoreHomeAfterViewer()
+            ViewerReturnTarget.STAY -> Unit
+        }
+        return false
+    }
+
     /** Return to home dashboard without wiping cached home content / search. */
     private fun restoreHomeAfterViewer() {
         searchJob?.cancel()

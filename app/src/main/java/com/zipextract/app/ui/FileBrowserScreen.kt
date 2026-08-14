@@ -225,6 +225,7 @@ fun FileBrowserScreen(
     onToggleSort: () -> Unit,
     onRequestPermission: () -> Unit,
     onCloseViewer: () -> Unit,
+    onDeleteViewerFile: () -> Unit,
     onCloseExtract: () -> Unit,
     onDeleteOriginalZipChange: (Boolean) -> Unit,
     onExtractPasswordChange: (String) -> Unit,
@@ -368,8 +369,13 @@ fun FileBrowserScreen(
                 file = viewer.file,
                 sourceUri = viewer.sourceUri,
                 onClose = onCloseViewer,
+                onDelete = onDeleteViewerFile,
             )
-            is ViewerContent.Image -> ImageViewerScreen(file = viewer.file, onClose = onCloseViewer)
+            is ViewerContent.Image -> ImageViewerScreen(
+                file = viewer.file,
+                onClose = onCloseViewer,
+                onDelete = onDeleteViewerFile,
+            )
             is ViewerContent.Video -> VideoPlayerScreen(
                 file = viewer.file,
                 sourceUri = viewer.sourceUri,

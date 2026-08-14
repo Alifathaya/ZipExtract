@@ -252,6 +252,7 @@
     <string name="error_generic">error</string>
     <string name="dialog_delete_title">Hapus item?</string>
     <string name="dialog_delete_body">%1$d item akan dihapus permanen.</string>
+    <string name="dialog_delete_file_body">Hapus "%1$s" secara permanen?</string>
     <string name="dialog_folder_title">Folder baru</string>
     <string name="dialog_folder_hint">Nama folder</string>
     <string name="dialog_folder_confirm">Buat</string>
