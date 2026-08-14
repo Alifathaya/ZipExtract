@@ -349,4 +349,5 @@
     <string name="time_last_week">สัปดาห์ที่แล้ว</string>
     <string name="time_last_month">เดือนที่แล้ว</string>
     <string name="time_older">เก่ากว่านี้</string>
+    <string name="extract_save_where">บันทึกไฟล์ที่แตกไว้ที่ไหน?</string>
 </resources>

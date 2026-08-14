@@ -349,4 +349,5 @@
     <string name="time_last_week">Nakaraang linggo</string>
     <string name="time_last_month">Nakaraang buwan</string>
     <string name="time_older">Mas luma</string>
+    <string name="extract_save_where">Saan ise-save ang na-extract na mga file?</string>
 </resources>

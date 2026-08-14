@@ -210,17 +210,38 @@ object ZipManager {
     }
 
     /**
+     * Prefer a unique folder next to the archive:
+     * `/path/to/photo.zip` → `/path/to/photo/`
+     */
+    fun sameFolderExtractDirectory(zipFile: File): File {
+        val parent = zipFile.parentFile?.takeIf { it.isDirectory }
+            ?: publicFileNestDir()
+        return uniqueChildDirectory(parent, zipFile.nameWithoutExtension)
+    }
+
+    /**
      * Prefer Download/FileNest/<zipName> so extracted files always appear on the Download page.
      */
     fun downloadExtractDirectory(zipFile: File): File {
-        val baseName = zipFile.nameWithoutExtension.trim().ifBlank { "extract" }
+        return uniqueChildDirectory(publicFileNestDir(), zipFile.nameWithoutExtension)
+    }
+
+    /** Public Downloads root / <zipName>/. */
+    fun downloadsRootExtractDirectory(zipFile: File): File {
+        val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        if (!downloads.exists()) downloads.mkdirs()
+        return uniqueChildDirectory(downloads, zipFile.nameWithoutExtension)
+    }
+
+    private fun uniqueChildDirectory(parent: File, rawName: String): File {
+        val baseName = rawName.trim().ifBlank { "extract" }
             .replace(Regex("""[\\/:*?"<>|]"""), "_")
             .take(80)
-        val nest = publicFileNestDir()
-        var candidate = File(nest, baseName)
+        parent.mkdirs()
+        var candidate = File(parent, baseName)
         var index = 2
         while (candidate.exists() && !candidate.isDirectory) {
-            candidate = File(nest, "$baseName ($index)")
+            candidate = File(parent, "$baseName ($index)")
             index++
         }
         // If the folder already has content from a previous extract, use a unique sibling.
@@ -228,7 +249,7 @@ object ZipManager {
             val hasContent = candidate.list()?.isNotEmpty() == true
             if (hasContent) {
                 while (true) {
-                    val unique = File(nest, "$baseName ($index)")
+                    val unique = File(parent, "$baseName ($index)")
                     if (!unique.exists()) {
                         candidate = unique
                         break
@@ -255,6 +276,7 @@ object ZipManager {
         val stamp = System.currentTimeMillis() % 100000
         val candidates = buildList {
             preferred?.let { add(it) }
+            add(sameFolderExtractDirectory(zipFile))
             add(downloadExtractDirectory(zipFile))
             add(File(publicFileNestDir(), baseName))
             add(File(publicFileNestDir(), "${baseName}_$stamp"))
@@ -271,10 +293,10 @@ object ZipManager {
         error(msg(R.string.zip_no_writable_folder))
     }
 
-    /** Default extract folder suggestion for the UI — always Download/FileNest. */
+    /** Default extract folder suggestion for the UI — same folder as the archive. */
     fun defaultExtractDirectory(context: Context, zipFile: File): File {
         return runCatching {
-            resolveWritableExtractDir(context, zipFile, downloadExtractDirectory(zipFile))
+            resolveWritableExtractDir(context, zipFile, sameFolderExtractDirectory(zipFile))
         }.getOrElse {
             val fallback = context.getExternalFilesDir("Extract") ?: File(context.filesDir, "Extract")
             File(fallback, zipFile.nameWithoutExtension.ifBlank { "extract" }).also {
@@ -285,23 +307,7 @@ object ZipManager {
 
     /** @deprecated Use [defaultExtractDirectory] with Context. */
     fun defaultExtractDirectory(zipFile: File): File {
-        val parent = zipFile.parentFile
-        val baseParent = when {
-            parent == null -> publicFileNestDir()
-            isAppPrivatePath(parent) -> publicFileNestDir()
-            !parent.exists() -> publicFileNestDir()
-            else -> parent
-        }
-        baseParent.mkdirs()
-        val base = zipFile.nameWithoutExtension.trim().ifBlank { "extract" }
-            .replace(Regex("""[\\/:*?"<>|]"""), "_")
-        var candidate = File(baseParent, base)
-        var index = 2
-        while (candidate.exists() && !candidate.isDirectory) {
-            candidate = File(baseParent, "$base ($index)")
-            index++
-        }
-        return candidate
+        return sameFolderExtractDirectory(zipFile)
     }
 
     fun publicFileNestDir(): File {

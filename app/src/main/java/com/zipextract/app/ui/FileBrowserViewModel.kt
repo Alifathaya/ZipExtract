@@ -78,11 +78,21 @@ enum class ViewerReturnTarget {
     CLOUD,
 }
 
+enum class ExtractDestination {
+    /** Folder next to the archive (default). */
+    SAME_FOLDER,
+    /** Download/FileNest/<name>/ */
+    FILENEST,
+    /** Public Downloads/<name>/ */
+    DOWNLOADS,
+}
+
 data class ExtractZipState(
     val zipFile: File,
     val entries: List<com.zipextract.app.data.ZipEntryItem> = emptyList(),
     val selectedPaths: Set<String> = emptySet(),
     val deleteOriginal: Boolean = false,
+    val destination: ExtractDestination = ExtractDestination.SAME_FOLDER,
     val destinationDir: File = zipFile.parentFile ?: zipFile,
     val isLoading: Boolean = false,
     val isEncrypted: Boolean = false,
@@ -1105,12 +1115,13 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             emit(str(R.string.format_unsupported_ext, file.extension))
             return
         }
-        // Always land in Download/FileNest/<zipName>/ so results show on Download page.
-        val destination = ZipManager.downloadExtractDirectory(file)
+        // Default: extract next to the archive. User can change it in the dialog.
+        val destination = ZipManager.sameFolderExtractDirectory(file)
         _uiState.update {
             it.copy(
                 extractDialog = ExtractZipState(
                     zipFile = file,
+                    destination = ExtractDestination.SAME_FOLDER,
                     destinationDir = destination,
                     deleteOriginal = false,
                     isLoading = false,
@@ -1180,18 +1191,39 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun setExtractDestinationChoice(choice: ExtractDestination) {
+        _uiState.update { state ->
+            val dialog = state.extractDialog ?: return@update state
+            val dir = preferredExtractDir(dialog.zipFile, choice)
+            state.copy(
+                extractDialog = dialog.copy(
+                    destination = choice,
+                    destinationDir = dir,
+                ),
+            )
+        }
+    }
+
+    private fun preferredExtractDir(zip: File, choice: ExtractDestination): File {
+        return when (choice) {
+            ExtractDestination.SAME_FOLDER -> ZipManager.sameFolderExtractDirectory(zip)
+            ExtractDestination.FILENEST -> ZipManager.downloadExtractDirectory(zip)
+            ExtractDestination.DOWNLOADS -> ZipManager.downloadsRootExtractDirectory(zip)
+        }
+    }
+
     fun confirmExtract() {
         val dialog = _uiState.value.extractDialog ?: return
         val zip = dialog.zipFile
         val deleteOriginal = dialog.deleteOriginal
         val password = dialog.password.takeIf { it.isNotBlank() }
-        // Close the small dialog immediately and return to the Download page.
+        val choice = dialog.destination
+        val preferred = preferredExtractDir(zip, choice)
+        // Close the small dialog immediately; results open in the chosen folder.
         closeExtractDialog()
-        openDownloadCategoryPage()
 
         runJob(str(R.string.progress_extract_zip), zip.name, refreshAfter = false) {
             try {
-                val preferred = ZipManager.downloadExtractDirectory(zip)
                 val destination = ZipManager.resolveWritableExtractDir(
                     context = localizedContext(),
                     zipFile = zip,
@@ -1209,15 +1241,18 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     runCatching { zip.delete() }
                 }
 
-                // Bump timestamps so extracted files sort to the top of Download.
                 val extractedItems = collectExtractedItems(destination, touchNewest = true)
                 scanExtractedFiles(destination)
-                invalidateMediaLibraryCache()
-                showDownloadListWithExtractedOnTop(extractedItems)
+                // Upsert extracted rows into the cache without a full storage scan.
+                val baseline = mediaLibraryCache
+                    ?: MediaLibraryCache.load(appContext)
+                    ?: MediaLibrary()
+                mediaLibraryCache = FileOperations.mergeIncremental(baseline, extractedItems)
+                showExtractedFolder(destination, extractedItems)
 
                 emit(
                     if (written > 0) {
-                        str(R.string.extract_success_top_toast, written)
+                        str(R.string.extract_success_toast, written)
                     } else {
                         str(R.string.extract_empty_toast)
                     },
@@ -1229,7 +1264,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     it.copy(
                         extractDialog = ExtractZipState(
                             zipFile = zip,
-                            destinationDir = ZipManager.downloadExtractDirectory(zip),
+                            destination = choice,
+                            destinationDir = preferred,
                             deleteOriginal = deleteOriginal,
                             isEncrypted = true,
                         ),
@@ -1250,8 +1286,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     fun openExtractResultFolder() {
         val dest = _uiState.value.extractResult?.destination ?: return
         _uiState.update { it.copy(extractResult = null) }
-        openDownloadCategoryPage()
-        refresh()
+        showExtractedFolder(dest, emptyList())
     }
 
     private fun scanExtractedFiles(root: File) {
@@ -1329,6 +1364,60 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             walk(root, 0)
         }
         return items.sortedByDescending { it.lastModified }
+    }
+
+    /**
+     * Open the extract destination folder and pin just-extracted files at the top.
+     */
+    private fun showExtractedFolder(destination: File, extracted: List<FileItem>) {
+        val folder = when {
+            destination.isDirectory -> destination
+            destination.parentFile != null -> destination.parentFile!!
+            else -> destination
+        }
+        if (!folder.exists()) folder.mkdirs()
+        val listing = FileOperations.listFiles(folder)
+        val extractedPaths = extracted.map { it.path }.toHashSet()
+        val pinned = extracted
+            .filter { it.file.exists() && it.file.isFile }
+            .sortedByDescending { it.lastModified }
+        val rest = listing.filter { it.path !in extractedPaths }
+        val items = pinned + rest
+
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                showCloud = false,
+                libraryMode = false,
+                showFavoritesOnly = false,
+                showLargestFiles = false,
+                showDuplicates = false,
+                activeCategory = null,
+                categoryRoot = null,
+                currentDir = folder,
+                fileFilter = FileFilter.ALL,
+                items = items,
+                progress = null,
+                canGoUp = true,
+                extractDialog = null,
+                extractResult = null,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+                mediaAlbums = emptyList(),
+                mediaAlbumId = MediaAlbum.ALL,
+                searchQuery = "",
+                searchResults = emptyList(),
+                searchLoading = false,
+            )
+        }
+        mediaLibraryCache?.let { library ->
+            persistHomeSnapshot(
+                library = library,
+                categories = FileOperations.getCategorySummaries(library),
+                recentFiles = library.images.take(12),
+                storage = FileOperations.getStorageInfo(),
+            )
+        }
     }
 
     /**
@@ -1731,7 +1820,12 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         val current = _uiState.value.extractDialog ?: return
         if (!dir.exists()) dir.mkdirs()
         _uiState.update {
-            it.copy(extractDialog = current.copy(destinationDir = dir))
+            it.copy(
+                extractDialog = current.copy(
+                    destinationDir = dir,
+                    destination = ExtractDestination.SAME_FOLDER,
+                ),
+            )
         }
     }
 

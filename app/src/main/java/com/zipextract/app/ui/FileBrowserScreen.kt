@@ -227,6 +227,7 @@ fun FileBrowserScreen(
     onCloseExtract: () -> Unit,
     onDeleteOriginalZipChange: (Boolean) -> Unit,
     onExtractPasswordChange: (String) -> Unit,
+    onExtractDestinationChange: (ExtractDestination) -> Unit,
     onConfirmExtract: () -> Unit,
     onDismissExtractResult: () -> Unit,
     onOpenExtractResultFolder: () -> Unit,
@@ -355,6 +356,7 @@ fun FileBrowserScreen(
             onClose = onCloseExtract,
             onDeleteOriginalChange = onDeleteOriginalZipChange,
             onPasswordChange = onExtractPasswordChange,
+            onDestinationChange = onExtractDestinationChange,
             onExtract = onConfirmExtract,
         )
     }

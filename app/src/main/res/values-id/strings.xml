@@ -353,4 +353,5 @@
     <string name="time_last_week">Minggu lalu</string>
     <string name="time_last_month">Bulan lalu</string>
     <string name="time_older">Lebih lama</string>
+    <string name="extract_save_where">Simpan hasil extract di mana?</string>
 </resources>

@@ -349,4 +349,5 @@
     <string name="time_last_week">지난주</string>
     <string name="time_last_month">지난달</string>
     <string name="time_older">이전 항목</string>
+    <string name="extract_save_where">압축 해제 파일을 어디에 저장할까요?</string>
 </resources>

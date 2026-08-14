@@ -1,10 +1,12 @@
 package com.zipextract.app.ui.viewer
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Visibility
@@ -12,6 +14,7 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -31,12 +34,13 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zipextract.app.R
+import com.zipextract.app.ui.ExtractDestination
 import com.zipextract.app.ui.ExtractZipState
 
 /**
- * Compact extract confirmation shown when the user taps a ZIP.
- * Extract button + optional delete-ZIP checkbox; results go to Download/FileNest.
- * Shows a password field when the archive is encrypted.
+ * Compact extract confirmation shown when the user taps an archive.
+ * Destination defaults to the archive's parent folder; the user can switch to
+ * FileNest or Downloads. Password field appears for encrypted archives.
  */
 @Composable
 fun ExtractZipDialog(
@@ -44,9 +48,13 @@ fun ExtractZipDialog(
     onClose: () -> Unit,
     onDeleteOriginalChange: (Boolean) -> Unit,
     onPasswordChange: (String) -> Unit,
+    onDestinationChange: (ExtractDestination) -> Unit,
     onExtract: () -> Unit,
 ) {
     var showPassword by remember { mutableStateOf(false) }
+    val destinationLabel = remember(state.destinationDir) {
+        state.destinationDir.absolutePath
+    }
 
     AlertDialog(
         onDismissRequest = onClose,
@@ -67,11 +75,42 @@ fun ExtractZipDialog(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+
                 Text(
-                    text = stringResource(R.string.extract_hint_download_top),
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = stringResource(R.string.extract_save_where),
+                    style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FilterChip(
+                        selected = state.destination == ExtractDestination.SAME_FOLDER,
+                        onClick = { onDestinationChange(ExtractDestination.SAME_FOLDER) },
+                        label = { Text(stringResource(R.string.extract_dest_same)) },
+                    )
+                    FilterChip(
+                        selected = state.destination == ExtractDestination.FILENEST,
+                        onClick = { onDestinationChange(ExtractDestination.FILENEST) },
+                        label = { Text(stringResource(R.string.extract_dest_filenest)) },
+                    )
+                    FilterChip(
+                        selected = state.destination == ExtractDestination.DOWNLOADS,
+                        onClick = { onDestinationChange(ExtractDestination.DOWNLOADS) },
+                        label = { Text(stringResource(R.string.extract_dest_download)) },
+                    )
+                }
+                Text(
+                    text = destinationLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
                 if (state.isEncrypted) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(

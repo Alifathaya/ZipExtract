@@ -349,4 +349,5 @@
     <string name="time_last_week">الأسبوع الماضي</string>
     <string name="time_last_month">الشهر الماضي</string>
     <string name="time_older">أقدم</string>
+    <string name="extract_save_where">أين تريد حفظ الملفات المستخرجة؟</string>
 </resources>

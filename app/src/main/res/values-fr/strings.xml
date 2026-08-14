@@ -349,4 +349,5 @@
     <string name="time_last_week">La semaine dernière</string>
     <string name="time_last_month">Le mois dernier</string>
     <string name="time_older">Plus anciens</string>
+    <string name="extract_save_where">Où enregistrer les fichiers extraits ?</string>
 </resources>

@@ -320,6 +320,7 @@
     <string name="saf_cloud_empty">File cloud kosong atau tidak bisa dibaca.</string>
     <string name="saf_uri_denied">Ditolak sistem (izin URI). Buka ulang lewat Cloud → Buka file cloud.</string>
     <string name="extract_hint_download_top">Hasil extract muncul di atas list halaman Download.</string>
+    <string name="extract_save_where">Simpan hasil extract di mana?</string>
     <string name="extract_delete_zip">Hapus file ZIP setelah extract</string>
     <string name="extract_success_top_toast">Extract berhasil (%1$d file) — ada di atas list Download</string>
     <string name="open_download">Buka Download</string>

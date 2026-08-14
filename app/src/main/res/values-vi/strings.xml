@@ -349,4 +349,5 @@
     <string name="time_last_week">Tuần trước</string>
     <string name="time_last_month">Tháng trước</string>
     <string name="time_older">Cũ hơn</string>
+    <string name="extract_save_where">Lưu file đã giải nén ở đâu?</string>
 </resources>

@@ -137,6 +137,7 @@ class MainActivity : AppCompatActivity() {
                         onCloseExtract = viewModel::closeExtractDialog,
                         onDeleteOriginalZipChange = viewModel::setDeleteOriginalZip,
                         onExtractPasswordChange = viewModel::setExtractPassword,
+                        onExtractDestinationChange = viewModel::setExtractDestinationChoice,
                         onConfirmExtract = viewModel::confirmExtract,
                         onDismissExtractResult = viewModel::dismissExtractResult,
                         onOpenExtractResultFolder = viewModel::openExtractResultFolder,

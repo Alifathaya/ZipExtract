@@ -349,4 +349,5 @@
     <string name="time_last_week">पिछला सप्ताह</string>
     <string name="time_last_month">पिछला महीना</string>
     <string name="time_older">पुराने</string>
+    <string name="extract_save_where">निकाले गए फ़ाइलें कहाँ सहेजें?</string>
 </resources>

@@ -349,4 +349,5 @@
     <string name="time_last_week">上週</string>
     <string name="time_last_month">上個月</string>
     <string name="time_older">更早</string>
+    <string name="extract_save_where">要將解壓檔案儲存到哪裡？</string>
 </resources>

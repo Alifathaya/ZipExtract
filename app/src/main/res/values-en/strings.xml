@@ -353,4 +353,5 @@
     <string name="time_last_week">Last week</string>
     <string name="time_last_month">Last month</string>
     <string name="time_older">Older</string>
+    <string name="extract_save_where">Where should extracted files be saved?</string>
 </resources>

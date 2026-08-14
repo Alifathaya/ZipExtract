@@ -349,4 +349,5 @@
     <string name="time_last_week">Geçen hafta</string>
     <string name="time_last_month">Geçen ay</string>
     <string name="time_older">Daha eski</string>
+    <string name="extract_save_where">Çıkarılan dosyalar nereye kaydedilsin?</string>
 </resources>
