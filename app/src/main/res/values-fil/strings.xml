@@ -58,6 +58,10 @@
     <string name="cloud_busy">Binubuksan ang file, maghintay…</string>
     <string name="categories_hint">Pumili ng uri ng file na bubuksan</string>
     <string name="storage_internal">Internal storage</string>
+    <string name="storage_external">External storage</string>
+    <string name="storage_sd_card">SD card</string>
+    <string name="storage_usb">USB / OTG</string>
+    <string name="storage_unavailable">Storage unavailable. Reinsert it or tap Refresh.</string>
     <string name="storage_used_of">%1$s ang ginamit sa %2$s</string>
     <string name="search_results">Mga resulta ng paghahanap</string>
     <string name="search_none_found">Walang nahanap na file</string>

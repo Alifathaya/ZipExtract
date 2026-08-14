@@ -122,6 +122,7 @@ class MainActivity : AppCompatActivity() {
                         onOpenExtract = viewModel::openExtractDialogForItem,
                         onOpenCategory = viewModel::openCategory,
                         onBrowseAll = viewModel::browseAllFiles,
+                        onOpenStorageVolume = viewModel::openStorageVolume,
                         onGoHome = viewModel::goHome,
                         onSearchQueryChange = viewModel::updateSearchQuery,
                         onClearSearch = viewModel::clearSearch,

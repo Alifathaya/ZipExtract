@@ -62,6 +62,10 @@
     <string name="cloud_busy">Sedang membuka file, tunggu sebentar…</string>
     <string name="categories_hint">Pilih jenis file yang ingin dibuka</string>
     <string name="storage_internal">Penyimpanan Internal</string>
+    <string name="storage_external">Penyimpanan eksternal</string>
+    <string name="storage_sd_card">Kartu SD</string>
+    <string name="storage_usb">USB / OTG</string>
+    <string name="storage_unavailable">Penyimpanan tidak tersedia. Cabut lalu pasang lagi, atau ketuk Refresh.</string>
     <string name="storage_used_of">%1$s terpakai dari %2$s</string>
     <string name="search_results">Hasil pencarian</string>
     <string name="search_none_found">Tidak ada file ditemukan</string>

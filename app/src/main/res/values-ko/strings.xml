@@ -58,6 +58,10 @@
     <string name="cloud_busy">파일을 여는 중… 잠시만 기다려 주세요</string>
     <string name="categories_hint">열 파일 유형을 선택하세요</string>
     <string name="storage_internal">내부 저장공간</string>
+    <string name="storage_external">External storage</string>
+    <string name="storage_sd_card">SD card</string>
+    <string name="storage_usb">USB / OTG</string>
+    <string name="storage_unavailable">Storage unavailable. Reinsert it or tap Refresh.</string>
     <string name="storage_used_of">%2$s 중 %1$s 사용</string>
     <string name="search_results">검색 결과</string>
     <string name="search_none_found">파일을 찾을 수 없습니다</string>

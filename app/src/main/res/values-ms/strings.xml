@@ -58,6 +58,10 @@
     <string name="cloud_busy">Membuka fail, sila tunggu…</string>
     <string name="categories_hint">Pilih jenis fail untuk dibuka</string>
     <string name="storage_internal">Storan dalaman</string>
+    <string name="storage_external">External storage</string>
+    <string name="storage_sd_card">SD card</string>
+    <string name="storage_usb">USB / OTG</string>
+    <string name="storage_unavailable">Storage unavailable. Reinsert it or tap Refresh.</string>
     <string name="storage_used_of">%1$s digunakan daripada %2$s</string>
     <string name="search_results">Hasil carian</string>
     <string name="search_none_found">Tiada fail dijumpai</string>

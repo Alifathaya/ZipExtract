@@ -58,6 +58,10 @@
     <string name="cloud_busy">फ़ाइल खोली जा रही है, कृपया प्रतीक्षा करें…</string>
     <string name="categories_hint">खोलने के लिए फ़ाइल प्रकार चुनें</string>
     <string name="storage_internal">आंतरिक स्टोरेज</string>
+    <string name="storage_external">External storage</string>
+    <string name="storage_sd_card">SD card</string>
+    <string name="storage_usb">USB / OTG</string>
+    <string name="storage_unavailable">Storage unavailable. Reinsert it or tap Refresh.</string>
     <string name="storage_used_of">%2$s में से %1$s उपयोग हुआ</string>
     <string name="search_results">खोज परिणाम</string>
     <string name="search_none_found">कोई फ़ाइल नहीं मिली</string>

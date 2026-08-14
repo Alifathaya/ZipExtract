@@ -58,6 +58,10 @@
     <string name="cloud_busy">Dosya açılıyor, lütfen bekleyin…</string>
     <string name="categories_hint">Açılacak dosya türünü seçin</string>
     <string name="storage_internal">Dahili depolama</string>
+    <string name="storage_external">External storage</string>
+    <string name="storage_sd_card">SD card</string>
+    <string name="storage_usb">USB / OTG</string>
+    <string name="storage_unavailable">Storage unavailable. Reinsert it or tap Refresh.</string>
     <string name="storage_used_of">%2$s içinden %1$s kullanıldı</string>
     <string name="search_results">Arama sonuçları</string>
     <string name="search_none_found">Dosya bulunamadı</string>

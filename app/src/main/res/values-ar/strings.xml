@@ -58,6 +58,10 @@
     <string name="cloud_busy">جارٍ فتح الملف، يرجى الانتظار…</string>
     <string name="categories_hint">اختر نوع الملف لفتحه</string>
     <string name="storage_internal">التخزين الداخلي</string>
+    <string name="storage_external">External storage</string>
+    <string name="storage_sd_card">SD card</string>
+    <string name="storage_usb">USB / OTG</string>
+    <string name="storage_unavailable">Storage unavailable. Reinsert it or tap Refresh.</string>
     <string name="storage_used_of">%1$s مستخدم من %2$s</string>
     <string name="search_results">نتائج البحث</string>
     <string name="search_none_found">لم يتم العثور على ملفات</string>

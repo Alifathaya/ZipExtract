@@ -40,8 +40,10 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SdCard
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -76,14 +78,17 @@ import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import com.zipextract.app.R
 import com.zipextract.app.data.CategorySummary
+import com.zipextract.app.data.DeviceStorageVolume
 import com.zipextract.app.data.FileCategory
 import com.zipextract.app.data.FileItem
 import com.zipextract.app.data.StorageInfo
+import com.zipextract.app.data.StorageKind
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeDashboardScreen(
     storageInfo: StorageInfo?,
+    storageVolumes: List<DeviceStorageVolume> = emptyList(),
     categories: List<CategorySummary>,
     recentFiles: List<FileItem>,
     searchQuery: String,
@@ -95,6 +100,7 @@ fun HomeDashboardScreen(
     onClearSearch: () -> Unit,
     onOpenCategory: (FileCategory) -> Unit,
     onBrowseAll: () -> Unit,
+    onOpenStorageVolume: (DeviceStorageVolume) -> Unit = {},
     onOpenZips: () -> Unit,
     onOpenFavorites: () -> Unit,
     onOpenLargestFiles: () -> Unit,
@@ -161,7 +167,12 @@ fun HomeDashboardScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 item {
-                    StorageCard(storageInfo = storageInfo)
+                    StorageSection(
+                        volumes = storageVolumes,
+                        storageInfo = storageInfo,
+                        compact = false,
+                        onOpenVolume = onOpenStorageVolume,
+                    )
                 }
                 item {
                     SearchBar(
@@ -186,7 +197,12 @@ fun HomeDashboardScreen(
                     .padding(bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                StorageCard(storageInfo = storageInfo, compact = true)
+                StorageSection(
+                    volumes = storageVolumes,
+                    storageInfo = storageInfo,
+                    compact = true,
+                    onOpenVolume = onOpenStorageVolume,
+                )
 
                 SearchBar(
                     query = searchQuery,
@@ -550,12 +566,127 @@ private fun iconForItem(item: FileItem): ImageVector {
 }
 
 @Composable
-private fun StorageCard(
+private fun StorageSection(
+    volumes: List<DeviceStorageVolume>,
     storageInfo: StorageInfo?,
-    compact: Boolean = false,
+    compact: Boolean,
+    onOpenVolume: (DeviceStorageVolume) -> Unit,
 ) {
+    val displayVolumes = remember(volumes, storageInfo) {
+        if (volumes.isNotEmpty()) {
+            volumes
+        } else if (storageInfo != null) {
+            listOf(
+                DeviceStorageVolume(
+                    id = "primary",
+                    label = "",
+                    kind = StorageKind.INTERNAL,
+                    root = null,
+                    totalBytes = storageInfo.totalBytes,
+                    freeBytes = storageInfo.freeBytes,
+                    isPrimary = true,
+                    isRemovable = false,
+                    isMounted = true,
+                ),
+            )
+        } else {
+            emptyList()
+        }
+    }
+
+    if (displayVolumes.isEmpty()) {
+        StorageVolumeCard(
+            title = stringResource(R.string.storage_internal),
+            kind = StorageKind.INTERNAL,
+            totalBytes = null,
+            freeBytes = null,
+            compact = compact,
+            clickable = false,
+            onClick = {},
+            modifier = Modifier.fillMaxWidth(),
+        )
+        return
+    }
+
+    if (compact && displayVolumes.size > 1) {
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            items(displayVolumes, key = { it.id }) { volume ->
+                val title = volumeTitle(volume)
+                StorageVolumeCard(
+                    title = title,
+                    kind = volume.kind,
+                    totalBytes = volume.totalBytes.takeIf { it > 0L },
+                    freeBytes = volume.freeBytes.takeIf { volume.totalBytes > 0L },
+                    compact = true,
+                    clickable = volume.canBrowse,
+                    onClick = { onOpenVolume(volume) },
+                    modifier = Modifier.width(220.dp),
+                )
+            }
+        }
+        return
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp)) {
+        displayVolumes.forEach { volume ->
+            StorageVolumeCard(
+                title = volumeTitle(volume),
+                kind = volume.kind,
+                totalBytes = volume.totalBytes.takeIf { it > 0L },
+                freeBytes = volume.freeBytes.takeIf { volume.totalBytes > 0L },
+                compact = compact,
+                clickable = volume.canBrowse,
+                onClick = { onOpenVolume(volume) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun volumeTitle(volume: DeviceStorageVolume): String {
+    return when {
+        volume.label.isNotBlank() -> volume.label
+        volume.kind == StorageKind.INTERNAL -> stringResource(R.string.storage_internal)
+        volume.kind == StorageKind.SD_CARD -> stringResource(R.string.storage_sd_card)
+        volume.kind == StorageKind.USB -> stringResource(R.string.storage_usb)
+        else -> stringResource(R.string.storage_external)
+    }
+}
+
+@Composable
+private fun StorageVolumeCard(
+    title: String,
+    kind: StorageKind,
+    totalBytes: Long?,
+    freeBytes: Long?,
+    compact: Boolean,
+    clickable: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val usedBytes = if (totalBytes != null && freeBytes != null) {
+        (totalBytes - freeBytes).coerceAtLeast(0L)
+    } else {
+        null
+    }
+    val usedFraction = if (totalBytes != null && totalBytes > 0L && usedBytes != null) {
+        usedBytes.toFloat() / totalBytes.toFloat()
+    } else {
+        0f
+    }
+    val icon = when (kind) {
+        StorageKind.SD_CARD -> Icons.Default.SdCard
+        StorageKind.USB -> Icons.Default.Usb
+        StorageKind.INTERNAL, StorageKind.OTHER -> Icons.Default.Storage
+    }
+
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier
+            .then(if (clickable) Modifier.clickable(onClick = onClick) else Modifier),
         shape = RoundedCornerShape(if (compact) 16.dp else 20.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
@@ -572,7 +703,7 @@ private fun StorageCard(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Storage,
+                        imageVector = icon,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(if (compact) 18.dp else 24.dp),
@@ -581,20 +712,22 @@ private fun StorageCard(
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = stringResource(R.string.storage_internal),
+                        text = title,
                         style = if (compact) {
                             MaterialTheme.typography.titleSmall
                         } else {
                             MaterialTheme.typography.titleMedium
                         },
                         fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = if (storageInfo != null) {
+                        text = if (usedBytes != null && totalBytes != null) {
                             stringResource(
                                 R.string.storage_used_of,
-                                FileItem.formatBytes(storageInfo.usedBytes),
-                                FileItem.formatBytes(storageInfo.totalBytes),
+                                FileItem.formatBytes(usedBytes),
+                                FileItem.formatBytes(totalBytes),
                             )
                         } else {
                             stringResource(R.string.storage_calculating)
@@ -610,7 +743,7 @@ private fun StorageCard(
             Spacer(modifier = Modifier.height(if (compact) 8.dp else 14.dp))
 
             LinearProgressIndicator(
-                progress = { storageInfo?.usedFraction ?: 0f },
+                progress = { usedFraction },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(if (compact) 6.dp else 8.dp)
@@ -620,10 +753,10 @@ private fun StorageCard(
             if (!compact) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = if (storageInfo != null) {
+                    text = if (freeBytes != null) {
                         stringResource(
                             R.string.storage_available,
-                            FileItem.formatBytes(storageInfo.freeBytes),
+                            FileItem.formatBytes(freeBytes),
                         )
                     } else {
                         "—"
@@ -634,6 +767,22 @@ private fun StorageCard(
             }
         }
     }
+}
+
+@Composable
+private fun StorageCard(
+    storageInfo: StorageInfo?,
+    compact: Boolean = false,
+) {
+    StorageVolumeCard(
+        title = stringResource(R.string.storage_internal),
+        kind = StorageKind.INTERNAL,
+        totalBytes = storageInfo?.totalBytes,
+        freeBytes = storageInfo?.freeBytes,
+        compact = compact,
+        clickable = false,
+        onClick = {},
+    )
 }
 
 @Composable

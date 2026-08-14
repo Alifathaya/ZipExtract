@@ -58,6 +58,10 @@
     <string name="cloud_busy">正在開啟檔案，請稍候…</string>
     <string name="categories_hint">選擇要開啟的檔案類型</string>
     <string name="storage_internal">內部儲存空間</string>
+    <string name="storage_external">External storage</string>
+    <string name="storage_sd_card">SD card</string>
+    <string name="storage_usb">USB / OTG</string>
+    <string name="storage_unavailable">Storage unavailable. Reinsert it or tap Refresh.</string>
     <string name="storage_used_of">已使用 %1$s / 共 %2$s</string>
     <string name="search_results">搜尋結果</string>
     <string name="search_none_found">找不到檔案</string>

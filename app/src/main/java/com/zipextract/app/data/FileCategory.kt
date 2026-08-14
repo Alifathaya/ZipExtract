@@ -133,6 +133,39 @@ data class StorageInfo(
         get() = if (totalBytes > 0L) usedBytes.toFloat() / totalBytes.toFloat() else 0f
 }
 
+/** Kind of physical/logical storage volume exposed by the system. */
+enum class StorageKind {
+    INTERNAL,
+    SD_CARD,
+    USB,
+    OTHER,
+}
+
+/**
+ * A mounted storage volume (internal, microSD, USB Type-C/OTG, etc.).
+ * [root] is the browsable directory when the system grants a path.
+ */
+data class DeviceStorageVolume(
+    val id: String,
+    val label: String,
+    val kind: StorageKind,
+    val root: File?,
+    val totalBytes: Long,
+    val freeBytes: Long,
+    val isPrimary: Boolean,
+    val isRemovable: Boolean,
+    val isMounted: Boolean,
+) {
+    val usedBytes: Long
+        get() = (totalBytes - freeBytes).coerceAtLeast(0L)
+
+    val usedFraction: Float
+        get() = if (totalBytes > 0L) usedBytes.toFloat() / totalBytes.toFloat() else 0f
+
+    val canBrowse: Boolean
+        get() = isMounted && root != null && root.exists() && root.isDirectory
+}
+
 data class MediaLibrary(
     val downloads: List<FileItem> = emptyList(),
     val images: List<FileItem> = emptyList(),

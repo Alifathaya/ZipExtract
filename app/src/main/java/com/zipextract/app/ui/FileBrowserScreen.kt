@@ -216,6 +216,7 @@ fun FileBrowserScreen(
     onOpenExtract: (com.zipextract.app.data.FileItem) -> Unit,
     onOpenCategory: (com.zipextract.app.data.FileCategory) -> Unit,
     onBrowseAll: () -> Unit,
+    onOpenStorageVolume: (com.zipextract.app.data.DeviceStorageVolume) -> Unit,
     onGoHome: () -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onClearSearch: () -> Unit,
@@ -386,6 +387,7 @@ fun FileBrowserScreen(
         }
         HomeDashboardScreen(
             storageInfo = state.storageInfo,
+            storageVolumes = state.storageVolumes,
             categories = state.categorySummaries,
             recentFiles = state.recentFiles,
             searchQuery = state.searchQuery,
@@ -397,6 +399,7 @@ fun FileBrowserScreen(
             onClearSearch = onClearSearch,
             onOpenCategory = onOpenCategory,
             onBrowseAll = onBrowseAll,
+            onOpenStorageVolume = onOpenStorageVolume,
             onOpenZips = { onOpenCategory(FileCategory.ARCHIVES) },
             onOpenFavorites = onOpenFavorites,
             onOpenLargestFiles = onOpenLargestFiles,

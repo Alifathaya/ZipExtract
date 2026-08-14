@@ -13,6 +13,7 @@ import com.zipextract.app.R
 import com.zipextract.app.data.ClipboardMode
 import com.zipextract.app.data.ClipboardState
 import com.zipextract.app.data.CategorySummary
+import com.zipextract.app.data.DeviceStorageVolume
 import com.zipextract.app.data.DuplicateFinder
 import com.zipextract.app.data.DuplicateGroup
 import com.zipextract.app.data.FileActions
@@ -113,6 +114,7 @@ data class BrowserUiState(
     val activeCategory: FileCategory? = null,
     val categoryRoot: File? = null,
     val storageInfo: StorageInfo? = null,
+    val storageVolumes: List<DeviceStorageVolume> = emptyList(),
     val categorySummaries: List<CategorySummary> = emptyList(),
     val recentFiles: List<FileItem> = emptyList(),
     val searchQuery: String = "",
@@ -216,6 +218,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         val wasGranted = _uiState.value.storageGranted
         _uiState.update { it.copy(storageGranted = granted) }
         if (!granted) return
+        // Remounted SD / USB Type-C volumes appear after resume.
+        refreshStorageVolumes()
         if (_uiState.value.showHome) {
             // First open/grant builds the baseline. Later resumes query only changed rows.
             if (!wasGranted || !homeLoadedOnce || mediaLibraryCache == null) {
@@ -262,10 +266,14 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 val library = obtainMediaLibrary(forceRefresh)
                 val categories = FileOperations.getCategorySummaries(library)
                 val recentFiles = library.images.take(12)
-                val storage = FileOperations.getStorageInfo()
+                val volumes = FileOperations.listDeviceStorages(appContext)
+                val storage = volumes.firstOrNull { it.isPrimary }?.let {
+                    StorageInfo(totalBytes = it.totalBytes, freeBytes = it.freeBytes)
+                } ?: FileOperations.getStorageInfo()
                 persistHomeSnapshot(library, categories, recentFiles, storage)
                 HomeDashboardData(
                     storageInfo = storage,
+                    storageVolumes = volumes,
                     categories = categories,
                     recentFiles = recentFiles,
                 )
@@ -275,6 +283,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 it.copy(
                     homeLoading = false,
                     storageInfo = data.storageInfo,
+                    storageVolumes = data.storageVolumes,
                     categorySummaries = data.categories,
                     recentFiles = data.recentFiles,
                 )
@@ -605,6 +614,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
         return FileOperations.scanMediaLibrary(
             contentResolver = appContext.contentResolver,
+            context = appContext,
         ).also { mediaLibraryCache = it }
     }
 
@@ -735,6 +745,54 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             )
         }
         refresh()
+    }
+
+    /** Open a detected volume root (internal / microSD / USB). */
+    fun openStorageVolume(volume: DeviceStorageVolume) {
+        val dir = volume.root
+        if (dir == null || !dir.exists() || !dir.isDirectory) {
+            emit(str(R.string.storage_unavailable))
+            refreshStorageVolumes()
+            return
+        }
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                showCloud = false,
+                showFavoritesOnly = false,
+                showLargestFiles = false,
+                showDuplicates = false,
+                libraryMode = false,
+                activeCategory = null,
+                categoryRoot = dir,
+                currentDir = dir,
+                fileFilter = FileFilter.ALL,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+                searchQuery = "",
+                searchResults = emptyList(),
+                mediaAlbums = emptyList(),
+                mediaAlbumId = MediaAlbum.ALL,
+            )
+        }
+        refresh()
+    }
+
+    /** Re-detect volumes (e.g. after inserting SD / plugging USB Type-C). */
+    fun refreshStorageVolumes() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val volumes = FileOperations.listDeviceStorages(appContext)
+            val storage = volumes.firstOrNull { it.isPrimary }?.let {
+                StorageInfo(totalBytes = it.totalBytes, freeBytes = it.freeBytes)
+            } ?: FileOperations.getStorageInfo()
+            prefs.saveStorageInfo(storage)
+            _uiState.update {
+                it.copy(
+                    storageVolumes = volumes,
+                    storageInfo = storage,
+                )
+            }
+        }
     }
 
     fun openCloud(exportFile: File? = null) {
@@ -1493,8 +1551,12 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
         val atCategoryRoot = categoryRoot != null && FileOperations.samePath(dir, categoryRoot)
         val atStorageRoot = FileOperations.samePath(dir, root)
+        val atVolumeRoot = state.storageVolumes.any { volume ->
+            val volumeRoot = volume.root ?: return@any false
+            FileOperations.samePath(dir, volumeRoot)
+        }
 
-        if (atCategoryRoot || atStorageRoot) {
+        if (atCategoryRoot || atStorageRoot || atVolumeRoot) {
             goHome()
             return
         }
@@ -2160,6 +2222,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
     private data class HomeDashboardData(
         val storageInfo: StorageInfo,
+        val storageVolumes: List<DeviceStorageVolume>,
         val categories: List<CategorySummary>,
         val recentFiles: List<FileItem>,
     )

@@ -3,8 +3,11 @@ package com.zipextract.app.data
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.os.StatFs
+import android.os.storage.StorageManager
+import android.os.storage.StorageVolume
 import android.provider.MediaStore
 import com.zipextract.app.R
 import java.io.File
@@ -31,6 +34,171 @@ object FileOperations {
             val free = stat.availableBlocksLong * stat.blockSizeLong
             StorageInfo(totalBytes = total, freeBytes = free)
         }.getOrDefault(StorageInfo(totalBytes = 0L, freeBytes = 0L))
+    }
+
+    /**
+     * Lists all mounted storage volumes: internal, microSD, and USB Type-C/OTG
+     * when the system exposes a path. Unmounted volumes are omitted.
+     */
+    fun listDeviceStorages(context: Context): List<DeviceStorageVolume> {
+        val manager = context.getSystemService(StorageManager::class.java) ?: return emptyList()
+        val volumes = manager.storageVolumes.mapNotNull { volume ->
+            toDeviceStorageVolume(context, volume)
+        }.toMutableList()
+
+        // Fallback: discover remounted volumes via app-specific external dirs
+        // when StorageVolume.directory is null (some OEM / USB cases).
+        val knownRoots = volumes.mapNotNull { it.root?.let { root ->
+            runCatching { root.canonicalPath }.getOrDefault(root.absolutePath)
+        } }.toHashSet()
+        discoverExtraVolumeRoots(context).forEach { root ->
+            val key = runCatching { root.canonicalPath }.getOrDefault(root.absolutePath)
+            if (key in knownRoots) return@forEach
+            if (!root.exists() || !root.isDirectory) return@forEach
+            val stats = statPath(root) ?: return@forEach
+            knownRoots += key
+            volumes += DeviceStorageVolume(
+                id = "extra:$key",
+                label = guessVolumeLabel(root),
+                kind = guessVolumeKind(label = null, path = key, isPrimary = false, isRemovable = true),
+                root = root,
+                totalBytes = stats.first,
+                freeBytes = stats.second,
+                isPrimary = false,
+                isRemovable = true,
+                isMounted = true,
+            )
+        }
+
+        return volumes.sortedWith(
+            compareByDescending<DeviceStorageVolume> { it.isPrimary }
+                .thenBy { it.kind.ordinal }
+                .thenBy { it.label.lowercase() },
+        )
+    }
+
+    private fun toDeviceStorageVolume(
+        context: Context,
+        volume: StorageVolume,
+    ): DeviceStorageVolume? {
+        val state = volume.state
+        val mounted = state == null ||
+            state == Environment.MEDIA_MOUNTED ||
+            state == Environment.MEDIA_MOUNTED_READ_ONLY
+        if (!mounted) return null
+
+        val root = volumeDirectory(volume) ?: return if (volume.isPrimary) {
+            // Always expose primary via the legacy shared-storage root.
+            val primary = defaultRoot()
+            val stats = statPath(primary) ?: (0L to 0L)
+            DeviceStorageVolume(
+                id = volumeUuid(volume) ?: "primary",
+                label = volume.getDescription(context).ifBlank {
+                    context.getString(R.string.storage_internal)
+                },
+                kind = StorageKind.INTERNAL,
+                root = primary,
+                totalBytes = stats.first,
+                freeBytes = stats.second,
+                isPrimary = true,
+                isRemovable = volume.isRemovable,
+                isMounted = true,
+            )
+        } else {
+            null
+        }
+
+        val stats = statPath(root) ?: (0L to 0L)
+        val label = volume.getDescription(context).ifBlank {
+            when {
+                volume.isPrimary -> context.getString(R.string.storage_internal)
+                else -> root.name.ifBlank { context.getString(R.string.storage_external) }
+            }
+        }
+        val path = runCatching { root.canonicalPath }.getOrDefault(root.absolutePath)
+        return DeviceStorageVolume(
+            id = volumeUuid(volume) ?: path,
+            label = label,
+            kind = guessVolumeKind(
+                label = label,
+                path = path,
+                isPrimary = volume.isPrimary,
+                isRemovable = volume.isRemovable,
+            ),
+            root = root,
+            totalBytes = stats.first,
+            freeBytes = stats.second,
+            isPrimary = volume.isPrimary,
+            isRemovable = volume.isRemovable,
+            isMounted = true,
+        )
+    }
+
+    private fun volumeUuid(volume: StorageVolume): String? {
+        return volume.uuid?.takeIf { it.isNotBlank() }
+            ?: if (volume.isPrimary) "primary" else null
+    }
+
+    private fun volumeDirectory(volume: StorageVolume): File? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            volume.directory?.let { return it }
+        }
+        // Pre-R public API: StorageVolume.getPath()
+        return runCatching {
+            val method = volume.javaClass.getMethod("getPath")
+            val path = method.invoke(volume) as? String
+            path?.takeIf { it.isNotBlank() }?.let { File(it) }
+        }.getOrNull()
+    }
+
+    private fun discoverExtraVolumeRoots(context: Context): List<File> {
+        val dirs = context.getExternalFilesDirs(null)?.filterNotNull().orEmpty()
+        return dirs.mapNotNull { appDir ->
+            // …/Android/data/<pkg>/files → climb to volume root
+            var cursor: File? = appDir
+            repeat(4) { cursor = cursor?.parentFile }
+            cursor?.takeIf { it.exists() && it.isDirectory }
+        }.distinctBy {
+            runCatching { it.canonicalPath }.getOrDefault(it.absolutePath)
+        }
+    }
+
+    private fun guessVolumeLabel(root: File): String {
+        val name = root.name
+        return when {
+            name.equals("0", ignoreCase = true) ||
+                root.absolutePath.contains("emulated", ignoreCase = true) -> "Internal"
+            name.matches(Regex("[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}")) -> "SD card"
+            else -> name.ifBlank { "Storage" }
+        }
+    }
+
+    private fun guessVolumeKind(
+        label: String?,
+        path: String,
+        isPrimary: Boolean,
+        isRemovable: Boolean,
+    ): StorageKind {
+        if (isPrimary || path.contains("emulated", ignoreCase = true)) {
+            return StorageKind.INTERNAL
+        }
+        val haystack = "${label.orEmpty()} $path".lowercase()
+        return when {
+            "usb" in haystack || "otg" in haystack || "type-c" in haystack ||
+                "typec" in haystack -> StorageKind.USB
+            isRemovable || "sd" in haystack || "card" in haystack ||
+                Regex("(?i)/[0-9A-F]{4}-[0-9A-F]{4}(/|$)").containsMatchIn(path) -> StorageKind.SD_CARD
+            else -> StorageKind.OTHER
+        }
+    }
+
+    private fun statPath(root: File): Pair<Long, Long>? {
+        return runCatching {
+            val stat = StatFs(root.absolutePath)
+            val total = stat.blockSizeLong * stat.blockCountLong
+            val free = stat.availableBlocksLong * stat.blockSizeLong
+            if (total <= 0L) null else total to free.coerceIn(0L, total)
+        }.getOrNull()
     }
 
     fun getCategorySummaries(library: MediaLibrary? = null): List<CategorySummary> {
@@ -86,6 +254,7 @@ object FileOperations {
         maxPerCategory: Int = 2500,
         maxDepth: Int = 8,
         contentResolver: ContentResolver? = null,
+        context: Context? = null,
     ): MediaLibrary {
         val downloads = LinkedHashMap<String, FileItem>()
         val images = LinkedHashMap<String, FileItem>()
@@ -95,7 +264,7 @@ object FileOperations {
         val apps = LinkedHashMap<String, FileItem>()
         val others = LinkedHashMap<String, FileItem>()
         val visited = HashSet<String>()
-        val downloadRoots = downloadScanRoots()
+        val downloadRoots = downloadScanRoots(context)
             .map { runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) }
             .toSet()
 
@@ -111,7 +280,7 @@ object FileOperations {
             map[item.path] = item
         }
 
-        mediaScanRoots().forEach { root ->
+        mediaScanRoots(context).forEach { root ->
             walkFiles(root, depth = 0, maxDepth = maxDepth, visited = visited) { file ->
                 val item = FileItem(file)
                 val path = runCatching { file.canonicalPath }.getOrDefault(file.absolutePath)
@@ -364,9 +533,9 @@ object FileOperations {
         }
     }
 
-    private fun mediaScanRoots(): List<File> {
+    private fun mediaScanRoots(context: Context? = null): List<File> {
         val storage = Environment.getExternalStorageDirectory()
-        val candidates = listOf(
+        val candidates = mutableListOf(
             File(storage, "DCIM"),
             File(storage, "DCIM/Camera"),
             File(storage, "Pictures"),
@@ -389,20 +558,51 @@ object FileOperations {
             File(storage, "Snapchat"),
             File(storage, "Bluetooth"),
             storage,
-        ) + FileCategory.entries.map { it.resolveFolder() }
+        )
+        candidates += FileCategory.entries.map { it.resolveFolder() }
+
+        // Also walk common folders on microSD / USB volumes when present.
+        context?.let { ctx ->
+            listDeviceStorages(ctx)
+                .filter { !it.isPrimary && it.canBrowse }
+                .mapNotNull { it.root }
+                .forEach { volRoot ->
+                    candidates += listOf(
+                        volRoot,
+                        File(volRoot, "DCIM"),
+                        File(volRoot, "Pictures"),
+                        File(volRoot, "Movies"),
+                        File(volRoot, "Download"),
+                        File(volRoot, "Downloads"),
+                        File(volRoot, "Documents"),
+                        File(volRoot, "Music"),
+                        File(volRoot, "WhatsApp"),
+                    )
+                }
+        }
 
         return candidates
             .filter { it.exists() && it.isDirectory }
             .distinctBy { runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) }
     }
 
-    private fun downloadScanRoots(): List<File> {
+    private fun downloadScanRoots(context: Context? = null): List<File> {
         val storage = Environment.getExternalStorageDirectory()
-        return listOf(
+        val roots = mutableListOf(
             File(storage, "Download"),
             File(storage, "Downloads"),
             FileCategory.DOWNLOADS.resolveFolder(),
-        ).filter { it.exists() && it.isDirectory }
+        )
+        context?.let { ctx ->
+            listDeviceStorages(ctx)
+                .filter { !it.isPrimary && it.canBrowse }
+                .mapNotNull { it.root }
+                .forEach { volRoot ->
+                    roots += File(volRoot, "Download")
+                    roots += File(volRoot, "Downloads")
+                }
+        }
+        return roots.filter { it.exists() && it.isDirectory }
             .distinctBy { runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) }
     }
 
