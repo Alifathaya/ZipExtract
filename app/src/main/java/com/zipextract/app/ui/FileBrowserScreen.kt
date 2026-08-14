@@ -685,6 +685,7 @@ fun FileBrowserScreen(
                 )
                 .padding(padding),
         ) {
+            val showSelectionRail = state.selectionMode && selectedCount > 0
             Column(modifier = Modifier.fillMaxSize()) {
                 if (state.explorerMode && state.categoryRoot != null) {
                     val fallbackRootLabel = stringResource(R.string.explorer_my_phone)
@@ -705,7 +706,6 @@ fun FileBrowserScreen(
                         onNavigate = onNavigateTo,
                     )
                 }
-            val showSelectionRail = state.selectionMode && selectedCount > 0
             Box(
                 modifier = Modifier
                     .weight(1f)
