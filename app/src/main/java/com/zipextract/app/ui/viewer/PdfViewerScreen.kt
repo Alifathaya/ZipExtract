@@ -271,13 +271,19 @@ fun PdfViewerScreen(
                             tint = MaterialTheme.colorScheme.error,
                         )
                     }
-                    IconButton(onClick = { zoomState.zoomOut() }) {
+                    IconButton(
+                        onClick = { zoomState.zoomOut() },
+                        enabled = zoomState.isZoomed,
+                    ) {
                         Icon(Icons.Default.ZoomOut, contentDescription = stringResource(R.string.zoom_out))
                     }
                     IconButton(onClick = { zoomState.zoomIn() }) {
                         Icon(Icons.Default.ZoomIn, contentDescription = stringResource(R.string.zoom_in))
                     }
-                    IconButton(onClick = { zoomState.reset() }) {
+                    IconButton(
+                        onClick = { zoomState.reset() },
+                        enabled = zoomState.isZoomed,
+                    ) {
                         Icon(Icons.Default.ZoomOutMap, contentDescription = stringResource(R.string.zoom_reset))
                     }
                 },

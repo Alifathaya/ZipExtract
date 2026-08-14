@@ -269,7 +269,7 @@
     <string name="pdf_prepare_edit_failed">Gagal menyiapkan halaman untuk diedit</string>
     <string name="zoom_in">Perbesar</string>
     <string name="zoom_out">Perkecil</string>
-    <string name="zoom_reset">Reset zoom</string>
+    <string name="zoom_reset">Kembalikan ukuran asli</string>
     <string name="image_load_failed">Gagal memuat gambar</string>
     <string name="image_share_failed">Gagal membagikan foto</string>
     <string name="image_viewer_hint">Cubit / double-tap zoom · Edit crop &amp; pen</string>
