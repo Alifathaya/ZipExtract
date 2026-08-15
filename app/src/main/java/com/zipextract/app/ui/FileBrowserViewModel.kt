@@ -193,6 +193,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     private var libraryJob: Job? = null
     private var homeJob: Job? = null
     private var softRefreshJob: Job? = null
+    private var resumeJob: Job? = null
     private var cloudImportJob: Job? = null
     private var activeJob: Job? = null
     private var mediaWatcher: MediaChangeWatcher? = null
@@ -218,25 +219,48 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 applyMediaStoreChange(change)
             }
         }.also { it.start() }
+        // Prefetch disk cache off the UI thread so the first category tap after
+        // process death / long idle does not block composition.
+        viewModelScope.launch(Dispatchers.IO) {
+            if (mediaLibraryCache == null) {
+                mediaLibraryCache = MediaLibraryCache.load(appContext)
+            }
+        }
     }
 
     fun setStorageGranted(granted: Boolean) {
         val wasGranted = _uiState.value.storageGranted
         _uiState.update { it.copy(storageGranted = granted) }
         if (!granted) return
-        // Remounted SD / USB Type-C volumes appear after resume.
-        refreshStorageVolumes()
-        if (_uiState.value.showHome) {
-            // First open/grant builds the baseline. Later resumes query only changed rows.
-            if (!wasGranted || !homeLoadedOnce || mediaLibraryCache == null) {
-                loadHomeData(forceRefresh = false)
-            } else {
-                catchUpMediaStoreChanges()
+
+        // First grant / cold start: load home without delaying the user.
+        if (!wasGranted || !homeLoadedOnce) {
+            refreshStorageVolumes()
+            loadHomeData(forceRefresh = false)
+            return
+        }
+
+        // Warm resume after idle: defer catch-up so a quick category tap stays snappy.
+        resumeJob?.cancel()
+        resumeJob = viewModelScope.launch {
+            delay(450)
+            refreshStorageVolumes()
+            val state = _uiState.value
+            if (mediaLibraryCache == null) {
+                mediaLibraryCache = withContext(Dispatchers.IO) {
+                    MediaLibraryCache.load(appContext)
+                }
             }
-        } else if (_uiState.value.libraryMode) {
-            catchUpMediaStoreChanges()
-        } else if (!wasGranted) {
-            refresh()
+            when {
+                state.showHome || state.libraryMode || state.showLargestFiles -> {
+                    if (mediaLibraryCache == null) {
+                        loadHomeData(forceRefresh = false)
+                    } else {
+                        catchUpMediaStoreChangesSync()
+                    }
+                }
+                !wasGranted -> softRefresh()
+            }
         }
     }
 
@@ -601,76 +625,29 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
     fun openCategoryLibrary(category: FileCategory, forceRefresh: Boolean = false) {
         val folder = category.resolveFolder()
-        if (!folder.exists()) folder.mkdirs()
-
-        // Hydrate memory from disk cache first so category open stays instant after reopen.
-        if (!forceRefresh && mediaLibraryCache == null) {
-            mediaLibraryCache = MediaLibraryCache.load(appContext)
-        }
-
-        val cachedFiles = if (!forceRefresh) {
-            mediaLibraryCache?.forCategory(category)
+        val subFilter = if (category == FileCategory.DOCUMENTS) {
+            _uiState.value.librarySubFilter
         } else {
-            null
+            LibrarySubFilter.ALL
         }
+        val memoryReady = !forceRefresh && mediaLibraryCache != null
 
-        if (cachedFiles != null) {
-            val subFilter = if (category == FileCategory.DOCUMENTS) {
-                _uiState.value.librarySubFilter
-            } else {
-                LibrarySubFilter.ALL
-            }
-            val usesMediaAlbums = category == FileCategory.IMAGES || category == FileCategory.VIDEOS
-            val mediaAlbums = if (usesMediaAlbums) {
-                MediaAlbum.buildChips(cachedFiles)
-            } else {
-                emptyList()
-            }
-            val mediaAlbumId = MediaAlbum.ALL
-            val filtered = when (category) {
-                FileCategory.DOCUMENTS -> cachedFiles.filter { subFilter.matches(it) }
-                FileCategory.IMAGES, FileCategory.VIDEOS -> MediaAlbum.filter(cachedFiles, mediaAlbumId)
-                else -> cachedFiles
-            }
-            val sorted = sortLibraryFiles(filtered)
-            _uiState.update {
-                it.copy(
-                    showHome = false,
-                    activeCategory = category,
-                    categoryRoot = folder,
-                    currentDir = folder,
-                    fileFilter = FileFilter.forCategory(category),
-                    libraryMode = true,
-                    librarySubFilter = subFilter,
-                    mediaAlbums = mediaAlbums,
-                    mediaAlbumId = mediaAlbumId,
-                    showFavoritesOnly = false,
-                showLargestFiles = false,
-                    showDuplicates = false,
-                    selectionMode = false,
-                    selectedPaths = emptySet(),
-                    searchQuery = "",
-                    searchResults = emptyList(),
-                    items = sorted,
-                    canGoUp = true,
-                    progress = null,
-                )
-            }
-            // Show cache instantly, then query only rows changed since the cache snapshot.
-            catchUpMediaStoreChanges()
-            return
-        }
-
+        // Navigate immediately — never load/sort thousands of files on the UI thread.
         _uiState.update {
             it.copy(
                 showHome = false,
+                showCloud = false,
                 activeCategory = category,
                 categoryRoot = folder,
                 currentDir = folder,
                 fileFilter = FileFilter.forCategory(category),
                 libraryMode = true,
+                librarySubFilter = subFilter,
                 mediaAlbums = emptyList(),
                 mediaAlbumId = MediaAlbum.ALL,
+                showFavoritesOnly = false,
+                showLargestFiles = false,
+                showDuplicates = false,
                 selectionMode = false,
                 selectedPaths = emptySet(),
                 searchQuery = "",
@@ -687,47 +664,64 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
         libraryJob?.cancel()
         libraryJob = viewModelScope.launch {
-            val library = withContext(Dispatchers.IO) {
-                obtainMediaLibrary(forceRefresh = forceRefresh)
+            val prepared = withContext(Dispatchers.IO) {
+                if (!forceRefresh && mediaLibraryCache == null) {
+                    mediaLibraryCache = MediaLibraryCache.load(appContext)
+                }
+                if (!folder.exists()) folder.mkdirs()
+                val library = obtainMediaLibrary(forceRefresh = forceRefresh)
+                val base = library.forCategory(category)
+                val usesMediaAlbums = category == FileCategory.IMAGES || category == FileCategory.VIDEOS
+                val mediaAlbums = if (usesMediaAlbums) {
+                    MediaAlbum.buildChips(base)
+                } else {
+                    emptyList()
+                }
+                val mediaAlbumId = MediaAlbum.ALL
+                val filtered = when (category) {
+                    FileCategory.DOCUMENTS -> base.filter { subFilter.matches(it) }
+                    FileCategory.IMAGES, FileCategory.VIDEOS -> MediaAlbum.filter(base, mediaAlbumId)
+                    else -> base
+                }
+                CategoryOpenResult(
+                    items = sortLibraryFiles(filtered),
+                    mediaAlbums = mediaAlbums,
+                    mediaAlbumId = mediaAlbumId,
+                    library = library,
+                )
             }
             if (_uiState.value.activeCategory != category || !_uiState.value.libraryMode) {
                 return@launch
             }
-            val subFilter = _uiState.value.librarySubFilter
-            val base = library.forCategory(category)
-            val usesMediaAlbums = category == FileCategory.IMAGES || category == FileCategory.VIDEOS
-            val mediaAlbums = if (usesMediaAlbums) {
-                MediaAlbum.buildChips(base)
-            } else {
-                emptyList()
-            }
-            val mediaAlbumId = MediaAlbum.ALL
-            val filtered = when (category) {
-                FileCategory.DOCUMENTS -> base.filter { subFilter.matches(it) }
-                FileCategory.IMAGES, FileCategory.VIDEOS -> MediaAlbum.filter(base, mediaAlbumId)
-                else -> base
-            }
-            val sorted = sortLibraryFiles(filtered)
             _uiState.update {
                 it.copy(
-                    items = sorted,
+                    items = prepared.items,
                     progress = null,
                     canGoUp = true,
-                    librarySubFilter = if (category == FileCategory.DOCUMENTS) subFilter else LibrarySubFilter.ALL,
-                    mediaAlbums = mediaAlbums,
-                    mediaAlbumId = mediaAlbumId,
-                    selectedPaths = it.selectedPaths.filter { path ->
-                        sorted.any { item -> item.path == path }
-                    }.toSet(),
+                    librarySubFilter = if (category == FileCategory.DOCUMENTS) {
+                        subFilter
+                    } else {
+                        LibrarySubFilter.ALL
+                    },
+                    mediaAlbums = prepared.mediaAlbums,
+                    mediaAlbumId = prepared.mediaAlbumId,
+                    selectedPaths = emptySet(),
                 )
             }
-            withContext(Dispatchers.IO) {
-                persistHomeSnapshot(
-                    library = library,
-                    categories = FileOperations.getCategorySummaries(library),
-                    recentFiles = library.images.take(12),
-                    storage = _uiState.value.storageInfo ?: FileOperations.getStorageInfo(),
-                )
+            // Let the first frames compose before a catch-up query.
+            delay(280)
+            if (_uiState.value.activeCategory == category && _uiState.value.libraryMode) {
+                catchUpMediaStoreChanges()
+            }
+            if (forceRefresh || mediaLibraryCache == null) {
+                withContext(Dispatchers.IO) {
+                    persistHomeSnapshot(
+                        library = prepared.library,
+                        categories = FileOperations.getCategorySummaries(prepared.library),
+                        recentFiles = prepared.library.images.take(12),
+                        storage = _uiState.value.storageInfo ?: FileOperations.getStorageInfo(),
+                    )
+                }
             }
         }
     }
@@ -2173,11 +2167,6 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun openFavorites() {
-        val favorites = prefs.getFavoritePaths()
-        val items = favorites.mapNotNull { path ->
-            val file = File(path)
-            if (file.exists()) FileItem(file) else null
-        }.sortedByDescending { it.lastModified }
         _uiState.update {
             it.copy(
                 showHome = false,
@@ -2188,12 +2177,22 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 categoryRoot = null,
                 currentDir = root,
                 fileFilter = FileFilter.ALL,
-                items = items,
+                items = emptyList(),
                 canGoUp = true,
                 selectionMode = false,
                 selectedPaths = emptySet(),
                 progress = null,
             )
+        }
+        viewModelScope.launch {
+            val items = withContext(Dispatchers.IO) {
+                prefs.getFavoritePaths().mapNotNull { path ->
+                    val file = File(path)
+                    if (file.exists()) FileItem(file) else null
+                }.sortedByDescending { it.lastModified }
+            }
+            if (!_uiState.value.showFavoritesOnly) return@launch
+            _uiState.update { it.copy(items = items) }
         }
     }
 
@@ -2273,14 +2272,17 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update { it.copy(librarySubFilter = filter) }
         val category = _uiState.value.activeCategory
         val cached = mediaLibraryCache
-        if (category != null && cached != null && _uiState.value.libraryMode) {
+        if (category == null || cached == null || !_uiState.value.libraryMode) return
+        viewModelScope.launch(Dispatchers.Default) {
             val base = cached.forCategory(category)
             val filtered = if (category == FileCategory.DOCUMENTS) {
                 base.filter { filter.matches(it) }
             } else {
                 base
             }
-            _uiState.update { it.copy(items = sortLibraryFiles(filtered)) }
+            val sorted = sortLibraryFiles(filtered)
+            if (_uiState.value.activeCategory != category) return@launch
+            _uiState.update { it.copy(items = sorted) }
         }
     }
 
@@ -2290,22 +2292,33 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         if (!state.libraryMode || (category != FileCategory.IMAGES && category != FileCategory.VIDEOS)) {
             return
         }
-        val source = when (category) {
-            FileCategory.IMAGES -> mediaLibraryCache?.images ?: state.items.filter { it.isImage }
-            FileCategory.VIDEOS -> mediaLibraryCache?.videos ?: state.items.filter { it.isVideo }
-            else -> return
-        }
-        val albums = MediaAlbum.buildChips(source).ifEmpty { state.mediaAlbums }
-        val selected = MediaAlbum.sanitizeSelection(albumId, albums)
-        val filtered = MediaAlbum.filter(source, selected)
+        // Update selection immediately for responsive chips; filter list off the UI thread.
         _uiState.update {
             it.copy(
-                mediaAlbumId = selected,
-                mediaAlbums = albums,
-                items = sortLibraryFiles(filtered),
+                mediaAlbumId = albumId,
                 selectedPaths = emptySet(),
                 selectionMode = false,
             )
+        }
+        viewModelScope.launch(Dispatchers.Default) {
+            val source = when (category) {
+                FileCategory.IMAGES -> mediaLibraryCache?.images ?: state.items.filter { it.isImage }
+                FileCategory.VIDEOS -> mediaLibraryCache?.videos ?: state.items.filter { it.isVideo }
+                else -> return@launch
+            }
+            val albums = MediaAlbum.buildChips(source).ifEmpty { state.mediaAlbums }
+            val selected = MediaAlbum.sanitizeSelection(albumId, albums)
+            val sorted = sortLibraryFiles(MediaAlbum.filter(source, selected))
+            if (_uiState.value.activeCategory != category || !_uiState.value.libraryMode) {
+                return@launch
+            }
+            _uiState.update {
+                it.copy(
+                    mediaAlbumId = selected,
+                    mediaAlbums = albums,
+                    items = sorted,
+                )
+            }
         }
     }
 
@@ -2423,6 +2436,13 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             localized.getString(id, *args)
         }
     }
+
+    private data class CategoryOpenResult(
+        val items: List<FileItem>,
+        val mediaAlbums: List<MediaAlbumChip>,
+        val mediaAlbumId: String,
+        val library: MediaLibrary,
+    )
 
     private data class HomeDashboardData(
         val storageInfo: StorageInfo,
