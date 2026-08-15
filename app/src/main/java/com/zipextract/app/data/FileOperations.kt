@@ -533,6 +533,32 @@ object FileOperations {
         }
     }
 
+
+    /** Common Opera / Opera Mini / Opera GX download locations on Android. */
+    private fun operaDownloadCandidates(storageRoot: File): List<File> {
+        val packages = listOf(
+            "com.opera.browser",
+            "com.opera.browser.beta",
+            "com.opera.mini.native",
+            "com.opera.gx",
+            "com.opera.touch",
+        )
+        val out = mutableListOf(
+            File(storageRoot, "Opera"),
+            File(storageRoot, "Opera Downloads"),
+            File(storageRoot, "Download/Opera"),
+            File(storageRoot, "Downloads/Opera"),
+        )
+        packages.forEach { pkg ->
+            out += File(storageRoot, "Android/media/$pkg")
+            out += File(storageRoot, "Android/data/$pkg/files")
+            out += File(storageRoot, "Android/data/$pkg/files/Download")
+            out += File(storageRoot, "Android/data/$pkg/files/Downloads")
+            out += File(storageRoot, "Android/data/$pkg/cache/downloads")
+        }
+        return out
+    }
+
     private fun mediaScanRoots(context: Context? = null): List<File> {
         val storage = Environment.getExternalStorageDirectory()
         val candidates = mutableListOf(
@@ -559,6 +585,7 @@ object FileOperations {
             File(storage, "Bluetooth"),
             storage,
         )
+        candidates += operaDownloadCandidates(storage)
         candidates += FileCategory.entries.map { it.resolveFolder() }
 
         // Also walk common folders on microSD / USB volumes when present.
@@ -578,6 +605,7 @@ object FileOperations {
                         File(volRoot, "Music"),
                         File(volRoot, "WhatsApp"),
                     )
+                    candidates += operaDownloadCandidates(volRoot)
                 }
         }
 
@@ -593,6 +621,7 @@ object FileOperations {
             File(storage, "Downloads"),
             FileCategory.DOWNLOADS.resolveFolder(),
         )
+        roots += operaDownloadCandidates(storage)
         context?.let { ctx ->
             listDeviceStorages(ctx)
                 .filter { !it.isPrimary && it.canBrowse }
@@ -600,6 +629,7 @@ object FileOperations {
                 .forEach { volRoot ->
                     roots += File(volRoot, "Download")
                     roots += File(volRoot, "Downloads")
+                    roots += operaDownloadCandidates(volRoot)
                 }
         }
         return roots.filter { it.exists() && it.isDirectory }
