@@ -15,6 +15,8 @@ enum class FileCategory(
     DOCUMENTS(R.string.category_documents, R.string.category_documents_sub),
     ARCHIVES(R.string.category_archives, R.string.category_archives_sub),
     APPS(R.string.category_apps, R.string.category_apps_sub),
+    AUDIO(R.string.category_audio, R.string.category_audio_sub),
+    RAW_APK(R.string.category_raw_apk, R.string.category_raw_apk_sub),
     OTHERS(R.string.category_others, R.string.category_others_sub),
     ;
 
@@ -27,6 +29,8 @@ enum class FileCategory(
             DOCUMENTS -> "Dokumen"
             ARCHIVES -> "ZIP"
             APPS -> "Aplikasi"
+            AUDIO -> "Audio"
+            RAW_APK -> "Raw APK"
             OTHERS -> "Lainnya"
         }
 
@@ -38,7 +42,9 @@ enum class FileCategory(
             DOCUMENTS -> "PDF, Word, Excel"
             ARCHIVES -> "File ZIP & arsip"
             APPS -> "Aplikasi terpasang"
-            OTHERS -> "Musik & file lain"
+            AUDIO -> "Musik & audio"
+            RAW_APK -> "File APK di storage"
+            OTHERS -> "File lain"
         }
 
     fun resolveFolder(): File {
@@ -68,9 +74,17 @@ enum class FileCategory(
                 File(publicDir(Environment.DIRECTORY_DOWNLOADS), "APK"),
                 publicDir(Environment.DIRECTORY_DOWNLOADS),
             )
-            OTHERS -> firstExisting(
+            AUDIO -> firstExisting(
                 publicDir(Environment.DIRECTORY_MUSIC),
                 File(storage, "Music"),
+                File(storage, "Audio"),
+            )
+            RAW_APK -> firstExisting(
+                File(publicDir(Environment.DIRECTORY_DOWNLOADS), "APK"),
+                publicDir(Environment.DIRECTORY_DOWNLOADS),
+            )
+            OTHERS -> firstExisting(
+                publicDir(Environment.DIRECTORY_DOWNLOADS, File(storage, "Download")),
                 storage,
             )
         }
@@ -84,6 +98,8 @@ enum class FileCategory(
             DOCUMENTS -> "dokumen"
             ARCHIVES -> "file ZIP"
             APPS -> "aplikasi"
+            AUDIO -> "audio"
+            RAW_APK -> "APK"
             OTHERS -> "file"
         }
 
@@ -96,6 +112,8 @@ enum class FileCategory(
             DOCUMENTS -> R.string.noun_documents
             ARCHIVES -> R.string.noun_archives
             APPS -> R.string.noun_apps
+            AUDIO -> R.string.noun_audio
+            RAW_APK -> R.string.noun_raw_apk
             OTHERS -> R.string.noun_others
         }
 
@@ -172,7 +190,9 @@ data class MediaLibrary(
     val videos: List<FileItem> = emptyList(),
     val documents: List<FileItem> = emptyList(),
     val archives: List<FileItem> = emptyList(),
+    /** Raw APK / XAPK installer files found on storage (not installed apps). */
     val apps: List<FileItem> = emptyList(),
+    val audio: List<FileItem> = emptyList(),
     val others: List<FileItem> = emptyList(),
 ) {
     fun forCategory(category: FileCategory): List<FileItem> {
@@ -182,7 +202,10 @@ data class MediaLibrary(
             FileCategory.VIDEOS -> videos
             FileCategory.DOCUMENTS -> documents
             FileCategory.ARCHIVES -> archives
-            FileCategory.APPS -> apps
+            // Installed apps are loaded separately; this bucket is raw APK files.
+            FileCategory.APPS -> emptyList()
+            FileCategory.AUDIO -> audio
+            FileCategory.RAW_APK -> apps
             FileCategory.OTHERS -> others
         }
     }

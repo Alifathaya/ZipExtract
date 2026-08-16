@@ -9,6 +9,7 @@ enum class FileFilter(@StringRes val labelRes: Int) {
     VIDEOS(R.string.filter_videos),
     DOCUMENTS(R.string.filter_documents),
     ARCHIVES(R.string.filter_archives),
+    AUDIO(R.string.filter_audio),
     APPS(R.string.filter_apps),
     OTHERS(R.string.filter_others),
     ;
@@ -21,6 +22,7 @@ enum class FileFilter(@StringRes val labelRes: Int) {
             VIDEOS -> "Video"
             DOCUMENTS -> "Dokumen"
             ARCHIVES -> "ZIP"
+            AUDIO -> "Audio"
             APPS -> "APK"
             OTHERS -> "Lainnya"
         }
@@ -33,7 +35,9 @@ enum class FileFilter(@StringRes val labelRes: Int) {
                 FileCategory.VIDEOS -> VIDEOS
                 FileCategory.DOCUMENTS -> DOCUMENTS
                 FileCategory.ARCHIVES -> ARCHIVES
-                FileCategory.APPS -> APPS
+                FileCategory.APPS -> ALL
+                FileCategory.AUDIO -> AUDIO
+                FileCategory.RAW_APK -> APPS
                 FileCategory.OTHERS -> OTHERS
             }
         }

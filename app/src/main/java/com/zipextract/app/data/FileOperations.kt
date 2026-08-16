@@ -270,6 +270,7 @@ object FileOperations {
         val documents = LinkedHashMap<String, FileItem>()
         val archives = LinkedHashMap<String, FileItem>()
         val apps = LinkedHashMap<String, FileItem>()
+        val audio = LinkedHashMap<String, FileItem>()
         val others = LinkedHashMap<String, FileItem>()
         val visited = HashSet<String>()
         val downloadRoots = downloadScanRoots(context)
@@ -288,6 +289,18 @@ object FileOperations {
             map[item.path] = item
         }
 
+        fun classify(item: FileItem) {
+            when {
+                item.isImage -> addItem(images, item)
+                item.isVideo -> addItem(videos, item)
+                item.isApp -> addItem(apps, item)
+                item.isArchive -> addItem(archives, item)
+                item.isDocument -> addItem(documents, item)
+                item.isAudio -> addItem(audio, item)
+                else -> addItem(others, item)
+            }
+        }
+
         mediaScanRoots(context).forEach { root ->
             walkFiles(root, depth = 0, maxDepth = maxDepth, visited = visited) { file ->
                 val item = FileItem(file)
@@ -295,14 +308,7 @@ object FileOperations {
                 if (underDownload(path)) {
                     addItem(downloads, item)
                 }
-                when {
-                    item.isImage -> addItem(images, item)
-                    item.isVideo -> addItem(videos, item)
-                    item.isApp -> addItem(apps, item)
-                    item.isArchive -> addItem(archives, item)
-                    item.isDocument -> addItem(documents, item)
-                    item.isAudio -> addItem(others, item)
-                }
+                classify(item)
             }
         }
 
@@ -317,21 +323,17 @@ object FileOperations {
                 collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
                 into = videos,
             )
+            mergeMediaStoreFiles(
+                resolver = resolver,
+                collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                into = audio,
+            )
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                 mergeMediaStoreFiles(
                     resolver = resolver,
                     collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI,
                     into = downloads,
-                    alsoClassify = { item ->
-                        when {
-                            item.isImage -> addItem(images, item)
-                            item.isVideo -> addItem(videos, item)
-                            item.isApp -> addItem(apps, item)
-                            item.isArchive -> addItem(archives, item)
-                            item.isDocument -> addItem(documents, item)
-                            item.isAudio -> addItem(others, item)
-                        }
-                    },
+                    alsoClassify = { item -> classify(item) },
                 )
             }
         }
@@ -349,6 +351,7 @@ object FileOperations {
             documents = newest(documents),
             archives = newest(archives),
             apps = newest(apps),
+            audio = newest(audio),
             others = newest(others),
         )
     }
@@ -524,11 +527,11 @@ object FileOperations {
             videos = merge(base.videos) { it.isVideo },
             documents = merge(base.documents) { it.isDocument },
             archives = merge(base.archives) { it.isArchive && !it.isApp },
-            apps = merge(base.apps) { it.isApp },
+            apps = merge(base.apps) { it.isApp && !it.isInstalledApp },
+            audio = merge(base.audio) { it.isAudio },
             others = merge(base.others) { item ->
-                item.isAudio ||
-                    (!item.isImage && !item.isVideo && !item.isDocument &&
-                        !(item.isArchive && !item.isApp) && !item.isApp)
+                !item.isImage && !item.isVideo && !item.isDocument && !item.isAudio &&
+                    !(item.isArchive && !item.isApp) && !item.isApp
             },
         )
     }

@@ -60,7 +60,7 @@
     <string name="category_apps">Uygulamalar</string>
     <string name="category_apps_sub">Telefona yüklü uygulamalar</string>
     <string name="category_others">Diğer</string>
-    <string name="category_others_sub">Müzik ve diğer dosyalar</string>
+    <string name="category_others_sub">Diğer dosyalar</string>
     <string name="items_count">%1$d öğe</string>
     <string name="opening_cloud">Dosya açılıyor, lütfen bekleyin…</string>
     <string name="cloud_open_failed">Bulut dosyası açılamadı</string>
@@ -385,4 +385,11 @@
     <string name="app_uninstall_started">Uninstall: %1$s</string>
     <string name="dialog_uninstall_title">Uninstall apps?</string>
     <string name="dialog_uninstall_body">Open the system uninstall screen for %1$d selected app(s)?</string>
+    <string name="category_audio">Ses</string>
+    <string name="category_audio_sub">Müzik ve ses dosyaları</string>
+    <string name="category_raw_apk">Raw APK</string>
+    <string name="category_raw_apk_sub">Depolamadaki APK dosyaları</string>
+    <string name="noun_audio">ses dosyaları</string>
+    <string name="noun_raw_apk">APKs</string>
+    <string name="filter_audio">Ses</string>
 </resources>

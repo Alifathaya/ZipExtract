@@ -60,7 +60,7 @@
     <string name="category_apps">應用程式</string>
     <string name="category_apps_sub">手機上已安裝的應用程式</string>
     <string name="category_others">其他</string>
-    <string name="category_others_sub">音樂與其他檔案</string>
+    <string name="category_others_sub">其他檔案</string>
     <string name="items_count">%1$d 項</string>
     <string name="opening_cloud">正在開啟檔案，請稍候…</string>
     <string name="cloud_open_failed">無法開啟雲端檔案</string>
@@ -385,4 +385,11 @@
     <string name="app_uninstall_started">Uninstall: %1$s</string>
     <string name="dialog_uninstall_title">Uninstall apps?</string>
     <string name="dialog_uninstall_body">Open the system uninstall screen for %1$d selected app(s)?</string>
+    <string name="category_audio">音訊</string>
+    <string name="category_audio_sub">音樂與音訊檔案</string>
+    <string name="category_raw_apk">Raw APK</string>
+    <string name="category_raw_apk_sub">儲存空間中的 APK</string>
+    <string name="noun_audio">音訊</string>
+    <string name="noun_raw_apk">APKs</string>
+    <string name="filter_audio">音訊</string>
 </resources>

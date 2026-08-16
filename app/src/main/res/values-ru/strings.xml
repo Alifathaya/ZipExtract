@@ -60,7 +60,7 @@
     <string name="category_apps">Приложения</string>
     <string name="category_apps_sub">Установленные приложения</string>
     <string name="category_others">Другое</string>
-    <string name="category_others_sub">Музыка и другие файлы</string>
+    <string name="category_others_sub">Другие файлы</string>
     <string name="items_count">%1$d элем.</string>
     <string name="opening_cloud">Открытие файла, подождите…</string>
     <string name="cloud_open_failed">Не удалось открыть облачный файл</string>
@@ -385,4 +385,11 @@
     <string name="app_uninstall_started">Uninstall: %1$s</string>
     <string name="dialog_uninstall_title">Uninstall apps?</string>
     <string name="dialog_uninstall_body">Open the system uninstall screen for %1$d selected app(s)?</string>
+    <string name="category_audio">Аудио</string>
+    <string name="category_audio_sub">Музыка и аудио</string>
+    <string name="category_raw_apk">Raw APK</string>
+    <string name="category_raw_apk_sub">APK в памяти</string>
+    <string name="noun_audio">аудио</string>
+    <string name="noun_raw_apk">APKs</string>
+    <string name="filter_audio">Аудио</string>
 </resources>

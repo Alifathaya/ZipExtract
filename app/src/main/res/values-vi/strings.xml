@@ -60,7 +60,7 @@
     <string name="category_apps">Ứng dụng</string>
     <string name="category_apps_sub">Ứng dụng đã cài trên điện thoại</string>
     <string name="category_others">Khác</string>
-    <string name="category_others_sub">Nhạc và tệp khác</string>
+    <string name="category_others_sub">Tệp khác</string>
     <string name="items_count">%1$d mục</string>
     <string name="opening_cloud">Đang mở tệp, vui lòng chờ…</string>
     <string name="cloud_open_failed">Không mở được tệp đám mây</string>
@@ -385,4 +385,11 @@
     <string name="app_uninstall_started">Uninstall: %1$s</string>
     <string name="dialog_uninstall_title">Uninstall apps?</string>
     <string name="dialog_uninstall_body">Open the system uninstall screen for %1$d selected app(s)?</string>
+    <string name="category_audio">Âm thanh</string>
+    <string name="category_audio_sub">Nhạc và tệp âm thanh</string>
+    <string name="category_raw_apk">Raw APK</string>
+    <string name="category_raw_apk_sub">Tệp APK trên bộ nhớ</string>
+    <string name="noun_audio">âm thanh</string>
+    <string name="noun_raw_apk">APKs</string>
+    <string name="filter_audio">Âm thanh</string>
 </resources>

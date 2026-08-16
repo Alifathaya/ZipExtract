@@ -60,7 +60,7 @@
     <string name="category_apps">Mga App</string>
     <string name="category_apps_sub">Mga app na naka-install sa telepono</string>
     <string name="category_others">Iba pa</string>
-    <string name="category_others_sub">Musika at iba pang file</string>
+    <string name="category_others_sub">Iba pang file</string>
     <string name="items_count">%1$d item</string>
     <string name="opening_cloud">Binubuksan ang file, maghintay…</string>
     <string name="cloud_open_failed">Hindi mabuksan ang cloud file</string>
@@ -385,4 +385,11 @@
     <string name="app_uninstall_started">Uninstall: %1$s</string>
     <string name="dialog_uninstall_title">Uninstall apps?</string>
     <string name="dialog_uninstall_body">Open the system uninstall screen for %1$d selected app(s)?</string>
+    <string name="category_audio">Audio</string>
+    <string name="category_audio_sub">Musika at audio files</string>
+    <string name="category_raw_apk">Raw APK</string>
+    <string name="category_raw_apk_sub">Mga APK sa storage</string>
+    <string name="noun_audio">audio files</string>
+    <string name="noun_raw_apk">APKs</string>
+    <string name="filter_audio">Audio</string>
 </resources>

@@ -60,7 +60,7 @@
     <string name="category_apps">แอป</string>
     <string name="category_apps_sub">แอปที่ติดตั้งในเครื่อง</string>
     <string name="category_others">อื่นๆ</string>
-    <string name="category_others_sub">เพลงและไฟล์อื่นๆ</string>
+    <string name="category_others_sub">ไฟล์อื่น</string>
     <string name="items_count">%1$d รายการ</string>
     <string name="opening_cloud">กำลังเปิดไฟล์ โปรดรอ…</string>
     <string name="cloud_open_failed">เปิดไฟล์คลาวด์ไม่สำเร็จ</string>
@@ -385,4 +385,11 @@
     <string name="app_uninstall_started">Uninstall: %1$s</string>
     <string name="dialog_uninstall_title">Uninstall apps?</string>
     <string name="dialog_uninstall_body">Open the system uninstall screen for %1$d selected app(s)?</string>
+    <string name="category_audio">เสียง</string>
+    <string name="category_audio_sub">เพลงและไฟล์เสียง</string>
+    <string name="category_raw_apk">Raw APK</string>
+    <string name="category_raw_apk_sub">ไฟล์ APK ในที่เก็บ</string>
+    <string name="noun_audio">ไฟล์เสียง</string>
+    <string name="noun_raw_apk">APKs</string>
+    <string name="filter_audio">เสียง</string>
 </resources>

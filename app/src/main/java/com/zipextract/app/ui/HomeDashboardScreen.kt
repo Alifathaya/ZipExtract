@@ -989,6 +989,8 @@ private fun categoryStyle(category: FileCategory): CategoryStyle {
         FileCategory.DOCUMENTS -> CategoryStyle(Icons.Default.Description, Color(0xFFD97706), Color(0xFFB45309))
         FileCategory.ARCHIVES -> CategoryStyle(Icons.Default.Archive, Color(0xFF0F766E), Color(0xFF0D9488))
         FileCategory.APPS -> CategoryStyle(Icons.Default.Android, Color(0xFF059669), Color(0xFF047857))
-        FileCategory.OTHERS -> CategoryStyle(Icons.Default.MusicNote, Color(0xFF475569), Color(0xFF334155))
+        FileCategory.AUDIO -> CategoryStyle(Icons.Default.MusicNote, Color(0xFFEA580C), Color(0xFFC2410C))
+        FileCategory.RAW_APK -> CategoryStyle(Icons.Default.Android, Color(0xFF0891B2), Color(0xFF0E7490))
+        FileCategory.OTHERS -> CategoryStyle(Icons.AutoMirrored.Filled.InsertDriveFile, Color(0xFF475569), Color(0xFF334155))
     }
 }

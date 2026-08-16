@@ -65,8 +65,12 @@ data class FileItem(
             FileFilter.VIDEOS -> isDirectory || isVideo
             FileFilter.DOCUMENTS -> isDirectory || isDocument
             FileFilter.ARCHIVES -> isDirectory || (isArchive && !isApp)
-            FileFilter.APPS -> isDirectory || isApp
-            FileFilter.OTHERS -> isDirectory || (!isImage && !isVideo && !isDocument && !(isArchive && !isApp) && !isApp)
+            FileFilter.AUDIO -> isDirectory || isAudio
+            FileFilter.APPS -> isDirectory || (isApp && !isInstalledApp)
+            FileFilter.OTHERS -> isDirectory || (
+                !isImage && !isVideo && !isDocument && !isAudio &&
+                    !(isArchive && !isApp) && !isApp
+                )
         }
     }
 
@@ -77,8 +81,12 @@ data class FileItem(
             FileCategory.VIDEOS -> isVideo
             FileCategory.DOCUMENTS -> isDocument
             FileCategory.ARCHIVES -> isArchive && !isApp
-            FileCategory.APPS -> isApp
-            FileCategory.OTHERS -> isAudio || (!isImage && !isVideo && !isDocument && !(isArchive && !isApp) && !isApp)
+            FileCategory.APPS -> isInstalledApp
+            FileCategory.AUDIO -> isAudio
+            FileCategory.RAW_APK -> isApp && !isInstalledApp
+            FileCategory.OTHERS ->
+                !isImage && !isVideo && !isDocument && !isAudio &&
+                    !(isArchive && !isApp) && !isApp
         }
     }
 

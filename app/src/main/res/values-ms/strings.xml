@@ -60,7 +60,7 @@
     <string name="category_apps">Aplikasi</string>
     <string name="category_apps_sub">Aplikasi dipasang pada telefon</string>
     <string name="category_others">Lain-lain</string>
-    <string name="category_others_sub">Muzik &amp; fail lain</string>
+    <string name="category_others_sub">Fail lain</string>
     <string name="items_count">%1$d item</string>
     <string name="opening_cloud">Membuka fail, sila tunggu…</string>
     <string name="cloud_open_failed">Gagal membuka fail cloud</string>
@@ -385,4 +385,11 @@
     <string name="app_uninstall_started">Uninstall: %1$s</string>
     <string name="dialog_uninstall_title">Uninstall apps?</string>
     <string name="dialog_uninstall_body">Open the system uninstall screen for %1$d selected app(s)?</string>
+    <string name="category_audio">Audio</string>
+    <string name="category_audio_sub">Muzik & fail audio</string>
+    <string name="category_raw_apk">Raw APK</string>
+    <string name="category_raw_apk_sub">Fail APK dalam storan</string>
+    <string name="noun_audio">audio files</string>
+    <string name="noun_raw_apk">APKs</string>
+    <string name="filter_audio">Audio</string>
 </resources>

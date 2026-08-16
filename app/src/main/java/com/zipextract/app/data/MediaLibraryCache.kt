@@ -12,9 +12,9 @@ import java.io.FileWriter
  * and categories instantly without a full storage rescan.
  */
 object MediaLibraryCache {
-    private const val CACHE_FILE = "media_library_cache_v1.txt"
-    private const val META_FILE = "media_library_cache_meta_v1.txt"
-    private const val FORMAT_VERSION = 1
+    private const val CACHE_FILE = "media_library_cache_v2.txt"
+    private const val META_FILE = "media_library_cache_meta_v2.txt"
+    private const val FORMAT_VERSION = 2
 
     /** Soft refresh threshold: still show cache instantly, rescan in background after this. */
     const val SOFT_REFRESH_AFTER_MS = 30 * 1000L
@@ -65,6 +65,7 @@ object MediaLibraryCache {
                 writeCategory(out, "DOCUMENTS", library.documents)
                 writeCategory(out, "ARCHIVES", library.archives)
                 writeCategory(out, "APPS", library.apps)
+                writeCategory(out, "AUDIO", library.audio)
                 writeCategory(out, "OTHERS", library.others)
             }
             if (!tmp.renameTo(target)) {
@@ -110,6 +111,7 @@ object MediaLibraryCache {
                     documents = buckets["DOCUMENTS"].orEmpty(),
                     archives = buckets["ARCHIVES"].orEmpty(),
                     apps = buckets["APPS"].orEmpty(),
+                    audio = buckets["AUDIO"].orEmpty(),
                     others = buckets["OTHERS"].orEmpty(),
                 )
             }

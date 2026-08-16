@@ -592,7 +592,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                             val largest = (
                                 library.downloads + library.images + library.videos +
                                     library.documents + library.archives +
-                                    library.apps + library.others
+                                    library.apps + library.audio + library.others
                                 )
                                 .distinctBy { it.path }
                                 .filter { !it.isDirectory && it.sizeBytes > 0L }
@@ -2010,6 +2010,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 documents = library.documents.filterNot { gone(it.path) },
                 archives = library.archives.filterNot { gone(it.path) },
                 apps = library.apps.filterNot { gone(it.path) },
+                audio = library.audio.filterNot { gone(it.path) },
                 others = library.others.filterNot { gone(it.path) },
             )
         }
@@ -2389,7 +2390,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     val library = obtainMediaLibrary(forceRefresh = false)
                     (
                         library.downloads + library.images + library.videos +
-                            library.documents + library.archives + library.apps + library.others
+                            library.documents + library.archives + library.apps +
+                            library.audio + library.others
                         )
                         .distinctBy { it.path }
                         .filter { !it.isDirectory && it.sizeBytes > 0L }
@@ -2536,7 +2538,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 val groups = withContext(Dispatchers.IO) {
                     val library = obtainMediaLibrary(forceRefresh = false)
                     val pool = library.images + library.videos + library.documents +
-                        library.archives + library.apps
+                        library.archives + library.apps + library.audio + library.others
                     DuplicateFinder.findDuplicates(pool) { progress, message ->
                         updateProgress(str(R.string.progress_duplicates), message, progress)
                     }
@@ -2595,7 +2597,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 val groups = withContext(Dispatchers.IO) {
                     val library = obtainMediaLibrary(forceRefresh = true)
                     val pool = library.images + library.videos + library.documents +
-                        library.archives + library.apps
+                        library.archives + library.apps + library.audio + library.others
                     DuplicateFinder.findDuplicates(pool)
                 }
                 _uiState.update {

@@ -60,7 +60,7 @@
     <string name="category_apps">التطبيقات</string>
     <string name="category_apps_sub">التطبيقات المثبتة على الهاتف</string>
     <string name="category_others">أخرى</string>
-    <string name="category_others_sub">الموسيقى وملفات أخرى</string>
+    <string name="category_others_sub">ملفات أخرى</string>
     <string name="items_count">%1$d عنصر</string>
     <string name="opening_cloud">جارٍ فتح الملف، يرجى الانتظار…</string>
     <string name="cloud_open_failed">تعذر فتح ملف السحابة</string>
@@ -385,4 +385,11 @@
     <string name="app_uninstall_started">Uninstall: %1$s</string>
     <string name="dialog_uninstall_title">Uninstall apps?</string>
     <string name="dialog_uninstall_body">Open the system uninstall screen for %1$d selected app(s)?</string>
+    <string name="category_audio">الصوت</string>
+    <string name="category_audio_sub">الموسيقى والملفات الصوتية</string>
+    <string name="category_raw_apk">Raw APK</string>
+    <string name="category_raw_apk_sub">ملفات APK في التخزين</string>
+    <string name="noun_audio">ملفات صوتية</string>
+    <string name="noun_raw_apk">APKs</string>
+    <string name="filter_audio">الصوت</string>
 </resources>

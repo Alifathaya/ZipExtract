@@ -60,7 +60,7 @@
     <string name="category_apps">Apps</string>
     <string name="category_apps_sub">Auf dem Telefon installierte Apps</string>
     <string name="category_others">Sonstiges</string>
-    <string name="category_others_sub">Musik &amp; andere Dateien</string>
+    <string name="category_others_sub">Andere Dateien</string>
     <string name="items_count">%1$d Elemente</string>
     <string name="opening_cloud">Datei wird geöffnet, bitte warten…</string>
     <string name="cloud_open_failed">Clouddatei konnte nicht geöffnet werden</string>
@@ -385,4 +385,11 @@
     <string name="app_uninstall_started">Uninstall: %1$s</string>
     <string name="dialog_uninstall_title">Uninstall apps?</string>
     <string name="dialog_uninstall_body">Open the system uninstall screen for %1$d selected app(s)?</string>
+    <string name="category_audio">Audio</string>
+    <string name="category_audio_sub">Musik- & Audiodateien</string>
+    <string name="category_raw_apk">Raw APK</string>
+    <string name="category_raw_apk_sub">APK-Dateien im Speicher</string>
+    <string name="noun_audio">Audiodateien</string>
+    <string name="noun_raw_apk">APKs</string>
+    <string name="filter_audio">Audio</string>
 </resources>

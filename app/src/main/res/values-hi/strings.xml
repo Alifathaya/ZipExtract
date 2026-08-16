@@ -60,7 +60,7 @@
     <string name="category_apps">ऐप्स</string>
     <string name="category_apps_sub">फ़ोन पर इंस्टॉल ऐप्स</string>
     <string name="category_others">अन्य</string>
-    <string name="category_others_sub">संगीत और अन्य फ़ाइलें</string>
+    <string name="category_others_sub">अन्य फ़ाइलें</string>
     <string name="items_count">%1$d आइटम</string>
     <string name="opening_cloud">फ़ाइल खोली जा रही है, कृपया प्रतीक्षा करें…</string>
     <string name="cloud_open_failed">क्लाउड फ़ाइल नहीं खुल सकी</string>
@@ -385,4 +385,11 @@
     <string name="app_uninstall_started">Uninstall: %1$s</string>
     <string name="dialog_uninstall_title">Uninstall apps?</string>
     <string name="dialog_uninstall_body">Open the system uninstall screen for %1$d selected app(s)?</string>
+    <string name="category_audio">ऑडियो</string>
+    <string name="category_audio_sub">संगीत और ऑडियो फ़ाइलें</string>
+    <string name="category_raw_apk">Raw APK</string>
+    <string name="category_raw_apk_sub">स्टोरेज पर APK फ़ाइलें</string>
+    <string name="noun_audio">ऑडियो</string>
+    <string name="noun_raw_apk">APKs</string>
+    <string name="filter_audio">ऑडियो</string>
 </resources>

@@ -64,7 +64,7 @@
     <string name="category_apps">Aplikasi</string>
     <string name="category_apps_sub">Aplikasi terpasang di HP</string>
     <string name="category_others">Lainnya</string>
-    <string name="category_others_sub">Musik &amp; file lain</string>
+    <string name="category_others_sub">File lain</string>
     <string name="items_count">%1$d item</string>
     <string name="opening_cloud">Sedang membuka file, tunggu sebentar…</string>
     <string name="cloud_open_failed">Gagal membuka file cloud</string>
@@ -389,4 +389,11 @@
     <string name="app_uninstall_started">Uninstall: %1$s</string>
     <string name="dialog_uninstall_title">Uninstall aplikasi?</string>
     <string name="dialog_uninstall_body">Buka layar uninstall sistem untuk %1$d aplikasi terpilih?</string>
+    <string name="category_audio">Audio</string>
+    <string name="category_audio_sub">Musik & file audio</string>
+    <string name="category_raw_apk">Raw APK</string>
+    <string name="category_raw_apk_sub">File APK di penyimpanan</string>
+    <string name="noun_audio">audio</string>
+    <string name="noun_raw_apk">APK</string>
+    <string name="filter_audio">Audio</string>
 </resources>
