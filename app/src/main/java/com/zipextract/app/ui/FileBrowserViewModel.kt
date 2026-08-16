@@ -552,6 +552,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                         recentFiles = recentFiles,
                     )
                     when {
+                        state.libraryMode && state.activeCategory == FileCategory.APPS -> {
+                            // Installed apps are not MediaStore-backed; keep the current list.
+                            baseState
+                        }
                         state.libraryMode && state.activeCategory != null -> {
                             val category = state.activeCategory
                             val categoryFiles = library.forCategory(category)
