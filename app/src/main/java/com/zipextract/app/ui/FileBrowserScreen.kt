@@ -54,6 +54,7 @@ import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.runtime.Composable
@@ -119,6 +120,7 @@ import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import com.zipextract.app.R
 import com.zipextract.app.data.AppLanguage
+import com.zipextract.app.data.AppSubFilter
 import com.zipextract.app.data.ClipboardMode
 import com.zipextract.app.data.DuplicateGroup
 import com.zipextract.app.data.FileFilter
@@ -152,6 +154,7 @@ private enum class DialogType {
     RENAME,
     CREATE_ZIP,
     DELETE_CONFIRM,
+    UNINSTALL_CONFIRM,
 }
 
 private enum class TimeBucket(@StringRes val labelRes: Int) {
@@ -254,6 +257,9 @@ fun FileBrowserScreen(
     onSetThemeMode: (ThemeMode) -> Unit,
     onSetAppLanguage: (AppLanguage) -> Unit,
     onSetLibrarySubFilter: (LibrarySubFilter) -> Unit,
+    onSetAppSubFilter: (AppSubFilter) -> Unit,
+    onCompressSelectedApps: () -> Unit,
+    onUninstallSelectedApps: () -> Unit,
     onSetMediaAlbum: (String) -> Unit,
     onFindDuplicates: () -> Unit,
     onCloseDuplicates: () -> Unit,
@@ -343,6 +349,8 @@ fun FileBrowserScreen(
     val canExtract = selectedItems.size == 1 && singleSelected?.isArchive == true
     val canRename = selectedItems.size == 1
     val canFavoriteOrDetails = selectedItems.size == 1
+    val selectingInstalledApps = selectedItems.isNotEmpty() && selectedItems.all { it.isInstalledApp }
+    val isAppsCategory = state.libraryMode && state.activeCategory == FileCategory.APPS
 
     BackHandler(
         enabled = state.extractDialog != null ||
@@ -841,6 +849,12 @@ fun FileBrowserScreen(
                                 onSelect = onSetLibrarySubFilter,
                             )
                         }
+                        if (state.activeCategory == FileCategory.APPS) {
+                            AppSubFilterChips(
+                                selected = state.appSubFilter,
+                                onSelect = onSetAppSubFilter,
+                            )
+                        }
                         CategoryLibraryList(
                             items = state.items,
                             selectedPaths = state.selectedPaths,
@@ -906,37 +920,47 @@ fun FileBrowserScreen(
                     .align(Alignment.CenterStart)
                     .fillMaxHeight(),
             ) {
-                ActionBar(
-                    canExtract = canExtract,
-                    canRename = canRename,
-                    canFavoriteOrDetails = canFavoriteOrDetails,
-                    hasClipboard = state.clipboard != null,
-                    clipboardMode = state.clipboard?.mode,
-                    onCopy = onCopy,
-                    onCut = onCut,
-                    onPaste = onPaste,
-                    onDelete = { dialog = DialogType.DELETE_CONFIRM },
-                    onRename = {
-                        inputText = singleSelected?.name.orEmpty()
-                        dialog = DialogType.RENAME
-                    },
-                    onZip = {
-                        inputText = if (selectedCount == 1) {
-                            singleSelected?.nameWithoutZip().orEmpty()
-                        } else {
-                            "archive"
-                        }
-                        bestCompression = true
-                        dialog = DialogType.CREATE_ZIP
-                    },
-                    onExtract = {
-                        singleSelected?.let { onOpenExtract(it) }
-                    },
-                    onShare = onShareSelected,
-                    onOpenWith = onOpenWithSelected,
-                    onFavorite = onToggleFavoriteSelected,
-                    onDetails = onShowSelectedDetails,
-                )
+                if (selectingInstalledApps || (isAppsCategory && selectedItems.any { it.isInstalledApp })) {
+                    AppsActionBar(
+                        canDetails = canFavoriteOrDetails,
+                        onShare = onShareSelected,
+                        onCompress = onCompressSelectedApps,
+                        onUninstall = { dialog = DialogType.UNINSTALL_CONFIRM },
+                        onDetails = onShowSelectedDetails,
+                    )
+                } else {
+                    ActionBar(
+                        canExtract = canExtract,
+                        canRename = canRename,
+                        canFavoriteOrDetails = canFavoriteOrDetails,
+                        hasClipboard = state.clipboard != null,
+                        clipboardMode = state.clipboard?.mode,
+                        onCopy = onCopy,
+                        onCut = onCut,
+                        onPaste = onPaste,
+                        onDelete = { dialog = DialogType.DELETE_CONFIRM },
+                        onRename = {
+                            inputText = singleSelected?.name.orEmpty()
+                            dialog = DialogType.RENAME
+                        },
+                        onZip = {
+                            inputText = if (selectedCount == 1) {
+                                singleSelected?.nameWithoutZip().orEmpty()
+                            } else {
+                                "archive"
+                            }
+                            bestCompression = true
+                            dialog = DialogType.CREATE_ZIP
+                        },
+                        onExtract = {
+                            singleSelected?.let { onOpenExtract(it) }
+                        },
+                        onShare = onShareSelected,
+                        onOpenWith = onOpenWithSelected,
+                        onFavorite = onToggleFavoriteSelected,
+                        onDetails = onShowSelectedDetails,
+                    )
+                }
             }
         }
         }
@@ -988,6 +1012,20 @@ fun FileBrowserScreen(
                     dialog = null
                     onDelete()
                 }) { Text(stringResource(R.string.delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+        DialogType.UNINSTALL_CONFIRM -> AlertDialog(
+            onDismissRequest = { dialog = null },
+            title = { Text(stringResource(R.string.dialog_uninstall_title)) },
+            text = { Text(stringResource(R.string.dialog_uninstall_body, selectedCount)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    dialog = null
+                    onUninstallSelectedApps()
+                }) { Text(stringResource(R.string.app_uninstall)) }
             },
             dismissButton = {
                 TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.cancel)) }
@@ -1757,14 +1795,14 @@ private fun CategoryLibraryList(
                 FileRow(
                     item = item,
                     selected = item.path in selectedPaths,
-                    selectionMode = selectionMode && !item.isInstalledApp,
+                    selectionMode = selectionMode,
                     isFavorite = item.path in favoritePaths,
                     showFolder = true,
                     onClick = {
                         when {
+                            selectionMode -> onToggleSelect(item)
                             item.isInstalledApp -> onOpenItem(item)
                             item.isArchive -> onOpenExtract(item)
-                            selectionMode -> onToggleSelect(item)
                             else -> onOpenItem(item)
                         }
                     },
@@ -2048,6 +2086,61 @@ private fun MediaAlbumChips(
                     )
                 },
             )
+        }
+    }
+}
+
+
+@Composable
+private fun AppSubFilterChips(
+    selected: AppSubFilter,
+    onSelect: (AppSubFilter) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        AppSubFilter.entries.forEach { filter ->
+            FilterChip(
+                selected = selected == filter,
+                onClick = { onSelect(filter) },
+                label = { Text(stringResource(filter.labelRes)) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun AppsActionBar(
+    canDetails: Boolean,
+    onShare: () -> Unit,
+    onCompress: () -> Unit,
+    onUninstall: () -> Unit,
+    onDetails: () -> Unit,
+) {
+    Surface(
+        tonalElevation = 3.dp,
+        shadowElevation = 8.dp,
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxHeight(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .width(76.dp)
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 8.dp, horizontal = 2.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            ActionIcon(Icons.Default.Info, stringResource(R.string.details), onDetails, enabled = canDetails)
+            ActionIcon(Icons.Default.Share, stringResource(R.string.share), onShare)
+            ActionIcon(Icons.Default.FolderZip, stringResource(R.string.app_compress), onCompress)
+            ActionIcon(Icons.Default.DeleteForever, stringResource(R.string.app_uninstall), onUninstall)
         }
     }
 }

@@ -15,6 +15,11 @@ data class FileItem(
     val lastModified: Long = file.lastModified(),
     /** Set for launchable apps installed on the device (Apps category). */
     val packageName: String? = null,
+    val isSystemApp: Boolean = false,
+    val isPlayStoreApp: Boolean = false,
+    val isGameApp: Boolean = false,
+    val lastUsedMs: Long = 0L,
+    val isRarelyUsed: Boolean = false,
 ) {
     val isInstalledApp: Boolean
         get() = !packageName.isNullOrBlank()

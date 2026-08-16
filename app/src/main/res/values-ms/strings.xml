@@ -367,4 +367,22 @@
     <string name="details_package">Pakej: %1$s</string>
     <string name="open_app_info">Maklumat aplikasi</string>
     <string name="launch_app_failed">Tidak dapat membuka aplikasi</string>
+    <string name="app_filter_all">Semua</string>
+    <string name="app_filter_play_store">Play Store</string>
+    <string name="app_filter_system">Sistem</string>
+    <string name="app_filter_large">Fail besar</string>
+    <string name="app_filter_rarely_used">Jarangkali diguna</string>
+    <string name="app_filter_games">Game</string>
+    <string name="app_compress">Mampat</string>
+    <string name="app_uninstall">Nyahpasang</string>
+    <string name="app_share_preparing">Preparing APK…</string>
+    <string name="app_share_failed">Could not share APK</string>
+    <string name="app_compress_preparing">Compressing APK…</string>
+    <string name="app_compress_failed">Could not compress APK</string>
+    <string name="app_compress_done">Saved: %1$s</string>
+    <string name="app_uninstall_self">Cannot uninstall FileNest from here</string>
+    <string name="app_uninstall_failed">Could not open uninstall</string>
+    <string name="app_uninstall_started">Uninstall: %1$s</string>
+    <string name="dialog_uninstall_title">Uninstall apps?</string>
+    <string name="dialog_uninstall_body">Open the system uninstall screen for %1$d selected app(s)?</string>
 </resources>

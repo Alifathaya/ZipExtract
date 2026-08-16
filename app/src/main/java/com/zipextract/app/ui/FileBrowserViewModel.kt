@@ -22,6 +22,7 @@ import com.zipextract.app.data.FileFilter
 import com.zipextract.app.data.FileItem
 import com.zipextract.app.data.FileOperations
 import com.zipextract.app.data.InstalledApps
+import com.zipextract.app.data.AppSubFilter
 import com.zipextract.app.data.MediaAlbum
 import com.zipextract.app.data.MediaAlbumChip
 import com.zipextract.app.data.MediaChangeWatcher
@@ -140,6 +141,7 @@ data class BrowserUiState(
     val showLargestFiles: Boolean = false,
     val libraryMode: Boolean = false,
     val librarySubFilter: LibrarySubFilter = LibrarySubFilter.ALL,
+    val appSubFilter: AppSubFilter = AppSubFilter.ALL,
     val mediaAlbumId: String = MediaAlbum.ALL,
     val mediaAlbums: List<MediaAlbumChip> = emptyList(),
     val favoritePaths: Set<String> = emptySet(),
@@ -208,6 +210,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             ?: (System.currentTimeMillis() / 1000L - 30L)
     @Volatile
     private var mediaLibraryCache: MediaLibrary? = null
+    @Volatile
+    private var installedAppsCache: List<FileItem> = emptyList()
     @Volatile
     private var homeLoadedOnce: Boolean = false
     init {
@@ -380,9 +384,11 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     state.showExplorerRoots -> Unit
                     state.libraryMode && state.activeCategory == FileCategory.APPS -> {
                         val apps = withContext(Dispatchers.IO) { InstalledApps.list(appContext) }
+                        installedAppsCache = apps
+                        val filtered = InstalledApps.filter(apps, state.appSubFilter)
                         _uiState.update {
                             it.copy(
-                                items = apps,
+                                items = filtered,
                                 categorySummaries = it.categorySummaries.map { summary ->
                                     if (summary.category == FileCategory.APPS) {
                                         summary.copy(itemCount = apps.size)
@@ -675,7 +681,11 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         } else {
             LibrarySubFilter.ALL
         }
-        val memoryReady = !forceRefresh && mediaLibraryCache != null
+        val appFilter = if (category == FileCategory.APPS) {
+            _uiState.value.appSubFilter
+        } else {
+            AppSubFilter.ALL
+        }
 
         // Navigate immediately — never load/sort thousands of files on the UI thread.
         _uiState.update {
@@ -688,6 +698,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 fileFilter = FileFilter.forCategory(category),
                 libraryMode = true,
                 librarySubFilter = subFilter,
+                appSubFilter = if (category == FileCategory.APPS) appFilter else AppSubFilter.ALL,
                 mediaAlbums = emptyList(),
                 mediaAlbumId = MediaAlbum.ALL,
                 showFavoritesOnly = false,
@@ -716,9 +727,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 if (!folder.exists()) folder.mkdirs()
                 if (category == FileCategory.APPS) {
                     val apps = InstalledApps.list(appContext)
+                    installedAppsCache = apps
                     val library = obtainMediaLibrary(forceRefresh = false)
                     return@withContext CategoryOpenResult(
-                        items = apps,
+                        items = InstalledApps.filter(apps, appFilter),
                         mediaAlbums = emptyList(),
                         mediaAlbumId = MediaAlbum.ALL,
                         library = library,
@@ -763,7 +775,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     selectedPaths = emptySet(),
                     categorySummaries = it.categorySummaries.map { summary ->
                         if (summary.category == FileCategory.APPS && category == FileCategory.APPS) {
-                            summary.copy(itemCount = prepared.items.size)
+                            summary.copy(itemCount = installedAppsCache.size)
                         } else {
                             summary
                         }
@@ -1871,10 +1883,6 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun toggleSelect(item: FileItem) {
-        if (item.isInstalledApp) {
-            showFileDetails(item)
-            return
-        }
         _uiState.update { state ->
             val next = state.selectedPaths.toMutableSet()
             if (!next.add(item.path)) next.remove(item.path)
@@ -1887,10 +1895,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
     fun selectAll() {
         _uiState.update { state ->
-            val selectable = state.items.filterNot { it.isInstalledApp }.map { it.path }.toSet()
             state.copy(
-                selectionMode = selectable.isNotEmpty(),
-                selectedPaths = selectable,
+                selectionMode = true,
+                selectedPaths = state.items.map { it.path }.toSet(),
             )
         }
     }
@@ -2104,6 +2111,11 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             .map { it.file }
     }
 
+    private fun selectedInstalledApps(): List<FileItem> {
+        val paths = _uiState.value.selectedPaths
+        return _uiState.value.items.filter { it.path in paths && it.isInstalledApp }
+    }
+
     private fun runJob(
         title: String,
         message: String,
@@ -2167,6 +2179,11 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun shareSelected(context: Context) {
+        val apps = selectedInstalledApps()
+        if (apps.isNotEmpty()) {
+            shareSelectedApps(context)
+            return
+        }
         val files = selectedFiles()
         if (files.isEmpty()) {
             emit(str(R.string.select_one_share))
@@ -2175,6 +2192,82 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         if (!FileActions.shareFiles(context, files)) {
             emit(str(R.string.share_failed))
         }
+    }
+
+    fun shareSelectedApps(context: Context) {
+        val apps = selectedInstalledApps()
+        if (apps.isEmpty()) {
+            emit(str(R.string.select_one_share))
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(progress = ProgressState(str(R.string.app_share_preparing), apps.first().name))
+            }
+            val staged = withContext(Dispatchers.IO) {
+                InstalledApps.stageApksForShare(context, apps)
+            }
+            _uiState.update { it.copy(progress = null) }
+            if (staged.isEmpty()) {
+                emit(str(R.string.app_share_failed))
+                return@launch
+            }
+            if (!FileActions.shareFiles(context, staged)) {
+                emit(str(R.string.share_failed))
+            }
+        }
+    }
+
+    fun compressSelectedApps() {
+        val apps = selectedInstalledApps()
+        if (apps.isEmpty()) {
+            emit(str(R.string.select_files_first))
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    progress = ProgressState(
+                        str(R.string.app_compress_preparing),
+                        str(R.string.progress_creating_zip),
+                    ),
+                )
+            }
+            val zip = withContext(Dispatchers.IO) {
+                val base = if (apps.size == 1) {
+                    apps.first().name.ifBlank { "app" }
+                } else {
+                    "apps-${apps.size}"
+                }
+                InstalledApps.compressApks(appContext, apps, base)
+            }
+            _uiState.update { it.copy(progress = null, selectionMode = false, selectedPaths = emptySet()) }
+            if (zip == null) {
+                emit(str(R.string.app_compress_failed))
+            } else {
+                emit(str(R.string.app_compress_done, zip.name))
+            }
+        }
+    }
+
+    fun uninstallSelectedApps() {
+        val apps = selectedInstalledApps()
+        if (apps.isEmpty()) {
+            emit(str(R.string.select_files_first))
+            return
+        }
+        val target = apps.firstOrNull { it.packageName != appContext.packageName }
+        val pkg = target?.packageName
+        if (pkg == null) {
+            emit(str(R.string.app_uninstall_self))
+            return
+        }
+        if (!InstalledApps.uninstall(appContext, pkg)) {
+            emit(str(R.string.app_uninstall_failed))
+            return
+        }
+        clearSelection()
+        emit(str(R.string.app_uninstall_started, target.name))
     }
 
     fun openWithSelected(context: Context) {
@@ -2368,6 +2461,29 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             val sorted = sortLibraryFiles(filtered)
             if (_uiState.value.activeCategory != category) return@launch
             _uiState.update { it.copy(items = sorted) }
+        }
+    }
+
+    fun setAppSubFilter(filter: AppSubFilter) {
+        _uiState.update {
+            it.copy(
+                appSubFilter = filter,
+                selectedPaths = emptySet(),
+                selectionMode = false,
+            )
+        }
+        if (_uiState.value.activeCategory != FileCategory.APPS || !_uiState.value.libraryMode) {
+            return
+        }
+        viewModelScope.launch(Dispatchers.Default) {
+            val source = installedAppsCache.ifEmpty {
+                withContext(Dispatchers.IO) {
+                    InstalledApps.list(appContext).also { installedAppsCache = it }
+                }
+            }
+            val filtered = InstalledApps.filter(source, filter)
+            if (_uiState.value.activeCategory != FileCategory.APPS) return@launch
+            _uiState.update { it.copy(items = filtered) }
         }
     }
 

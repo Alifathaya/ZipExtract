@@ -367,4 +367,22 @@
     <string name="details_package">पैकेज: %1$s</string>
     <string name="open_app_info">ऐप जानकारी</string>
     <string name="launch_app_failed">ऐप नहीं खोल सके</string>
+    <string name="app_filter_all">सभी</string>
+    <string name="app_filter_play_store">Play Store</string>
+    <string name="app_filter_system">सिस्टम</string>
+    <string name="app_filter_large">बड़े ऐप्स</string>
+    <string name="app_filter_rarely_used">कम उपयोग</string>
+    <string name="app_filter_games">गेम्स</string>
+    <string name="app_compress">कंप्रेस</string>
+    <string name="app_uninstall">अनइंस्टॉल</string>
+    <string name="app_share_preparing">Preparing APK…</string>
+    <string name="app_share_failed">Could not share APK</string>
+    <string name="app_compress_preparing">Compressing APK…</string>
+    <string name="app_compress_failed">Could not compress APK</string>
+    <string name="app_compress_done">Saved: %1$s</string>
+    <string name="app_uninstall_self">Cannot uninstall FileNest from here</string>
+    <string name="app_uninstall_failed">Could not open uninstall</string>
+    <string name="app_uninstall_started">Uninstall: %1$s</string>
+    <string name="dialog_uninstall_title">Uninstall apps?</string>
+    <string name="dialog_uninstall_body">Open the system uninstall screen for %1$d selected app(s)?</string>
 </resources>

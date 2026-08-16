@@ -367,4 +367,22 @@
     <string name="details_package">套件：%1$s</string>
     <string name="open_app_info">應用程式資訊</string>
     <string name="launch_app_failed">無法開啟應用程式</string>
+    <string name="app_filter_all">全部</string>
+    <string name="app_filter_play_store">Play Store</string>
+    <string name="app_filter_system">系統</string>
+    <string name="app_filter_large">大型應用</string>
+    <string name="app_filter_rarely_used">很少使用</string>
+    <string name="app_filter_games">遊戲</string>
+    <string name="app_compress">壓縮</string>
+    <string name="app_uninstall">解除安裝</string>
+    <string name="app_share_preparing">Preparing APK…</string>
+    <string name="app_share_failed">Could not share APK</string>
+    <string name="app_compress_preparing">Compressing APK…</string>
+    <string name="app_compress_failed">Could not compress APK</string>
+    <string name="app_compress_done">Saved: %1$s</string>
+    <string name="app_uninstall_self">Cannot uninstall FileNest from here</string>
+    <string name="app_uninstall_failed">Could not open uninstall</string>
+    <string name="app_uninstall_started">Uninstall: %1$s</string>
+    <string name="dialog_uninstall_title">Uninstall apps?</string>
+    <string name="dialog_uninstall_body">Open the system uninstall screen for %1$d selected app(s)?</string>
 </resources>
