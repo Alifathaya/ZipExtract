@@ -114,6 +114,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.drawable.toBitmap
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import com.zipextract.app.R
@@ -1849,9 +1850,8 @@ private fun FileRow(
         item.packageName?.let { pkg ->
             runCatching {
                 context.packageManager.getApplicationIcon(pkg)
-                    .let { drawable ->
-                        androidx.core.graphics.drawable.toBitmap(drawable, 96, 96).asImageBitmap()
-                    }
+                    .toBitmap(96, 96)
+                    .asImageBitmap()
             }.getOrNull()
         }
     }
