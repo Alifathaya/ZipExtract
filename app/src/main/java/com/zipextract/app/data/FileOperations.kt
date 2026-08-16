@@ -201,14 +201,22 @@ object FileOperations {
         }.getOrNull()
     }
 
-    fun getCategorySummaries(library: MediaLibrary? = null): List<CategorySummary> {
-        val media = library ?: scanMediaLibrary()
+    fun getCategorySummaries(
+        library: MediaLibrary? = null,
+        context: Context? = null,
+    ): List<CategorySummary> {
+        val media = library ?: scanMediaLibrary(context = context)
+        val installedAppCount = context?.let { InstalledApps.count(it) }
         return FileCategory.entries.map { category ->
             val folder = category.resolveFolder()
             if (!folder.exists()) folder.mkdirs()
+            val count = when {
+                category == FileCategory.APPS && installedAppCount != null -> installedAppCount
+                else -> media.forCategory(category).size
+            }
             CategorySummary(
                 category = category,
-                itemCount = media.forCategory(category).size,
+                itemCount = count,
                 folder = folder,
             )
         }

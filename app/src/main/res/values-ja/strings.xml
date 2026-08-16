@@ -58,7 +58,7 @@
     <string name="category_archives">ZIP</string>
     <string name="category_archives_sub">ZIP とアーカイブ</string>
     <string name="category_apps">アプリ</string>
-    <string name="category_apps_sub">APK とインストーラー</string>
+    <string name="category_apps_sub">端末にインストール済みのアプリ</string>
     <string name="category_others">その他</string>
     <string name="category_others_sub">音楽とその他のファイル</string>
     <string name="items_count">%1$d 件</string>
@@ -145,7 +145,7 @@
     <string name="noun_videos">videos</string>
     <string name="noun_documents">documents</string>
     <string name="noun_archives">ZIP files</string>
-    <string name="noun_apps">APKs</string>
+    <string name="noun_apps">アプリ</string>
     <string name="noun_others">files</string>
     <string name="library_items_in_device">%1$d %2$s on device</string>
     <string name="library_all_in_device">All %1$s on device</string>
@@ -364,4 +364,7 @@
     <string name="time_last_month">先月</string>
     <string name="time_older">それ以前</string>
     <string name="extract_save_where">展開先のフォルダを選んでください</string>
+    <string name="details_package">パッケージ: %1$s</string>
+    <string name="open_app_info">アプリ情報</string>
+    <string name="launch_app_failed">アプリを開けませんでした</string>
 </resources>

@@ -37,7 +37,7 @@ enum class FileCategory(
             VIDEOS -> "Film & rekaman"
             DOCUMENTS -> "PDF, Word, Excel"
             ARCHIVES -> "File ZIP & arsip"
-            APPS -> "File APK & installer"
+            APPS -> "Aplikasi terpasang"
             OTHERS -> "Musik & file lain"
         }
 
@@ -83,7 +83,7 @@ enum class FileCategory(
             VIDEOS -> "video"
             DOCUMENTS -> "dokumen"
             ARCHIVES -> "file ZIP"
-            APPS -> "APK"
+            APPS -> "aplikasi"
             OTHERS -> "file"
         }
 

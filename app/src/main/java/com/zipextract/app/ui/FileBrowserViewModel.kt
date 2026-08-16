@@ -21,6 +21,7 @@ import com.zipextract.app.data.FileCategory
 import com.zipextract.app.data.FileFilter
 import com.zipextract.app.data.FileItem
 import com.zipextract.app.data.FileOperations
+import com.zipextract.app.data.InstalledApps
 import com.zipextract.app.data.MediaAlbum
 import com.zipextract.app.data.MediaAlbumChip
 import com.zipextract.app.data.MediaChangeWatcher
@@ -294,7 +295,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
             val data = withContext(Dispatchers.IO) {
                 val library = obtainMediaLibrary(forceRefresh)
-                val categories = FileOperations.getCategorySummaries(library)
+                val categories = FileOperations.getCategorySummaries(library, appContext)
                 val recentFiles = library.images.take(12)
                 val volumes = FileOperations.listDeviceStorages(appContext)
                 val storage = volumes.firstOrNull { it.isPrimary }?.let {
@@ -334,7 +335,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             persistHomeSnapshot(
                 library = library,
                 categories = state.categorySummaries.ifEmpty {
-                    FileOperations.getCategorySummaries(library)
+                    FileOperations.getCategorySummaries(library, appContext)
                 },
                 recentFiles = state.recentFiles.ifEmpty { library.images.take(12) },
                 storage = state.storageInfo ?: FileOperations.getStorageInfo(),
@@ -377,6 +378,31 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 val state = _uiState.value
                 when {
                     state.showExplorerRoots -> Unit
+                    state.libraryMode && state.activeCategory == FileCategory.APPS -> {
+                        val apps = withContext(Dispatchers.IO) { InstalledApps.list(appContext) }
+                        _uiState.update {
+                            it.copy(
+                                items = apps,
+                                categorySummaries = it.categorySummaries.map { summary ->
+                                    if (summary.category == FileCategory.APPS) {
+                                        summary.copy(itemCount = apps.size)
+                                    } else {
+                                        summary
+                                    }
+                                },
+                            )
+                        }
+                        withContext(Dispatchers.IO) {
+                            mediaLibraryCache?.let { library ->
+                                persistHomeSnapshot(
+                                    library = library,
+                                    categories = FileOperations.getCategorySummaries(library, appContext),
+                                    recentFiles = library.images.take(12),
+                                    storage = storage,
+                                )
+                            }
+                        }
+                    }
                     state.showHome || state.libraryMode || state.showLargestFiles ||
                         state.showFavoritesOnly -> {
                         if (mediaLibraryCache == null) {
@@ -391,6 +417,21 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                             delay(300)
                         } else {
                             catchUpMediaStoreChangesSync()
+                            // Keep Apps tile count in sync even on soft media catch-up.
+                            val appCount = withContext(Dispatchers.IO) {
+                                InstalledApps.count(appContext)
+                            }
+                            _uiState.update {
+                                it.copy(
+                                    categorySummaries = it.categorySummaries.map { summary ->
+                                        if (summary.category == FileCategory.APPS) {
+                                            summary.copy(itemCount = appCount)
+                                        } else {
+                                            summary
+                                        }
+                                    },
+                                )
+                            }
                         }
                     }
                     !state.showHome && !state.libraryMode -> {
@@ -499,7 +540,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
                 val library = FileOperations.mergeIncremental(base, changed)
                 mediaLibraryCache = library
-                val categories = FileOperations.getCategorySummaries(library)
+                val categories = FileOperations.getCategorySummaries(library, appContext)
                 val recentFiles = library.images.take(12)
                 val storage = FileOperations.getStorageInfo()
 
@@ -669,6 +710,16 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     mediaLibraryCache = MediaLibraryCache.load(appContext)
                 }
                 if (!folder.exists()) folder.mkdirs()
+                if (category == FileCategory.APPS) {
+                    val apps = InstalledApps.list(appContext)
+                    val library = obtainMediaLibrary(forceRefresh = false)
+                    return@withContext CategoryOpenResult(
+                        items = apps,
+                        mediaAlbums = emptyList(),
+                        mediaAlbumId = MediaAlbum.ALL,
+                        library = library,
+                    )
+                }
                 val library = obtainMediaLibrary(forceRefresh = forceRefresh)
                 val base = library.forCategory(category)
                 val usesMediaAlbums = category == FileCategory.IMAGES || category == FileCategory.VIDEOS
@@ -706,18 +757,29 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     mediaAlbums = prepared.mediaAlbums,
                     mediaAlbumId = prepared.mediaAlbumId,
                     selectedPaths = emptySet(),
+                    categorySummaries = it.categorySummaries.map { summary ->
+                        if (summary.category == FileCategory.APPS && category == FileCategory.APPS) {
+                            summary.copy(itemCount = prepared.items.size)
+                        } else {
+                            summary
+                        }
+                    },
                 )
             }
             // Let the first frames compose before a catch-up query.
             delay(280)
-            if (_uiState.value.activeCategory == category && _uiState.value.libraryMode) {
+            if (
+                category != FileCategory.APPS &&
+                _uiState.value.activeCategory == category &&
+                _uiState.value.libraryMode
+            ) {
                 catchUpMediaStoreChanges()
             }
-            if (forceRefresh || mediaLibraryCache == null) {
+            if (forceRefresh || mediaLibraryCache == null || category == FileCategory.APPS) {
                 withContext(Dispatchers.IO) {
                     persistHomeSnapshot(
                         library = prepared.library,
-                        categories = FileOperations.getCategorySummaries(prepared.library),
+                        categories = FileOperations.getCategorySummaries(prepared.library, appContext),
                         recentFiles = prepared.library.images.take(12),
                         storage = _uiState.value.storageInfo ?: FileOperations.getStorageInfo(),
                     )
@@ -755,7 +817,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         mediaLibraryCache?.let { library ->
             runCatching {
                 MediaLibraryCache.save(appContext, library)
-                prefs.saveCategoryCounts(FileOperations.getCategorySummaries(library))
+                prefs.saveCategoryCounts(FileOperations.getCategorySummaries(library, appContext))
                 prefs.saveRecentPhotoPaths(library.images.take(12).map { it.path })
                 _uiState.value.storageInfo?.let { prefs.saveStorageInfo(it) }
             }
@@ -1067,6 +1129,12 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
     fun openItem(item: FileItem) {
         when {
+            item.isInstalledApp -> {
+                val pkg = item.packageName ?: return
+                if (!InstalledApps.launch(appContext, pkg)) {
+                    emit(str(R.string.launch_app_failed))
+                }
+            }
             item.isDirectory -> openDirectory(item)
             item.isApk -> installApkFile(item.file)
             item.isApp -> {
@@ -1660,7 +1728,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         mediaLibraryCache?.let { library ->
             persistHomeSnapshot(
                 library = library,
-                categories = FileOperations.getCategorySummaries(library),
+                categories = FileOperations.getCategorySummaries(library, appContext),
                 recentFiles = library.images.take(12),
                 storage = FileOperations.getStorageInfo(),
             )
@@ -1713,7 +1781,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
         persistHomeSnapshot(
             library = library,
-            categories = FileOperations.getCategorySummaries(library),
+            categories = FileOperations.getCategorySummaries(library, appContext),
             recentFiles = library.images.take(12),
             storage = FileOperations.getStorageInfo(),
         )
@@ -1799,6 +1867,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun toggleSelect(item: FileItem) {
+        if (item.isInstalledApp) {
+            showFileDetails(item)
+            return
+        }
         _uiState.update { state ->
             val next = state.selectedPaths.toMutableSet()
             if (!next.add(item.path)) next.remove(item.path)
@@ -1811,9 +1883,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
     fun selectAll() {
         _uiState.update { state ->
+            val selectable = state.items.filterNot { it.isInstalledApp }.map { it.path }.toSet()
             state.copy(
-                selectionMode = true,
-                selectedPaths = state.items.map { it.path }.toSet(),
+                selectionMode = selectable.isNotEmpty(),
+                selectedPaths = selectable,
             )
         }
     }
@@ -1933,7 +2006,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             val nextItems = state.items.filterNot { gone(it.path) }
             val nextRecent = state.recentFiles.filterNot { gone(it.path) }
             val nextCategories = if (patchedLibrary != null) {
-                FileOperations.getCategorySummaries(patchedLibrary)
+                FileOperations.getCategorySummaries(patchedLibrary, appContext)
             } else {
                 state.categorySummaries
             }
@@ -2023,7 +2096,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     private fun selectedFiles(): List<File> {
         val paths = _uiState.value.selectedPaths
         return _uiState.value.items
-            .filter { it.path in paths }
+            .filter { it.path in paths && !it.isInstalledApp }
             .map { it.file }
     }
 
@@ -2134,6 +2207,14 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
     fun openParentOfDetails() {
         val item = _uiState.value.fileDetails ?: return
+        if (item.isInstalledApp) {
+            val pkg = item.packageName ?: return
+            closeFileDetails()
+            if (!InstalledApps.openAppInfo(appContext, pkg)) {
+                emit(str(R.string.launch_app_failed))
+            }
+            return
+        }
         val parent = item.file.parentFile ?: return
         closeFileDetails()
         _uiState.update {

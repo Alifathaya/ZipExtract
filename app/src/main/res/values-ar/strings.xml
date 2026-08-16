@@ -58,7 +58,7 @@
     <string name="category_archives">ZIP</string>
     <string name="category_archives_sub">ملفات ZIP والأرشيف</string>
     <string name="category_apps">التطبيقات</string>
-    <string name="category_apps_sub">ملفات APK والمثبتات</string>
+    <string name="category_apps_sub">التطبيقات المثبتة على الهاتف</string>
     <string name="category_others">أخرى</string>
     <string name="category_others_sub">الموسيقى وملفات أخرى</string>
     <string name="items_count">%1$d عنصر</string>
@@ -145,7 +145,7 @@
     <string name="noun_videos">videos</string>
     <string name="noun_documents">documents</string>
     <string name="noun_archives">ZIP files</string>
-    <string name="noun_apps">APKs</string>
+    <string name="noun_apps">تطبيقات</string>
     <string name="noun_others">files</string>
     <string name="library_items_in_device">%1$d %2$s on device</string>
     <string name="library_all_in_device">All %1$s on device</string>
@@ -364,4 +364,7 @@
     <string name="time_last_month">الشهر الماضي</string>
     <string name="time_older">أقدم</string>
     <string name="extract_save_where">أين تريد حفظ الملفات المستخرجة؟</string>
+    <string name="details_package">الحزمة: %1$s</string>
+    <string name="open_app_info">معلومات التطبيق</string>
+    <string name="launch_app_failed">تعذر فتح التطبيق</string>
 </resources>

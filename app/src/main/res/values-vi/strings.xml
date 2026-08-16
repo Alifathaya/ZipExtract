@@ -58,7 +58,7 @@
     <string name="category_archives">ZIP</string>
     <string name="category_archives_sub">Tệp ZIP và lưu trữ</string>
     <string name="category_apps">Ứng dụng</string>
-    <string name="category_apps_sub">Tệp APK và trình cài đặt</string>
+    <string name="category_apps_sub">Ứng dụng đã cài trên điện thoại</string>
     <string name="category_others">Khác</string>
     <string name="category_others_sub">Nhạc và tệp khác</string>
     <string name="items_count">%1$d mục</string>
@@ -145,7 +145,7 @@
     <string name="noun_videos">videos</string>
     <string name="noun_documents">documents</string>
     <string name="noun_archives">ZIP files</string>
-    <string name="noun_apps">APKs</string>
+    <string name="noun_apps">ứng dụng</string>
     <string name="noun_others">files</string>
     <string name="library_items_in_device">%1$d %2$s on device</string>
     <string name="library_all_in_device">All %1$s on device</string>
@@ -364,4 +364,7 @@
     <string name="time_last_month">Tháng trước</string>
     <string name="time_older">Cũ hơn</string>
     <string name="extract_save_where">Lưu file đã giải nén ở đâu?</string>
+    <string name="details_package">Gói: %1$s</string>
+    <string name="open_app_info">Thông tin ứng dụng</string>
+    <string name="launch_app_failed">Không thể mở ứng dụng</string>
 </resources>

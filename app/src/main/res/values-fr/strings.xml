@@ -58,7 +58,7 @@
     <string name="category_archives">ZIP</string>
     <string name="category_archives_sub">Fichiers ZIP et archives</string>
     <string name="category_apps">Applications</string>
-    <string name="category_apps_sub">Fichiers APK et installateurs</string>
+    <string name="category_apps_sub">Applications installées sur le téléphone</string>
     <string name="category_others">Autres</string>
     <string name="category_others_sub">Musique et autres fichiers</string>
     <string name="items_count">%1$d éléments</string>
@@ -145,7 +145,7 @@
     <string name="noun_videos">videos</string>
     <string name="noun_documents">documents</string>
     <string name="noun_archives">ZIP files</string>
-    <string name="noun_apps">APKs</string>
+    <string name="noun_apps">applications</string>
     <string name="noun_others">files</string>
     <string name="library_items_in_device">%1$d %2$s on device</string>
     <string name="library_all_in_device">All %1$s on device</string>
@@ -364,4 +364,7 @@
     <string name="time_last_month">Le mois dernier</string>
     <string name="time_older">Plus anciens</string>
     <string name="extract_save_where">Où enregistrer les fichiers extraits ?</string>
+    <string name="details_package">Package : %1$s</string>
+    <string name="open_app_info">Infos de l’appli</string>
+    <string name="launch_app_failed">Impossible d’ouvrir l’application</string>
 </resources>

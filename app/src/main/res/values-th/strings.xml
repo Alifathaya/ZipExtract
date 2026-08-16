@@ -58,7 +58,7 @@
     <string name="category_archives">ZIP</string>
     <string name="category_archives_sub">ไฟล์ ZIP และไฟล์บีบอัด</string>
     <string name="category_apps">แอป</string>
-    <string name="category_apps_sub">ไฟล์ APK และตัวติดตั้ง</string>
+    <string name="category_apps_sub">แอปที่ติดตั้งในเครื่อง</string>
     <string name="category_others">อื่นๆ</string>
     <string name="category_others_sub">เพลงและไฟล์อื่นๆ</string>
     <string name="items_count">%1$d รายการ</string>
@@ -145,7 +145,7 @@
     <string name="noun_videos">videos</string>
     <string name="noun_documents">documents</string>
     <string name="noun_archives">ZIP files</string>
-    <string name="noun_apps">APKs</string>
+    <string name="noun_apps">แอป</string>
     <string name="noun_others">files</string>
     <string name="library_items_in_device">%1$d %2$s on device</string>
     <string name="library_all_in_device">All %1$s on device</string>
@@ -364,4 +364,7 @@
     <string name="time_last_month">เดือนที่แล้ว</string>
     <string name="time_older">เก่ากว่านี้</string>
     <string name="extract_save_where">บันทึกไฟล์ที่แตกไว้ที่ไหน?</string>
+    <string name="details_package">แพ็กเกจ: %1$s</string>
+    <string name="open_app_info">ข้อมูลแอป</string>
+    <string name="launch_app_failed">เปิดแอปไม่ได้</string>
 </resources>

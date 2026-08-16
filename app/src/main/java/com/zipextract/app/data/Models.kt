@@ -13,37 +13,42 @@ data class FileItem(
     val isDirectory: Boolean = file.isDirectory,
     val sizeBytes: Long = if (file.isFile) file.length() else 0L,
     val lastModified: Long = file.lastModified(),
+    /** Set for launchable apps installed on the device (Apps category). */
+    val packageName: String? = null,
 ) {
+    val isInstalledApp: Boolean
+        get() = !packageName.isNullOrBlank()
+
     val extension: String
-        get() = if (isDirectory) "" else file.extension.lowercase(Locale.ROOT)
+        get() = if (isDirectory || isInstalledApp) "" else file.extension.lowercase(Locale.ROOT)
 
     val isArchive: Boolean
-        get() = extension in ARCHIVE_EXTENSIONS || isZip
+        get() = !isInstalledApp && (extension in ARCHIVE_EXTENSIONS || isZip)
 
     val isZip: Boolean
-        get() = extension == "zip" || name.lowercase(Locale.ROOT).endsWith(".zip")
+        get() = !isInstalledApp && (extension == "zip" || name.lowercase(Locale.ROOT).endsWith(".zip"))
 
     val isPdf: Boolean
-        get() = extension == "pdf"
+        get() = !isInstalledApp && extension == "pdf"
 
     val isImage: Boolean
-        get() = extension in IMAGE_EXTENSIONS
+        get() = !isInstalledApp && extension in IMAGE_EXTENSIONS
 
     val isVideo: Boolean
-        get() = extension in VIDEO_EXTENSIONS
+        get() = !isInstalledApp && extension in VIDEO_EXTENSIONS
 
     val isAudio: Boolean
-        get() = extension in AUDIO_EXTENSIONS
+        get() = !isInstalledApp && extension in AUDIO_EXTENSIONS
 
     val isDocument: Boolean
-        get() = isPdf || extension in DOCUMENT_EXTENSIONS
+        get() = !isInstalledApp && (isPdf || extension in DOCUMENT_EXTENSIONS)
 
     val isApp: Boolean
-        get() = extension in APP_EXTENSIONS
+        get() = isInstalledApp || extension in APP_EXTENSIONS
 
     /** Plain APK that the system package installer can install directly. */
     val isApk: Boolean
-        get() = extension == "apk"
+        get() = !isInstalledApp && extension == "apk"
 
     val isViewable: Boolean
         get() = isPdf || isImage || isVideo

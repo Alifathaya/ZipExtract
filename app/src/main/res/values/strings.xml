@@ -62,7 +62,7 @@
     <string name="category_archives">ZIP</string>
     <string name="category_archives_sub">File ZIP &amp; arsip</string>
     <string name="category_apps">Aplikasi</string>
-    <string name="category_apps_sub">File APK &amp; installer</string>
+    <string name="category_apps_sub">Aplikasi terpasang di HP</string>
     <string name="category_others">Lainnya</string>
     <string name="category_others_sub">Musik &amp; file lain</string>
     <string name="items_count">%1$d item</string>
@@ -149,7 +149,7 @@
     <string name="noun_videos">video</string>
     <string name="noun_documents">dokumen</string>
     <string name="noun_archives">file ZIP</string>
-    <string name="noun_apps">APK</string>
+    <string name="noun_apps">aplikasi</string>
     <string name="noun_others">file</string>
     <string name="library_items_in_device">%1$d %2$s di perangkat</string>
     <string name="library_all_in_device">Semua %1$s di perangkat</string>
@@ -368,4 +368,7 @@
     <string name="time_last_week">Minggu lalu</string>
     <string name="time_last_month">Bulan lalu</string>
     <string name="time_older">Lebih lama</string>
+    <string name="details_package">Paket: %1$s</string>
+    <string name="open_app_info">Info aplikasi</string>
+    <string name="launch_app_failed">Tidak bisa membuka aplikasi</string>
 </resources>

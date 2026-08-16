@@ -845,6 +845,7 @@ fun FileBrowserScreen(
                             selectedPaths = state.selectedPaths,
                             favoritePaths = state.favoritePaths,
                             selectionMode = state.selectionMode,
+                            flatList = state.activeCategory == FileCategory.APPS,
                             onOpenItem = onOpenItem,
                             onOpenExtract = onOpenExtract,
                             onToggleSelect = onToggleSelect,
@@ -1033,19 +1034,31 @@ fun FileBrowserScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(stringResource(R.string.details_size, details.formattedSize))
                     Text(stringResource(R.string.details_date, details.formattedDate))
-                    Text(
-                        text = stringResource(R.string.details_path, details.path),
-                        maxLines = 4,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    if (details.isInstalledApp && details.packageName != null) {
+                        Text(stringResource(R.string.details_package, details.packageName))
+                    } else {
+                        Text(
+                            text = stringResource(R.string.details_path, details.path),
+                            maxLines = 4,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             },
             confirmButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(onClick = onCloseFileDetails) { Text(stringResource(R.string.close)) }
-                    TextButton(onClick = onOpenParentOfDetails) { Text(stringResource(R.string.open_folder)) }
-                    TextButton(onClick = { onToggleFavoritePath(details.path) }) {
-                        Text(stringResource(R.string.favorites))
+                    TextButton(onClick = onOpenParentOfDetails) {
+                        Text(
+                            stringResource(
+                                if (details.isInstalledApp) R.string.open_app_info else R.string.open_folder,
+                            ),
+                        )
+                    }
+                    if (!details.isInstalledApp) {
+                        TextButton(onClick = { onToggleFavoritePath(details.path) }) {
+                            Text(stringResource(R.string.favorites))
+                        }
                     }
                 }
             },
@@ -1726,12 +1739,43 @@ private fun CategoryLibraryList(
     selectedPaths: Set<String>,
     favoritePaths: Set<String>,
     selectionMode: Boolean,
+    flatList: Boolean = false,
     onOpenItem: (FileItem) -> Unit,
     onOpenExtract: (FileItem) -> Unit,
     onToggleSelect: (FileItem) -> Unit,
     onToggleFavorite: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (flatList) {
+        LazyColumn(
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = modifier.fillMaxSize(),
+        ) {
+            items(items, key = { it.path }) { item ->
+                FileRow(
+                    item = item,
+                    selected = item.path in selectedPaths,
+                    selectionMode = selectionMode && !item.isInstalledApp,
+                    isFavorite = item.path in favoritePaths,
+                    showFolder = true,
+                    onClick = {
+                        when {
+                            item.isInstalledApp -> onOpenItem(item)
+                            item.isArchive -> onOpenExtract(item)
+                            selectionMode -> onToggleSelect(item)
+                            else -> onOpenItem(item)
+                        }
+                    },
+                    onLongClick = { onToggleSelect(item) },
+                    onToggleFavorite = { onToggleFavorite(item.path) },
+                )
+            }
+            item { Spacer(modifier = Modifier.height(88.dp)) }
+        }
+        return
+    }
+
     val sections = remember(items) { groupByTime(items) }
     LazyColumn(
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
@@ -1800,6 +1844,17 @@ private fun FileRow(
     onLongClick: () -> Unit,
     onToggleFavorite: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val appIcon = remember(item.packageName) {
+        item.packageName?.let { pkg ->
+            runCatching {
+                context.packageManager.getApplicationIcon(pkg)
+                    .let { drawable ->
+                        androidx.core.graphics.drawable.toBitmap(drawable, 96, 96).asImageBitmap()
+                    }
+            }.getOrNull()
+        }
+    }
     val container = if (selected) {
         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
     } else {
@@ -1824,29 +1879,39 @@ private fun FileRow(
             Spacer(modifier = Modifier.width(8.dp))
         }
 
-        Icon(
-            imageVector = when {
-                item.isDirectory -> Icons.Default.Folder
-                item.isArchive -> Icons.Default.Archive
-                item.isApp -> Icons.Default.Android
-                item.isPdf -> Icons.Default.PictureAsPdf
-                item.isImage -> Icons.Default.Image
-                item.isVideo -> Icons.Default.Movie
-                item.isAudio -> Icons.Default.MusicNote
-                else -> Icons.AutoMirrored.Filled.InsertDriveFile
-            },
-            contentDescription = null,
-            tint = when {
-                item.isDirectory -> MaterialTheme.colorScheme.primary
-                item.isArchive -> MaterialTheme.colorScheme.secondary
-                item.isApp -> MaterialTheme.colorScheme.tertiary
-                item.isPdf -> MaterialTheme.colorScheme.error
-                item.isImage -> MaterialTheme.colorScheme.tertiary
-                item.isVideo -> MaterialTheme.colorScheme.secondary
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            modifier = Modifier.size(28.dp),
-        )
+        if (appIcon != null) {
+            Image(
+                bitmap = appIcon,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+            )
+        } else {
+            Icon(
+                imageVector = when {
+                    item.isDirectory -> Icons.Default.Folder
+                    item.isArchive -> Icons.Default.Archive
+                    item.isApp -> Icons.Default.Android
+                    item.isPdf -> Icons.Default.PictureAsPdf
+                    item.isImage -> Icons.Default.Image
+                    item.isVideo -> Icons.Default.Movie
+                    item.isAudio -> Icons.Default.MusicNote
+                    else -> Icons.AutoMirrored.Filled.InsertDriveFile
+                },
+                contentDescription = null,
+                tint = when {
+                    item.isDirectory -> MaterialTheme.colorScheme.primary
+                    item.isArchive -> MaterialTheme.colorScheme.secondary
+                    item.isApp -> MaterialTheme.colorScheme.tertiary
+                    item.isPdf -> MaterialTheme.colorScheme.error
+                    item.isImage -> MaterialTheme.colorScheme.tertiary
+                    item.isVideo -> MaterialTheme.colorScheme.secondary
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.size(28.dp),
+            )
+        }
 
         Spacer(modifier = Modifier.width(10.dp))
 
@@ -1858,13 +1923,25 @@ private fun FileRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "${item.formattedSize} · ${item.formattedDate}",
+                text = if (item.isInstalledApp) {
+                    stringResource(R.string.size_date, item.formattedSize, item.formattedDate)
+                } else {
+                    "${item.formattedSize} · ${item.formattedDate}"
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (showFolder) {
+            if (item.isInstalledApp && item.packageName != null) {
+                Text(
+                    text = item.packageName,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            } else if (showFolder) {
                 Text(
                     text = item.parentFolderName,
                     style = MaterialTheme.typography.labelLarge,
@@ -1875,7 +1952,7 @@ private fun FileRow(
             }
         }
 
-        if (!item.isDirectory) {
+        if (!item.isDirectory && !item.isInstalledApp) {
             IconButton(onClick = onToggleFavorite) {
                 Icon(
                     imageVector = if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
