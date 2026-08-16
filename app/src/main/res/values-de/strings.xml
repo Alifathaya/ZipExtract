@@ -386,7 +386,7 @@
     <string name="dialog_uninstall_title">Uninstall apps?</string>
     <string name="dialog_uninstall_body">Open the system uninstall screen for %1$d selected app(s)?</string>
     <string name="category_audio">Audio</string>
-    <string name="category_audio_sub">Musik- & Audiodateien</string>
+    <string name="category_audio_sub">Musik- &amp; Audiodateien</string>
     <string name="category_raw_apk">Raw APK</string>
     <string name="category_raw_apk_sub">APK-Dateien im Speicher</string>
     <string name="noun_audio">Audiodateien</string>
