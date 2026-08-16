@@ -1107,6 +1107,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 showDuplicates = false,
                 duplicateGroups = emptyList(),
                 librarySubFilter = LibrarySubFilter.ALL,
+                appSubFilter = AppSubFilter.ALL,
                 mediaAlbumId = MediaAlbum.ALL,
                 mediaAlbums = emptyList(),
                 selectionMode = false,
