@@ -225,10 +225,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             }
         }.also { it.start() }
         // Prefetch disk cache off the UI thread so the first category tap after
-        // process death / long idle does not block composition.
+        // process death / long idle paints from memory (no full storage walk).
         viewModelScope.launch(Dispatchers.IO) {
             if (mediaLibraryCache == null) {
-                mediaLibraryCache = MediaLibraryCache.load(appContext)
+                mediaLibraryCache = MediaLibraryCache.load(appContext, allowStale = true)
             }
         }
     }
@@ -687,6 +687,54 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             AppSubFilter.ALL
         }
 
+        // Warm memory cache: paint the list immediately (no empty "Memuat…" flash).
+        val warmLibrary = if (!forceRefresh) mediaLibraryCache else null
+        if (warmLibrary != null && category != FileCategory.APPS) {
+            val base = warmLibrary.forCategory(category)
+            val usesMediaAlbums = category == FileCategory.IMAGES || category == FileCategory.VIDEOS
+            val mediaAlbums = if (usesMediaAlbums) MediaAlbum.buildChips(base) else emptyList()
+            val mediaAlbumId = MediaAlbum.ALL
+            val filtered = when (category) {
+                FileCategory.DOCUMENTS -> base.filter { subFilter.matches(it) }
+                FileCategory.IMAGES, FileCategory.VIDEOS -> MediaAlbum.filter(base, mediaAlbumId)
+                else -> base
+            }
+            val sorted = sortLibraryFiles(filtered)
+            _uiState.update {
+                it.copy(
+                    showHome = false,
+                    showCloud = false,
+                    activeCategory = category,
+                    categoryRoot = folder,
+                    currentDir = folder,
+                    fileFilter = FileFilter.forCategory(category),
+                    libraryMode = true,
+                    librarySubFilter = subFilter,
+                    appSubFilter = AppSubFilter.ALL,
+                    mediaAlbums = mediaAlbums,
+                    mediaAlbumId = mediaAlbumId,
+                    showFavoritesOnly = false,
+                    showLargestFiles = false,
+                    showDuplicates = false,
+                    selectionMode = false,
+                    selectedPaths = emptySet(),
+                    searchQuery = "",
+                    searchResults = emptyList(),
+                    items = sorted,
+                    canGoUp = true,
+                    progress = null,
+                )
+            }
+            libraryJob?.cancel()
+            libraryJob = viewModelScope.launch {
+                delay(280)
+                if (_uiState.value.activeCategory == category && _uiState.value.libraryMode) {
+                    catchUpMediaStoreChanges()
+                }
+            }
+            return
+        }
+
         // Navigate immediately — never load/sort thousands of files on the UI thread.
         _uiState.update {
             it.copy(
@@ -722,7 +770,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         libraryJob = viewModelScope.launch {
             val prepared = withContext(Dispatchers.IO) {
                 if (!forceRefresh && mediaLibraryCache == null) {
-                    mediaLibraryCache = MediaLibraryCache.load(appContext)
+                    // Prefer any on-disk snapshot — even weeks old — over a full walk.
+                    mediaLibraryCache = MediaLibraryCache.load(appContext, allowStale = true)
                 }
                 if (!folder.exists()) folder.mkdirs()
                 if (category == FileCategory.APPS) {
@@ -791,7 +840,11 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             ) {
                 catchUpMediaStoreChanges()
             }
-            if (forceRefresh || mediaLibraryCache == null || category == FileCategory.APPS) {
+            // Rebuild snapshot in background when it was missing or very old.
+            val needsPersist = forceRefresh ||
+                MediaLibraryCache.isHardExpired(appContext) ||
+                !MediaLibraryCache.exists(appContext)
+            if (needsPersist || category == FileCategory.APPS) {
                 withContext(Dispatchers.IO) {
                     persistHomeSnapshot(
                         library = prepared.library,
@@ -811,7 +864,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     private fun obtainMediaLibrary(forceRefresh: Boolean): MediaLibrary {
         if (!forceRefresh) {
             mediaLibraryCache?.let { return it }
-            MediaLibraryCache.load(appContext)?.let { disk ->
+            // Always accept a disk snapshot when present — even if older than HARD_EXPIRE.
+            MediaLibraryCache.load(appContext, allowStale = true)?.let { disk ->
                 mediaLibraryCache = disk
                 return disk
             }

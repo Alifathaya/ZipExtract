@@ -8,19 +8,25 @@ import java.io.FileReader
 import java.io.FileWriter
 
 /**
- * Temporary on-disk snapshot of [MediaLibrary] so cold start / reopen can show home
- * and categories instantly without a full storage rescan.
+ * On-disk snapshot of [MediaLibrary] so cold start / reopen can show categories
+ * instantly without a full storage rescan.
+ *
+ * Load is intentionally cheap: paths are trusted from the snapshot (no per-file
+ * exists() I/O). Missing files are pruned later by soft refresh / MediaStore catch-up.
  */
 object MediaLibraryCache {
     private const val CACHE_FILE = "media_library_cache_v2.txt"
     private const val META_FILE = "media_library_cache_meta_v2.txt"
     private const val FORMAT_VERSION = 2
 
-    /** Soft refresh threshold: still show cache instantly, rescan in background after this. */
+    /** Soft refresh threshold: still show cache instantly, catch up in background. */
     const val SOFT_REFRESH_AFTER_MS = 30 * 1000L
 
-    /** Hard expiry: ignore disk cache and force rescan. */
-    const val HARD_EXPIRE_MS = 7 * 24 * 60 * 60 * 1000L
+    /**
+     * Age after which we prefer a background rebuild, but we still *show* the
+     * snapshot so category taps stay instant even after the app was closed for weeks.
+     */
+    const val HARD_EXPIRE_MS = 30L * 24L * 60L * 60L * 1000L
 
     /** Minimum gap between automatic background rescans (onResume / open category). */
     const val RESUME_REFRESH_DEBOUNCE_MS = 5 * 1000L
@@ -78,9 +84,14 @@ object MediaLibraryCache {
         }
     }
 
-    fun load(context: Context): MediaLibrary? {
+    /**
+     * @param allowStale when true (default), still return a snapshot older than
+     * [HARD_EXPIRE_MS] so UI can paint instantly; caller should refresh in background.
+     */
+    fun load(context: Context, allowStale: Boolean = true): MediaLibrary? {
         val app = context.applicationContext
-        if (!exists(app) || isHardExpired(app)) return null
+        if (!exists(app)) return null
+        if (!allowStale && isHardExpired(app)) return null
         return runCatching {
             BufferedReader(FileReader(cacheFile(app))).use { reader ->
                 val header = reader.readLine() ?: return null
@@ -99,7 +110,7 @@ object MediaLibraryCache {
                         line.isBlank() -> Unit
                         else -> {
                             val list = current ?: continue
-                            parseItem(line)?.let { list.add(it) }
+                            parseItemFast(line)?.let { list.add(it) }
                         }
                     }
                 }
@@ -137,19 +148,22 @@ object MediaLibraryCache {
         }
     }
 
-    private fun parseItem(line: String): FileItem? {
+    /**
+     * Trust snapshot metadata — do not hit the filesystem per row.
+     * Checking exists() for thousands of photos on cold open was the main delay.
+     */
+    private fun parseItemFast(line: String): FileItem? {
         val parts = line.split('|')
         if (parts.size < 3) return null
         val path = parts[0]
         if (path.isBlank()) return null
         val file = File(path)
-        if (!file.exists() || !file.isFile) return null
-        val size = parts[1].toLongOrNull() ?: file.length()
-        val modified = parts[2].toLongOrNull() ?: file.lastModified()
+        val size = parts[1].toLongOrNull() ?: 0L
+        val modified = parts[2].toLongOrNull() ?: 0L
         return FileItem(
             file = file,
             name = file.name,
-            path = file.absolutePath,
+            path = path,
             isDirectory = false,
             sizeBytes = size,
             lastModified = modified,
