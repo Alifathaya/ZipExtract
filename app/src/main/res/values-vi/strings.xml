@@ -62,6 +62,7 @@
     <string name="category_others">Khác</string>
     <string name="category_others_sub">Tệp khác</string>
     <string name="items_count">%1$d mục</string>
+    <string name="items_count_size">%1$d mục · %2$s</string>
     <string name="opening_cloud">Đang mở tệp, vui lòng chờ…</string>
     <string name="cloud_open_failed">Không mở được tệp đám mây</string>
     <string name="cloud_busy">Đang mở tệp, vui lòng chờ…</string>

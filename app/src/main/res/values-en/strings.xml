@@ -66,6 +66,7 @@
     <string name="category_others">Other</string>
     <string name="category_others_sub">Other files</string>
     <string name="items_count">%1$d items</string>
+    <string name="items_count_size">%1$d items · %2$s</string>
     <string name="opening_cloud">Opening file, please wait…</string>
     <string name="cloud_open_failed">Failed to open cloud file</string>
     <string name="cloud_busy">Opening file, please wait…</string>

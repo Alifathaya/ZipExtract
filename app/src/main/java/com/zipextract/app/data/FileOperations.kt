@@ -16,6 +16,12 @@ import java.io.FileOutputStream
 
 object FileOperations {
 
+    /**
+     * Cap per category keeps scan/cache/UI responsive on large libraries.
+     * Raised from 2_500 → 10_000 so most phones still show “all” recent files.
+     */
+    const val MAX_PER_CATEGORY = 10_000
+
     fun defaultRoot(): File {
         return Environment.getExternalStorageDirectory()
     }
@@ -206,18 +212,24 @@ object FileOperations {
         context: Context? = null,
     ): List<CategorySummary> {
         val media = library ?: scanMediaLibrary(context = context)
-        val installedAppCount = context?.let { InstalledApps.count(it) }
+        val installedApps = context?.let { InstalledApps.list(it) }
         return FileCategory.entries.map { category ->
             val folder = category.resolveFolder()
             if (!folder.exists()) folder.mkdirs()
-            val count = when {
-                category == FileCategory.APPS && installedAppCount != null -> installedAppCount
-                else -> media.forCategory(category).size
+            val (count, bytes) = when {
+                category == FileCategory.APPS && installedApps != null -> {
+                    installedApps.size to installedApps.sumOf { it.sizeBytes }
+                }
+                else -> {
+                    val items = media.forCategory(category)
+                    items.size to items.sumOf { it.sizeBytes }
+                }
             }
             CategorySummary(
                 category = category,
                 itemCount = count,
                 folder = folder,
+                totalBytes = bytes,
             )
         }
     }
@@ -229,6 +241,7 @@ object FileOperations {
                 category = category,
                 itemCount = 0,
                 folder = category.resolveFolder(),
+                totalBytes = 0L,
             )
         }
     }
@@ -244,11 +257,11 @@ object FileOperations {
 
     fun getRecentFiles(limit: Int = 12): List<FileItem> = getRecentImages(limit)
 
-    fun getAllImages(maxResults: Int = 2500): List<FileItem> {
+    fun getAllImages(maxResults: Int = MAX_PER_CATEGORY): List<FileItem> {
         return getFilesForCategory(FileCategory.IMAGES, maxResults)
     }
 
-    fun getFilesForCategory(category: FileCategory, maxResults: Int = 2500): List<FileItem> {
+    fun getFilesForCategory(category: FileCategory, maxResults: Int = MAX_PER_CATEGORY): List<FileItem> {
         return scanMediaLibrary(maxPerCategory = maxResults).forCategory(category).take(maxResults)
     }
 
@@ -259,7 +272,7 @@ object FileOperations {
      * a filesystem walk is slow or skips an OEM-specific folder.
      */
     fun scanMediaLibrary(
-        maxPerCategory: Int = 2500,
+        maxPerCategory: Int = MAX_PER_CATEGORY,
         maxDepth: Int = 8,
         contentResolver: ContentResolver? = null,
         context: Context? = null,
@@ -516,7 +529,7 @@ object FileOperations {
                 .filter { it.file.isFile }
                 .forEach { byPath[it.path] = it }
             changed.asSequence().filter(accepts).forEach { byPath[it.path] = it }
-            return byPath.values.sortedByDescending { it.lastModified }.take(2500)
+            return byPath.values.sortedByDescending { it.lastModified }.take(MAX_PER_CATEGORY)
         }
 
         return MediaLibrary(

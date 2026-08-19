@@ -964,7 +964,15 @@ private fun CategoryCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = stringResource(R.string.items_count, summary.itemCount),
+                    text = if (summary.totalBytes > 0L) {
+                        stringResource(
+                            R.string.items_count_size,
+                            summary.itemCount,
+                            summary.formattedSize,
+                        )
+                    } else {
+                        stringResource(R.string.items_count, summary.itemCount)
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White.copy(alpha = 0.88f),
                     maxLines = 1,

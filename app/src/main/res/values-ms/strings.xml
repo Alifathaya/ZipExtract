@@ -62,6 +62,7 @@
     <string name="category_others">Lain-lain</string>
     <string name="category_others_sub">Fail lain</string>
     <string name="items_count">%1$d item</string>
+    <string name="items_count_size">%1$d item · %2$s</string>
     <string name="opening_cloud">Membuka fail, sila tunggu…</string>
     <string name="cloud_open_failed">Gagal membuka fail cloud</string>
     <string name="cloud_busy">Membuka fail, sila tunggu…</string>

@@ -62,6 +62,7 @@
     <string name="category_others">Iba pa</string>
     <string name="category_others_sub">Iba pang file</string>
     <string name="items_count">%1$d item</string>
+    <string name="items_count_size">%1$d item · %2$s</string>
     <string name="opening_cloud">Binubuksan ang file, maghintay…</string>
     <string name="cloud_open_failed">Hindi mabuksan ang cloud file</string>
     <string name="cloud_busy">Binubuksan ang file, maghintay…</string>

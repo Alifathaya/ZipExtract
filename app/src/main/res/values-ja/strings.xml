@@ -62,6 +62,7 @@
     <string name="category_others">その他</string>
     <string name="category_others_sub">その他のファイル</string>
     <string name="items_count">%1$d 件</string>
+    <string name="items_count_size">%1$d 件 · %2$s</string>
     <string name="opening_cloud">ファイルを開いています。しばらくお待ちください…</string>
     <string name="cloud_open_failed">クラウドファイルを開けませんでした</string>
     <string name="cloud_busy">ファイルを開いています。しばらくお待ちください…</string>

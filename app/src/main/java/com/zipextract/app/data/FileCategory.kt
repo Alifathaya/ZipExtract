@@ -135,9 +135,13 @@ data class CategorySummary(
     val category: FileCategory,
     val itemCount: Int,
     val folder: File,
+    val totalBytes: Long = 0L,
 ) {
     val folderLabel: String
         get() = folder.name.ifBlank { folder.absolutePath }
+
+    val formattedSize: String
+        get() = FileItem.formatBytes(totalBytes.coerceAtLeast(0L))
 }
 
 data class StorageInfo(

@@ -66,6 +66,7 @@
     <string name="category_others">Lainnya</string>
     <string name="category_others_sub">File lain</string>
     <string name="items_count">%1$d item</string>
+    <string name="items_count_size">%1$d item · %2$s</string>
     <string name="opening_cloud">Sedang membuka file, tunggu sebentar…</string>
     <string name="cloud_open_failed">Gagal membuka file cloud</string>
     <string name="cloud_busy">Sedang membuka file, tunggu sebentar…</string>

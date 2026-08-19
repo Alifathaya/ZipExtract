@@ -62,6 +62,7 @@
     <string name="category_others">أخرى</string>
     <string name="category_others_sub">ملفات أخرى</string>
     <string name="items_count">%1$d عنصر</string>
+    <string name="items_count_size">%1$d عنصر · %2$s</string>
     <string name="opening_cloud">جارٍ فتح الملف، يرجى الانتظار…</string>
     <string name="cloud_open_failed">تعذر فتح ملف السحابة</string>
     <string name="cloud_busy">جارٍ فتح الملف، يرجى الانتظار…</string>

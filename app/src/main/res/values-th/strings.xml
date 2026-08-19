@@ -62,6 +62,7 @@
     <string name="category_others">อื่นๆ</string>
     <string name="category_others_sub">ไฟล์อื่น</string>
     <string name="items_count">%1$d รายการ</string>
+    <string name="items_count_size">%1$d รายการ · %2$s</string>
     <string name="opening_cloud">กำลังเปิดไฟล์ โปรดรอ…</string>
     <string name="cloud_open_failed">เปิดไฟล์คลาวด์ไม่สำเร็จ</string>
     <string name="cloud_busy">กำลังเปิดไฟล์ โปรดรอ…</string>

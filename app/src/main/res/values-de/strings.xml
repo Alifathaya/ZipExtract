@@ -62,6 +62,7 @@
     <string name="category_others">Sonstiges</string>
     <string name="category_others_sub">Andere Dateien</string>
     <string name="items_count">%1$d Elemente</string>
+    <string name="items_count_size">%1$d Elemente · %2$s</string>
     <string name="opening_cloud">Datei wird geöffnet, bitte warten…</string>
     <string name="cloud_open_failed">Clouddatei konnte nicht geöffnet werden</string>
     <string name="cloud_busy">Datei wird geöffnet, bitte warten…</string>

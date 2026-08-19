@@ -62,6 +62,7 @@
     <string name="category_others">其他</string>
     <string name="category_others_sub">其他文件</string>
     <string name="items_count">%1$d 项</string>
+    <string name="items_count_size">%1$d 项 · %2$s</string>
     <string name="opening_cloud">正在打开文件，请稍候…</string>
     <string name="cloud_open_failed">无法打开云文件</string>
     <string name="cloud_busy">正在打开文件，请稍候…</string>

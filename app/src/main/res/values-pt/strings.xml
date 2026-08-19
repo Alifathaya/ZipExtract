@@ -62,6 +62,7 @@
     <string name="category_others">Outros</string>
     <string name="category_others_sub">Outros arquivos</string>
     <string name="items_count">%1$d itens</string>
+    <string name="items_count_size">%1$d itens · %2$s</string>
     <string name="opening_cloud">Abrindo arquivo, aguarde…</string>
     <string name="cloud_open_failed">Falha ao abrir arquivo da nuvem</string>
     <string name="cloud_busy">Abrindo arquivo, aguarde…</string>

@@ -62,6 +62,7 @@
     <string name="category_others">其他</string>
     <string name="category_others_sub">其他檔案</string>
     <string name="items_count">%1$d 項</string>
+    <string name="items_count_size">%1$d 項 · %2$s</string>
     <string name="opening_cloud">正在開啟檔案，請稍候…</string>
     <string name="cloud_open_failed">無法開啟雲端檔案</string>
     <string name="cloud_busy">正在開啟檔案，請稍候…</string>

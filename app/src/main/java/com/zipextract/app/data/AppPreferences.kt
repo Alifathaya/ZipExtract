@@ -68,6 +68,11 @@ class AppPreferences(context: Context) {
     }
 
     fun getCachedCategoryCounts(): Map<FileCategory, Int> {
+        return getCachedCategoryStats().mapValues { it.value.first }
+    }
+
+    /** category → (itemCount, totalBytes) */
+    fun getCachedCategoryStats(): Map<FileCategory, Pair<Int, Long>> {
         if (!prefs.contains(KEY_CATEGORY_COUNTS)) return emptyMap()
         val raw = prefs.getString(KEY_CATEGORY_COUNTS, "").orEmpty()
         if (raw.isBlank()) return emptyMap()
@@ -77,14 +82,19 @@ class AppPreferences(context: Context) {
                 if (bits.size != 2) return@mapNotNull null
                 val category = runCatching { FileCategory.valueOf(bits[0]) }.getOrNull()
                     ?: return@mapNotNull null
-                val count = bits[1].toIntOrNull() ?: return@mapNotNull null
-                category to count
+                val value = bits[1]
+                val countBytes = value.split(':', limit = 2)
+                val count = countBytes[0].toIntOrNull() ?: return@mapNotNull null
+                val bytes = countBytes.getOrNull(1)?.toLongOrNull() ?: 0L
+                category to (count to bytes)
             }
             .toMap()
     }
 
     fun saveCategoryCounts(summaries: List<CategorySummary>) {
-        val encoded = summaries.joinToString("|") { "${it.category.name}=${it.itemCount}" }
+        val encoded = summaries.joinToString("|") {
+            "${it.category.name}=${it.itemCount}:${it.totalBytes}"
+        }
         prefs.edit().putString(KEY_CATEGORY_COUNTS, encoded).apply()
     }
 
@@ -108,12 +118,14 @@ class AppPreferences(context: Context) {
     }
 
     fun loadCachedCategorySummaries(): List<CategorySummary> {
-        val counts = getCachedCategoryCounts()
+        val stats = getCachedCategoryStats()
         return FileCategory.entries.map { category ->
+            val (count, bytes) = stats[category] ?: (0 to 0L)
             CategorySummary(
                 category = category,
-                itemCount = counts[category] ?: 0,
+                itemCount = count,
                 folder = category.resolveFolder(),
+                totalBytes = bytes,
             )
         }
     }

@@ -391,7 +391,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                                 items = filtered,
                                 categorySummaries = it.categorySummaries.map { summary ->
                                     if (summary.category == FileCategory.APPS) {
-                                        summary.copy(itemCount = apps.size)
+                                        summary.copy(
+                                            itemCount = apps.size,
+                                            totalBytes = apps.sumOf { it.sizeBytes },
+                                        )
                                     } else {
                                         summary
                                     }
@@ -424,14 +427,17 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                         } else {
                             catchUpMediaStoreChangesSync()
                             // Keep Apps tile count in sync even on soft media catch-up.
-                            val appCount = withContext(Dispatchers.IO) {
-                                InstalledApps.count(appContext)
+                            val apps = withContext(Dispatchers.IO) {
+                                InstalledApps.list(appContext)
                             }
                             _uiState.update {
                                 it.copy(
                                     categorySummaries = it.categorySummaries.map { summary ->
                                         if (summary.category == FileCategory.APPS) {
-                                            summary.copy(itemCount = appCount)
+                                            summary.copy(
+                                                itemCount = apps.size,
+                                                totalBytes = apps.sumOf { it.sizeBytes },
+                                            )
                                         } else {
                                             summary
                                         }
@@ -824,7 +830,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     selectedPaths = emptySet(),
                     categorySummaries = it.categorySummaries.map { summary ->
                         if (summary.category == FileCategory.APPS && category == FileCategory.APPS) {
-                            summary.copy(itemCount = installedAppsCache.size)
+                            summary.copy(
+                                itemCount = installedAppsCache.size,
+                                totalBytes = installedAppsCache.sumOf { it.sizeBytes },
+                            )
                         } else {
                             summary
                         }
