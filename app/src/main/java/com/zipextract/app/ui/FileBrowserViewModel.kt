@@ -211,6 +211,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     private var resumeJob: Job? = null
     private var cloudImportJob: Job? = null
     private var activeJob: Job? = null
+    private var extractEncryptCheckJob: Job? = null
     private var mediaWatcher: MediaChangeWatcher? = null
     private var inboxWatcher: InboxFolderWatcher? = null
     private var incrementalPersistJob: Job? = null
@@ -1763,7 +1764,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             )
         }
         // Detect password protection off the main thread, then show the password field.
-        viewModelScope.launch {
+        extractEncryptCheckJob?.cancel()
+        extractEncryptCheckJob = viewModelScope.launch {
             val encrypted = withContext(Dispatchers.IO) { ArchiveManager.isPasswordProtected(file) }
             if (!encrypted) return@launch
             _uiState.update { state ->
@@ -1785,6 +1787,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun closeExtractDialog() {
+        extractEncryptCheckJob?.cancel()
+        extractEncryptCheckJob = null
         _uiState.update { it.copy(extractDialog = null) }
     }
 
@@ -1850,6 +1854,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         val password = dialog.password.takeIf { it.isNotBlank() }
         val choice = dialog.destination
         val preferred = preferredExtractDir(zip, choice)
+        // Stop any password-probe that may still hold the archive open.
+        extractEncryptCheckJob?.cancel()
+        extractEncryptCheckJob = null
         // Close the small dialog immediately; results open in the chosen folder.
         closeExtractDialog()
 
@@ -1869,15 +1876,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     updateProgressThrottled(str(R.string.progress_extract_zip), name, progress)
                 }
 
-                // Show results immediately — don't wait on MediaScanner / cache disk write.
-                val extractedItems = collectExtractedItems(destination, touchNewest = true)
-                mediaLibraryCache = FileOperations.mergeIncremental(
-                    mediaLibraryCache
-                        ?: MediaLibraryCache.load(appContext)
-                        ?: MediaLibrary(),
-                    extractedItems,
-                )
-                showExtractedFolder(destination, extractedItems)
+                // Release archive FDs before delete — zip4j / ZipFile can lag one tick.
+                runCatching { System.gc() }
+                kotlinx.coroutines.delay(120)
 
                 var deletedOriginal = false
                 if (deleteOriginal) {
@@ -1888,8 +1889,30 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                             zip.absolutePath,
                         )
                         applyLocalRemovals(removed)
+                    } else if (zip.exists()) {
+                        // One more pass after a longer pause if the OS still holds the file.
+                        kotlinx.coroutines.delay(250)
+                        runCatching { System.gc() }
+                        deletedOriginal = FileOperations.deleteSingleFile(localizedContext(), zip)
+                        if (deletedOriginal) {
+                            val removed = setOf(
+                                runCatching { zip.canonicalPath }.getOrDefault(zip.absolutePath),
+                                zip.absolutePath,
+                            )
+                            applyLocalRemovals(removed)
+                        }
                     }
                 }
+
+                // Show results after delete so a SAME_FOLDER listing cannot re-pin the ZIP.
+                val extractedItems = collectExtractedItems(destination, touchNewest = true)
+                mediaLibraryCache = FileOperations.mergeIncremental(
+                    mediaLibraryCache
+                        ?: MediaLibraryCache.load(appContext)
+                        ?: MediaLibrary(),
+                    extractedItems,
+                )
+                showExtractedFolder(destination, extractedItems)
 
                 // Media scan in the background so the gallery/Downloads index catches up
                 // without blocking the user from browsing extracted files.

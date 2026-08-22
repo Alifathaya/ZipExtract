@@ -1,6 +1,7 @@
 package com.zipextract.app.data
 
 import android.content.ContentResolver
+import android.content.ContentUris
 import android.content.Context
 import android.media.MediaScannerConnection
 import android.net.Uri
@@ -14,6 +15,7 @@ import com.zipextract.app.R
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.nio.file.Files
 
 object FileOperations {
 
@@ -835,25 +837,29 @@ object FileOperations {
 
     /**
      * Delete one file reliably after ZIP extract: close-friendly retries, then MediaStore
-     * row removal when plain [File.delete] is blocked on shared storage.
+     * URI deletion when plain [File.delete] is blocked on shared storage.
+     *
+     * Success means the path is gone on disk — never trust MediaStore row counts alone.
      */
     fun deleteSingleFile(context: Context, file: File): Boolean {
-        if (!file.exists()) return true
-        if (deleteDeep(context, file)) return true
-        // Brief retry — archive libraries sometimes release the FD a tick late.
-        repeat(3) { attempt ->
+        val target = runCatching { file.canonicalFile }.getOrDefault(file)
+        if (!target.exists()) return true
+        if (deleteDeep(context, target)) return true
+        // Archive libs (zip4j / ZipFile) sometimes release the FD a tick late.
+        repeat(5) { attempt ->
             try {
-                Thread.sleep(80L * (attempt + 1))
+                Thread.sleep(100L * (attempt + 1))
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
             }
-            if (!file.exists()) return true
-            if (file.delete()) {
-                notifyMediaStoreDeleted(context, file)
-                return true
+            // Encourage native FD finalizers before another delete attempt.
+            if (attempt == 1 || attempt == 3) {
+                runCatching { System.gc() }
             }
+            if (!target.exists()) return true
+            if (deleteDeep(context, target)) return true
         }
-        return !file.exists()
+        return !target.exists()
     }
 
     fun paste(
@@ -921,6 +927,13 @@ object FileOperations {
             notifyMediaStoreDeleted(context, file)
             return true
         }
+        runCatching {
+            Files.deleteIfExists(file.toPath())
+        }
+        if (!file.exists()) {
+            notifyMediaStoreDeleted(context, file)
+            return true
+        }
         // Shared-storage fallback via MediaStore (Download / WhatsApp / etc.).
         if (!file.isDirectory && deleteViaMediaStore(context, file)) {
             return true
@@ -928,44 +941,137 @@ object FileOperations {
         return !file.exists()
     }
 
+    /**
+     * Delete by resolving the MediaStore content URI(s) for [file], then removing those
+     * rows. Returns true only when the filesystem path is gone — a MediaStore hit alone
+     * is not enough (OEM indexes can drop while the ZIP file remains).
+     */
     @Suppress("DEPRECATION")
     private fun deleteViaMediaStore(context: Context, file: File): Boolean {
-        val path = file.absolutePath
+        val absolute = file.absolutePath
+        val canonical = runCatching { file.canonicalPath }.getOrDefault(absolute)
         val resolver = context.contentResolver
         val collections = buildList {
             add(MediaStore.Files.getContentUri("external"))
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 add(MediaStore.Downloads.EXTERNAL_CONTENT_URI)
             }
         }
-        var removed = 0
+
+        val uris = linkedSetOf<Uri>()
         collections.forEach { collection ->
-            runCatching {
-                removed += resolver.delete(
-                    collection,
-                    MediaStore.MediaColumns.DATA + "=?",
-                    arrayOf(path),
-                )
+            uris += queryMediaStoreUris(resolver, collection, absolute, canonical, file)
+        }
+
+        uris.forEach { uri ->
+            runCatching { resolver.delete(uri, null, null) }
+        }
+
+        // Bulk delete by DATA as a backup when URI lookup missed (stale index / OEM).
+        if (file.exists()) {
+            collections.forEach { collection ->
+                runCatching {
+                    resolver.delete(
+                        collection,
+                        MediaStore.MediaColumns.DATA + "=?",
+                        arrayOf(absolute),
+                    )
+                }
+                if (canonical != absolute) {
+                    runCatching {
+                        resolver.delete(
+                            collection,
+                            MediaStore.MediaColumns.DATA + "=?",
+                            arrayOf(canonical),
+                        )
+                    }
+                }
             }
         }
-        if (removed > 0 || !file.exists()) {
-            notifyMediaStoreDeleted(context, file)
-            return !file.exists() || removed > 0
-        }
-        // Last resort: delete by matching display name + relative path parent.
-        runCatching {
-            removed += resolver.delete(
-                MediaStore.Files.getContentUri("external"),
-                MediaStore.MediaColumns.DATA + " LIKE ?",
-                arrayOf(path),
-            )
-        }
+
         if (file.exists()) {
             runCatching { file.delete() }
+            runCatching { Files.deleteIfExists(file.toPath()) }
         }
+
         val gone = !file.exists()
         if (gone) notifyMediaStoreDeleted(context, file)
         return gone
+    }
+
+    @Suppress("DEPRECATION")
+    private fun queryMediaStoreUris(
+        resolver: ContentResolver,
+        collection: Uri,
+        absolute: String,
+        canonical: String,
+        file: File,
+    ): List<Uri> {
+        val found = mutableListOf<Uri>()
+        val projection = arrayOf(MediaStore.MediaColumns._ID)
+        val pathSelection = if (canonical == absolute) {
+            MediaStore.MediaColumns.DATA + "=?"
+        } else {
+            MediaStore.MediaColumns.DATA + "=? OR " + MediaStore.MediaColumns.DATA + "=?"
+        }
+        val pathArgs = if (canonical == absolute) {
+            arrayOf(absolute)
+        } else {
+            arrayOf(absolute, canonical)
+        }
+        runCatching {
+            resolver.query(collection, projection, pathSelection, pathArgs, null)?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                while (cursor.moveToNext()) {
+                    found += ContentUris.withAppendedId(collection, cursor.getLong(idCol))
+                }
+            }
+        }
+        if (found.isNotEmpty() || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return found
+        }
+        // Android 10+: DATA is often null — match DISPLAY_NAME + RELATIVE_PATH instead.
+        val name = file.name
+        val parent = file.parentFile ?: return found
+        val relativeParent = relativePathUnderStorage(parent)?.let { path ->
+            if (path.endsWith("/")) path else "$path/"
+        } ?: return found
+        runCatching {
+            resolver.query(
+                collection,
+                projection,
+                MediaStore.MediaColumns.DISPLAY_NAME + "=? AND " +
+                    MediaStore.MediaColumns.RELATIVE_PATH + "=?",
+                arrayOf(name, relativeParent),
+                null,
+            )?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                while (cursor.moveToNext()) {
+                    found += ContentUris.withAppendedId(collection, cursor.getLong(idCol))
+                }
+            }
+        }
+        return found
+    }
+
+    /** e.g. `/storage/emulated/0/Download/a` → `Download/a/` style relative path, or null. */
+    private fun relativePathUnderStorage(dir: File): String? {
+        val absolute = runCatching { dir.canonicalPath }.getOrDefault(dir.absolutePath)
+        val roots = buildList {
+            add(Environment.getExternalStorageDirectory())
+            runCatching {
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                    .parentFile
+            }.getOrNull()?.let { add(it) }
+        }
+        roots.forEach { root ->
+            val rootPath = runCatching { root.canonicalPath }.getOrDefault(root.absolutePath)
+            if (absolute == rootPath) return ""
+            if (absolute.startsWith(rootPath + File.separator)) {
+                return absolute.removePrefix(rootPath + File.separator)
+            }
+        }
+        return null
     }
 
     private fun notifyMediaStoreDeleted(context: Context, file: File) {
