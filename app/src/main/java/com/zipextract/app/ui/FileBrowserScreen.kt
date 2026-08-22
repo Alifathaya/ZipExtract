@@ -60,6 +60,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -239,6 +240,7 @@ fun FileBrowserScreen(
     onRequestPermission: () -> Unit,
     onCloseViewer: () -> Unit,
     onDeleteViewerFile: () -> Unit,
+    onViewerPageChanged: (java.io.File) -> Unit = {},
     onCloseExtract: () -> Unit,
     onDeleteOriginalZipChange: (Boolean) -> Unit,
     onExtractPasswordChange: (String) -> Unit,
@@ -391,16 +393,32 @@ fun FileBrowserScreen(
                 onClose = onCloseViewer,
                 onDelete = onDeleteViewerFile,
             )
-            is ViewerContent.Image -> ImageViewerScreen(
-                file = viewer.file,
-                onClose = onCloseViewer,
-                onDelete = onDeleteViewerFile,
-            )
-            is ViewerContent.Video -> VideoPlayerScreen(
-                file = viewer.file,
-                sourceUri = viewer.sourceUri,
-                onClose = onCloseViewer,
-            )
+            is ViewerContent.Image -> key(
+                viewer.playlist.joinToString("|") { it.absolutePath },
+                viewer.file.absolutePath,
+            ) {
+                ImageViewerScreen(
+                    file = viewer.file,
+                    playlist = viewer.playlist,
+                    initialIndex = viewer.index,
+                    onClose = onCloseViewer,
+                    onDelete = onDeleteViewerFile,
+                    onPageChanged = onViewerPageChanged,
+                )
+            }
+            is ViewerContent.Video -> key(
+                viewer.playlist.joinToString("|") { it.absolutePath },
+                viewer.file.absolutePath,
+            ) {
+                VideoPlayerScreen(
+                    file = viewer.file,
+                    sourceUri = viewer.sourceUri,
+                    playlist = viewer.playlist,
+                    initialIndex = viewer.index,
+                    onClose = onCloseViewer,
+                    onPageChanged = onViewerPageChanged,
+                )
+            }
             null -> Unit
         }
         return

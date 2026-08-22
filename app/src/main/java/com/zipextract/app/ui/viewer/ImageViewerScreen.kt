@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -28,10 +30,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
@@ -44,32 +49,57 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.zipextract.app.data.FileActions
 import java.io.File
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ImageViewerScreen(
     file: File,
+    playlist: List<File> = listOf(file),
+    initialIndex: Int = 0,
     onClose: () -> Unit,
     onDelete: () -> Unit,
+    onPageChanged: (File) -> Unit = {},
 ) {
     BackHandler(onBack = onClose)
     val context = LocalContext.current
+    val files = remember(playlist, file) {
+        playlist.ifEmpty { listOf(file) }
+            .distinctBy { it.absolutePath }
+            .ifEmpty { listOf(file) }
+    }
+    val startIndex = remember(files, file, initialIndex) {
+        val byPath = files.indexOfFirst { it.absolutePath == file.absolutePath }
+        when {
+            byPath >= 0 -> byPath
+            initialIndex in files.indices -> initialIndex
+            else -> 0
+        }
+    }
+    val pagerState = rememberPagerState(
+        initialPage = startIndex,
+        pageCount = { files.size },
+    )
+    val currentFile = files.getOrElse(pagerState.currentPage) { file }
     val zoomState = rememberZoomState()
     var editing by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
-    val imageRequest = remember(file.absolutePath, file.length(), file.lastModified()) {
-        ImageRequest.Builder(context)
-            .data(file)
-            .memoryCacheKey("${file.absolutePath}:${file.length()}:${file.lastModified()}")
-            .diskCachePolicy(CachePolicy.DISABLED)
-            .allowHardware(false)
-            .build()
+    val onPageChangedState = rememberUpdatedState(onPageChanged)
+
+    // Reset zoom when the page changes; notify host of the current file.
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.currentPage }
+            .distinctUntilChanged()
+            .collect { page ->
+                zoomState.reset()
+                files.getOrNull(page)?.let { onPageChangedState.value(it) }
+            }
     }
 
     if (editing) {
         MediaEditorScreen(
-            title = file.name,
-            sourceFile = file,
+            title = currentFile.name,
+            sourceFile = currentFile,
             onClose = { editing = false },
         )
         return
@@ -79,7 +109,7 @@ fun ImageViewerScreen(
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text(stringResource(R.string.dialog_delete_title)) },
-            text = { Text(stringResource(R.string.dialog_delete_file_body, file.name)) },
+            text = { Text(stringResource(R.string.dialog_delete_file_body, currentFile.name)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -104,12 +134,20 @@ fun ImageViewerScreen(
                 title = {
                     Column {
                         Text(
-                            text = file.name,
+                            text = currentFile.name,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = stringResource(R.string.image_viewer_hint),
+                            text = if (files.size > 1) {
+                                stringResource(
+                                    R.string.image_viewer_hint_swipe,
+                                    pagerState.currentPage + 1,
+                                    files.size,
+                                )
+                            } else {
+                                stringResource(R.string.image_viewer_hint)
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -126,7 +164,7 @@ fun ImageViewerScreen(
                     }
                     IconButton(
                         onClick = {
-                            if (!FileActions.shareFile(context, file)) {
+                            if (!FileActions.shareFile(context, currentFile)) {
                                 Toast.makeText(context, context.getString(R.string.image_share_failed), Toast.LENGTH_SHORT).show()
                             }
                         },
@@ -166,26 +204,57 @@ fun ImageViewerScreen(
                 .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.92f)),
             contentAlignment = Alignment.Center,
         ) {
-            ZoomableBox(
-                zoomState = zoomState,
+            HorizontalPager(
+                state = pagerState,
+                // Allow swipe between photos only when not zoomed in.
+                userScrollEnabled = !zoomState.isZoomed,
+                key = { page -> files[page].absolutePath },
                 modifier = Modifier.fillMaxSize(),
-            ) {
-                SubcomposeAsyncImage(
-                    model = imageRequest,
-                    contentDescription = file.name,
-                    contentScale = ContentScale.Fit,
-                    loading = {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.onPrimary)
-                    },
-                    error = {
-                        Text(
-                            text = stringResource(R.string.image_load_failed),
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(24.dp),
+            ) { page ->
+                val pageFile = files[page]
+                val imageRequest = remember(pageFile.absolutePath, pageFile.length(), pageFile.lastModified()) {
+                    ImageRequest.Builder(context)
+                        .data(pageFile)
+                        .memoryCacheKey(
+                            "${pageFile.absolutePath}:${pageFile.length()}:${pageFile.lastModified()}",
                         )
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
+                        .diskCachePolicy(CachePolicy.DISABLED)
+                        .allowHardware(false)
+                        .build()
+                }
+                // Only the current page gets interactive zoom; neighbors stay fit.
+                if (page == pagerState.currentPage) {
+                    ZoomableBox(
+                        zoomState = zoomState,
+                        // At 1x, don't steal horizontal swipes from the pager.
+                        preserveScrollGestures = true,
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        SubcomposeAsyncImage(
+                            model = imageRequest,
+                            contentDescription = pageFile.name,
+                            contentScale = ContentScale.Fit,
+                            loading = {
+                                CircularProgressIndicator(color = MaterialTheme.colorScheme.onPrimary)
+                            },
+                            error = {
+                                Text(
+                                    text = stringResource(R.string.image_load_failed),
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(24.dp),
+                                )
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                } else {
+                    SubcomposeAsyncImage(
+                        model = imageRequest,
+                        contentDescription = pageFile.name,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
         }
     }

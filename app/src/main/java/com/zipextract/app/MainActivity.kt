@@ -143,6 +143,7 @@ class MainActivity : AppCompatActivity() {
                                 finish()
                             }
                         },
+                        onViewerPageChanged = viewModel::updateViewerPage,
                         onCloseExtract = viewModel::closeExtractDialog,
                         onDeleteOriginalZipChange = viewModel::setDeleteOriginalZip,
                         onExtractPasswordChange = viewModel::setExtractPassword,

@@ -63,14 +63,24 @@ sealed class ViewerContent {
     abstract val file: File
     val title: String get() = file.name
 
-    data class Image(override val file: File) : ViewerContent()
+    data class Image(
+        override val file: File,
+        /** Same-type siblings for swipe left/right (includes [file]). */
+        val playlist: List<File> = listOf(file),
+        val index: Int = 0,
+    ) : ViewerContent()
+
     data class Pdf(
         override val file: File,
         val sourceUri: Uri? = null,
     ) : ViewerContent()
+
     data class Video(
         override val file: File,
         val sourceUri: Uri? = null,
+        /** Same-type siblings for swipe left/right (includes [file]). */
+        val playlist: List<File> = listOf(file),
+        val index: Int = 0,
     ) : ViewerContent()
 }
 
@@ -1053,7 +1063,13 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 item.isApk -> installApkFile(item.file)
                 item.isArchive -> openExtractDialog(item.file.canonicalFile)
                 // In-app ExoPlayer handles m4a/opus/flac even when no external player exists.
-                item.isAudio -> openViewer(ViewerContent.Video(item.file), ViewerReturnTarget.HOME)
+                item.isAudio -> {
+                    val (list, idx) = mediaPlaylistFor(item) { it.isAudio }
+                    openViewer(
+                        ViewerContent.Video(file = item.file, playlist = list, index = idx),
+                        ViewerReturnTarget.HOME,
+                    )
+                }
                 else -> showFileDetails(item)
             }
             return
@@ -1317,11 +1333,49 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             }
             item.isArchive -> openExtractDialog(item.file.canonicalFile)
             item.isPdf -> openViewer(ViewerContent.Pdf(item.file))
-            item.isImage -> openViewer(ViewerContent.Image(item.file))
-            item.isVideo -> openViewer(ViewerContent.Video(item.file))
+            item.isImage -> {
+                val (list, idx) = mediaPlaylistFor(item) { it.isImage }
+                openViewer(ViewerContent.Image(file = item.file, playlist = list, index = idx))
+            }
+            item.isVideo -> {
+                val (list, idx) = mediaPlaylistFor(item) { it.isVideo }
+                openViewer(ViewerContent.Video(file = item.file, playlist = list, index = idx))
+            }
             // In-app ExoPlayer handles m4a/opus/flac even when no external player exists.
-            item.isAudio -> openViewer(ViewerContent.Video(item.file))
+            item.isAudio -> {
+                val (list, idx) = mediaPlaylistFor(item) { it.isAudio }
+                openViewer(ViewerContent.Video(file = item.file, playlist = list, index = idx))
+            }
             else -> toggleSelect(item)
+        }
+    }
+
+    /**
+     * Build a swipe playlist from the currently visible list (category / folder /
+     * search / recent), filtered to the same media kind as [anchor].
+     */
+    private fun mediaPlaylistFor(
+        anchor: FileItem,
+        matches: (FileItem) -> Boolean,
+    ): Pair<List<File>, Int> {
+        val state = _uiState.value
+        val pool = when {
+            state.searchQuery.isNotBlank() && state.searchResults.isNotEmpty() -> state.searchResults
+            state.items.isNotEmpty() -> state.items
+            state.recentFiles.isNotEmpty() -> state.recentFiles
+            else -> listOf(anchor)
+        }
+        val files = pool.asSequence()
+            .filter(matches)
+            .map { it.file }
+            .distinctBy { it.absolutePath }
+            .toList()
+        if (files.isEmpty()) return listOf(anchor.file) to 0
+        val idx = files.indexOfFirst { it.absolutePath == anchor.file.absolutePath }
+        return if (idx >= 0) {
+            files to idx
+        } else {
+            (listOf(anchor.file) + files) to 0
         }
     }
 
@@ -1465,9 +1519,49 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         val item = FileItem(file)
         when {
             item.isPdf -> openViewer(ViewerContent.Pdf(file))
-            item.isImage -> openViewer(ViewerContent.Image(file))
-            item.isVideo || item.isAudio -> openViewer(ViewerContent.Video(file))
+            item.isImage -> {
+                val (list, idx) = mediaPlaylistFor(item) { it.isImage }
+                openViewer(ViewerContent.Image(file = file, playlist = list, index = idx))
+            }
+            item.isVideo -> {
+                val (list, idx) = mediaPlaylistFor(item) { it.isVideo }
+                openViewer(ViewerContent.Video(file = file, playlist = list, index = idx))
+            }
+            item.isAudio -> {
+                val (list, idx) = mediaPlaylistFor(item) { it.isAudio }
+                openViewer(ViewerContent.Video(file = file, playlist = list, index = idx))
+            }
             else -> emit(str(R.string.format_unsupported))
+        }
+    }
+
+    /** Keep [BrowserUiState.viewer] pointed at the page the user swiped to. */
+    fun updateViewerPage(file: File) {
+        _uiState.update { state ->
+            when (val viewer = state.viewer) {
+                is ViewerContent.Image -> {
+                    val idx = viewer.playlist.indexOfFirst { it.absolutePath == file.absolutePath }
+                        .takeIf { it >= 0 } ?: viewer.index
+                    state.copy(viewer = viewer.copy(file = file, index = idx))
+                }
+                is ViewerContent.Video -> {
+                    val idx = viewer.playlist.indexOfFirst { it.absolutePath == file.absolutePath }
+                        .takeIf { it >= 0 } ?: viewer.index
+                    state.copy(
+                        viewer = viewer.copy(
+                            file = file,
+                            index = idx,
+                            // External content URI only applies to the originally shared file.
+                            sourceUri = if (file.absolutePath == viewer.file.absolutePath) {
+                                viewer.sourceUri
+                            } else {
+                                null
+                            },
+                        ),
+                    )
+                }
+                else -> state
+            }
         }
     }
 
@@ -1496,7 +1590,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     /**
-     * Delete the file currently open in the image/PDF viewer, then leave the viewer.
+     * Delete the file currently open in the image/PDF viewer.
+     * For image/video playlists, stay in the viewer on the next sibling when possible.
      * Returns true when the Activity should finish (opened via external VIEW/SEND intent).
      */
     fun deleteViewerFile(): Boolean {
@@ -1507,13 +1602,54 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         val shouldFinish = state.launchedFromExternalIntent
         val returnTarget = state.viewerReturnTarget
 
-        _uiState.update {
-            it.copy(
-                viewer = null,
-                viewerReturnTarget = ViewerReturnTarget.STAY,
-                launchedFromExternalIntent = false,
-            )
+        val nextViewer: ViewerContent? = when (viewer) {
+            is ViewerContent.Image -> {
+                val nextList = viewer.playlist.filter {
+                    runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) != path &&
+                        it.absolutePath != file.absolutePath
+                }
+                if (nextList.isEmpty()) {
+                    null
+                } else {
+                    val nextIndex = viewer.index.coerceIn(0, nextList.lastIndex)
+                    ViewerContent.Image(
+                        file = nextList[nextIndex],
+                        playlist = nextList,
+                        index = nextIndex,
+                    )
+                }
+            }
+            is ViewerContent.Video -> {
+                val nextList = viewer.playlist.filter {
+                    runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) != path &&
+                        it.absolutePath != file.absolutePath
+                }
+                if (nextList.isEmpty()) {
+                    null
+                } else {
+                    val nextIndex = viewer.index.coerceIn(0, nextList.lastIndex)
+                    ViewerContent.Video(
+                        file = nextList[nextIndex],
+                        playlist = nextList,
+                        index = nextIndex,
+                    )
+                }
+            }
+            else -> null
         }
+
+        if (nextViewer != null && !shouldFinish) {
+            _uiState.update { it.copy(viewer = nextViewer) }
+        } else {
+            _uiState.update {
+                it.copy(
+                    viewer = null,
+                    viewerReturnTarget = ViewerReturnTarget.STAY,
+                    launchedFromExternalIntent = false,
+                )
+            }
+        }
+
         applyLocalRemovals(setOf(path))
         if (path in prefs.getFavoritePaths()) {
             prefs.toggleFavorite(path)
@@ -1544,11 +1680,13 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             goHome()
             return true
         }
-        when (returnTarget) {
-            ViewerReturnTarget.HOME,
-            ViewerReturnTarget.CLOUD,
-            -> restoreHomeAfterViewer()
-            ViewerReturnTarget.STAY -> Unit
+        if (nextViewer == null) {
+            when (returnTarget) {
+                ViewerReturnTarget.HOME,
+                ViewerReturnTarget.CLOUD,
+                -> restoreHomeAfterViewer()
+                ViewerReturnTarget.STAY -> Unit
+            }
         }
         return false
     }
