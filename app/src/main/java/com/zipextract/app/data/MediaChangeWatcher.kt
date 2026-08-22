@@ -6,7 +6,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
-import android.os.SystemClock
 import android.provider.MediaStore
 
 data class MediaStoreChange(
@@ -17,6 +16,9 @@ data class MediaStoreChange(
 /**
  * Watches MediaStore for newly indexed downloads / photos / videos so the UI can
  * insert the changed row without rescanning storage.
+ *
+ * Uses a short *trailing* debounce so camera save bursts (temp → final JPG) are not
+ * dropped after the first noisy notification.
  */
 class MediaChangeWatcher(
     context: Context,
@@ -26,8 +28,13 @@ class MediaChangeWatcher(
     private val thread = HandlerThread("filenest-media-watch").apply { start() }
     private val handler = Handler(thread.looper)
     private var started = false
-    @Volatile
-    private var lastEmitElapsedMs: Long = 0L
+    private var pending: MediaStoreChange? = null
+
+    private val emitRunnable = Runnable {
+        val change = pending ?: return@Runnable
+        pending = null
+        onChanged(change)
+    }
 
     private val observer = object : ContentObserver(handler) {
         override fun onChange(selfChange: Boolean) {
@@ -35,10 +42,6 @@ class MediaChangeWatcher(
         }
 
         override fun onChange(selfChange: Boolean, uri: Uri?) {
-            // Debounce bursty MediaStore notifications (download progress, scanners).
-            val now = SystemClock.elapsedRealtime()
-            if (now - lastEmitElapsedMs < EMIT_DEBOUNCE_MS) return
-            lastEmitElapsedMs = now
             val source = when {
                 uri == null -> "media"
                 uri.toString().contains("images", ignoreCase = true) -> "images"
@@ -46,7 +49,22 @@ class MediaChangeWatcher(
                 uri.toString().contains("download", ignoreCase = true) -> "downloads"
                 else -> "files"
             }
-            handler.post { onChanged(MediaStoreChange(source, uri)) }
+            // Prefer a concrete row URI over a broad collection notify when coalescing.
+            val existing = pending
+            pending = when {
+                existing == null -> MediaStoreChange(source, uri)
+                uri != null && uri.lastPathSegment?.toLongOrNull() != null ->
+                    MediaStoreChange(source, uri)
+                existing.uri != null -> existing.copy(source = preferSource(existing.source, source))
+                else -> MediaStoreChange(preferSource(existing.source, source), uri)
+            }
+            handler.removeCallbacks(emitRunnable)
+            val delay = if (source == "images" || source == "video") {
+                IMAGE_DEBOUNCE_MS
+            } else {
+                EMIT_DEBOUNCE_MS
+            }
+            handler.postDelayed(emitRunnable, delay)
         }
     }
 
@@ -91,10 +109,19 @@ class MediaChangeWatcher(
         started = false
         runCatching { appContext.contentResolver.unregisterContentObserver(observer) }
         handler.removeCallbacksAndMessages(null)
+        pending = null
         thread.quitSafely()
     }
 
+    private fun preferSource(a: String, b: String): String {
+        val rank = mapOf("images" to 3, "video" to 3, "downloads" to 2, "files" to 1, "media" to 0)
+        return if ((rank[b] ?: 0) >= (rank[a] ?: 0)) b else a
+    }
+
     companion object {
-        private const val EMIT_DEBOUNCE_MS = 700L
+        /** Trailing quiet-period before emitting a MediaStore burst. */
+        private const val EMIT_DEBOUNCE_MS = 350L
+        /** Camera / gallery writes settle faster when we react sooner. */
+        private const val IMAGE_DEBOUNCE_MS = 160L
     }
 }
