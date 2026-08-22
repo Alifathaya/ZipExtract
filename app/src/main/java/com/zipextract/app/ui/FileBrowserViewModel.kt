@@ -114,6 +114,9 @@ data class ExtractZipState(
     val isEncrypted: Boolean = false,
     val password: String = "",
     val error: String? = null,
+    /** content:// from Chrome / share sheet — needed to delete the real original. */
+    val sourceUri: android.net.Uri? = null,
+    val displayName: String? = null,
 )
 
 data class ExtractResultState(
@@ -211,6 +214,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     private var resumeJob: Job? = null
     private var cloudImportJob: Job? = null
     private var activeJob: Job? = null
+    private var extractEncryptCheckJob: Job? = null
     private var mediaWatcher: MediaChangeWatcher? = null
     private var inboxWatcher: InboxFolderWatcher? = null
     private var incrementalPersistJob: Job? = null
@@ -1479,7 +1483,11 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     _uiState.update { it.copy(launchedFromExternalIntent = false) }
                     installApkFile(resolved.file)
                 }
-                item.isArchive -> extractZipFile(resolved.file)
+                item.isArchive -> extractZipFile(
+                    zip = resolved.file,
+                    sourceUri = resolved.sourceUri,
+                    displayName = resolved.displayName,
+                )
                 SharedFileResolver.isPdf(resolved.file, resolved.mimeType) -> {
                     openViewer(
                         ViewerContent.Pdf(
@@ -1736,7 +1744,11 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         openExtractDialog(item.file)
     }
 
-    fun openExtractDialog(zipFile: File) {
+    fun openExtractDialog(
+        zipFile: File,
+        sourceUri: android.net.Uri? = null,
+        displayName: String? = null,
+    ) {
         val file = runCatching { zipFile.canonicalFile }.getOrDefault(zipFile)
         if (!file.exists() || !file.isFile) {
             emit(str(R.string.zip_not_found))
@@ -1746,16 +1758,24 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             emit(str(R.string.format_unsupported_ext, file.extension))
             return
         }
-        // Default: extract next to the archive. User can change it in the dialog.
-        val destination = ZipManager.sameFolderExtractDirectory(file)
+        // Cache copies from Chrome/share: extract to FileNest, not app cache.
+        val fromIncoming = SharedFileResolver.isAppCacheFile(file)
+        val destinationChoice = if (fromIncoming) {
+            ExtractDestination.FILENEST
+        } else {
+            ExtractDestination.SAME_FOLDER
+        }
+        val destination = preferredExtractDir(file, destinationChoice)
         _uiState.update {
             it.copy(
                 extractDialog = ExtractZipState(
                     zipFile = file,
-                    destination = ExtractDestination.SAME_FOLDER,
+                    destination = destinationChoice,
                     destinationDir = destination,
                     deleteOriginal = false,
                     isLoading = false,
+                    sourceUri = sourceUri,
+                    displayName = displayName ?: file.name,
                 ),
                 extractResult = null,
                 selectionMode = false,
@@ -1763,7 +1783,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             )
         }
         // Detect password protection off the main thread, then show the password field.
-        viewModelScope.launch {
+        extractEncryptCheckJob?.cancel()
+        extractEncryptCheckJob = viewModelScope.launch {
             val encrypted = withContext(Dispatchers.IO) { ArchiveManager.isPasswordProtected(file) }
             if (!encrypted) return@launch
             _uiState.update { state ->
@@ -1785,6 +1806,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun closeExtractDialog() {
+        extractEncryptCheckJob?.cancel()
+        extractEncryptCheckJob = null
         _uiState.update { it.copy(extractDialog = null) }
     }
 
@@ -1850,6 +1873,11 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         val password = dialog.password.takeIf { it.isNotBlank() }
         val choice = dialog.destination
         val preferred = preferredExtractDir(zip, choice)
+        val sourceUri = dialog.sourceUri
+        val displayName = dialog.displayName ?: zip.name
+        // Stop any password-probe that may still hold the archive open.
+        extractEncryptCheckJob?.cancel()
+        extractEncryptCheckJob = null
         // Close the small dialog immediately; results open in the chosen folder.
         closeExtractDialog()
 
@@ -1869,7 +1897,51 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     updateProgressThrottled(str(R.string.progress_extract_zip), name, progress)
                 }
 
-                // Show results immediately — don't wait on MediaScanner / cache disk write.
+                // Release archive FDs before delete — zip4j / ZipFile can lag one tick.
+                runCatching { System.gc() }
+                kotlinx.coroutines.delay(120)
+
+                var deletedOriginal = false
+                if (deleteOriginal) {
+                    deletedOriginal = FileOperations.deleteOriginalArchive(
+                        context = localizedContext(),
+                        localFile = zip,
+                        sourceUri = sourceUri,
+                        displayName = displayName,
+                    )
+                    if (!deletedOriginal) {
+                        // One more pass after a longer pause if the OS still holds the file.
+                        kotlinx.coroutines.delay(250)
+                        runCatching { System.gc() }
+                        deletedOriginal = FileOperations.deleteOriginalArchive(
+                            context = localizedContext(),
+                            localFile = zip,
+                            sourceUri = sourceUri,
+                            displayName = displayName,
+                        )
+                    }
+                    if (deletedOriginal) {
+                        val removed = mutableSetOf(
+                            runCatching { zip.canonicalPath }.getOrDefault(zip.absolutePath),
+                            zip.absolutePath,
+                        )
+                        SharedFileResolver.findPublicFileByDisplayName(localizedContext(), displayName)
+                            ?.let { found ->
+                                removed += runCatching { found.canonicalPath }.getOrDefault(found.absolutePath)
+                                removed += found.absolutePath
+                            }
+                        sourceUri?.let { uri ->
+                            SharedFileResolver.tryResolveFilesystemFile(localizedContext(), uri, displayName)
+                                ?.let { found ->
+                                    removed += runCatching { found.canonicalPath }.getOrDefault(found.absolutePath)
+                                    removed += found.absolutePath
+                                }
+                        }
+                        applyLocalRemovals(removed)
+                    }
+                }
+
+                // Show results after delete so a SAME_FOLDER listing cannot re-pin the ZIP.
                 val extractedItems = collectExtractedItems(destination, touchNewest = true)
                 mediaLibraryCache = FileOperations.mergeIncremental(
                     mediaLibraryCache
@@ -1878,18 +1950,6 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     extractedItems,
                 )
                 showExtractedFolder(destination, extractedItems)
-
-                var deletedOriginal = false
-                if (deleteOriginal) {
-                    deletedOriginal = FileOperations.deleteSingleFile(localizedContext(), zip)
-                    if (deletedOriginal) {
-                        val removed = setOf(
-                            runCatching { zip.canonicalPath }.getOrDefault(zip.absolutePath),
-                            zip.absolutePath,
-                        )
-                        applyLocalRemovals(removed)
-                    }
-                }
 
                 // Media scan in the background so the gallery/Downloads index catches up
                 // without blocking the user from browsing extracted files.
@@ -1927,6 +1987,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                             destinationDir = preferred,
                             deleteOriginal = deleteOriginal,
                             isEncrypted = true,
+                            sourceUri = sourceUri,
+                            displayName = displayName,
                         ),
                         progress = null,
                     )
@@ -2445,13 +2507,20 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         openExtractDialog(zip)
     }
 
-    fun extractZipFile(zip: File) {
+    fun extractZipFile(
+        zip: File,
+        sourceUri: android.net.Uri? = null,
+        displayName: String? = null,
+    ) {
         if (!zip.exists()) {
             emit(str(R.string.zip_not_found))
             return
         }
-        navigateTo(zip.parentFile ?: root)
-        openExtractDialog(zip)
+        // Don't navigate into app cache when Chrome/share handed us a temp copy.
+        if (!SharedFileResolver.isAppCacheFile(zip)) {
+            navigateTo(zip.parentFile ?: root)
+        }
+        openExtractDialog(zip, sourceUri = sourceUri, displayName = displayName)
     }
 
     fun toggleSort() {
