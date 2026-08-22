@@ -2256,6 +2256,26 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    /** Clears checks but stays in selection mode (after long-press multi-select). */
+    fun deselectAll() {
+        _uiState.update { it.copy(selectionMode = true, selectedPaths = emptySet()) }
+    }
+
+    fun toggleSelectAll() {
+        _uiState.update { state ->
+            val allSelected = state.items.isNotEmpty() &&
+                state.items.all { it.path in state.selectedPaths }
+            if (allSelected) {
+                state.copy(selectionMode = true, selectedPaths = emptySet())
+            } else {
+                state.copy(
+                    selectionMode = true,
+                    selectedPaths = state.items.map { it.path }.toSet(),
+                )
+            }
+        }
+    }
+
     fun clearSelection() {
         _uiState.update { it.copy(selectionMode = false, selectedPaths = emptySet()) }
     }

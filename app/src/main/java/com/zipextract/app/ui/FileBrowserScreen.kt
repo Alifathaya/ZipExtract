@@ -353,6 +353,7 @@ fun FileBrowserScreen(
     val canFavoriteOrDetails = selectedItems.size == 1
     val selectingInstalledApps = selectedItems.isNotEmpty() && selectedItems.all { it.isInstalledApp }
     val isAppsCategory = state.libraryMode && state.activeCategory == FileCategory.APPS
+    val allSelected = state.items.isNotEmpty() && state.items.all { it.path in state.selectedPaths }
 
     BackHandler(
         enabled = state.extractDialog != null ||
@@ -568,6 +569,20 @@ fun FileBrowserScreen(
                     }
                 },
                 actions = {
+                    if (state.selectionMode) {
+                        IconButton(onClick = onSelectAll) {
+                            Icon(
+                                imageVector = if (allSelected) {
+                                    Icons.Default.CheckBox
+                                } else {
+                                    Icons.Default.SelectAll
+                                },
+                                contentDescription = stringResource(
+                                    if (allSelected) R.string.deselect_all else R.string.select_all,
+                                ),
+                            )
+                        }
+                    }
                     if (state.selectionMode && selectedCount == 1) {
                         IconButton(onClick = onToggleFavoriteSelected) {
                             val path = singleSelected?.path
@@ -607,7 +622,13 @@ fun FileBrowserScreen(
                             leadingIcon = { Icon(Icons.Default.CheckBox, contentDescription = null) },
                         )
                         DropdownMenuItem(
-                            text = { Text(stringResource(R.string.select_all)) },
+                            text = {
+                                Text(
+                                    stringResource(
+                                        if (allSelected) R.string.deselect_all else R.string.select_all,
+                                    ),
+                                )
+                            },
                             onClick = {
                                 menuExpanded = false
                                 onSelectAll()
@@ -734,7 +755,7 @@ fun FileBrowserScreen(
                     )
                 ),
         ) {
-            val showSelectionRail = state.selectionMode && selectedCount > 0
+            val showSelectionRail = state.selectionMode
             Column(modifier = Modifier.fillMaxSize()) {
                 if (state.explorerMode && state.categoryRoot != null) {
                     val fallbackRootLabel = stringResource(R.string.explorer_my_phone)
@@ -942,7 +963,9 @@ fun FileBrowserScreen(
             ) {
                 if (selectingInstalledApps || (isAppsCategory && selectedItems.any { it.isInstalledApp })) {
                     AppsActionBar(
+                        allSelected = allSelected,
                         canDetails = canFavoriteOrDetails,
+                        onSelectAll = onSelectAll,
                         onShare = onShareSelected,
                         onCompress = onCompressSelectedApps,
                         onUninstall = { dialog = DialogType.UNINSTALL_CONFIRM },
@@ -950,11 +973,13 @@ fun FileBrowserScreen(
                     )
                 } else {
                     ActionBar(
+                        allSelected = allSelected,
                         canExtract = canExtract,
                         canRename = canRename,
                         canFavoriteOrDetails = canFavoriteOrDetails,
                         hasClipboard = state.clipboard != null,
                         clipboardMode = state.clipboard?.mode,
+                        onSelectAll = onSelectAll,
                         onCopy = onCopy,
                         onCut = onCut,
                         onPaste = onPaste,
@@ -1127,11 +1152,13 @@ fun FileBrowserScreen(
 
 @Composable
 private fun ActionBar(
+    allSelected: Boolean,
     canExtract: Boolean,
     canRename: Boolean,
     canFavoriteOrDetails: Boolean,
     hasClipboard: Boolean,
     clipboardMode: ClipboardMode?,
+    onSelectAll: () -> Unit,
     onCopy: () -> Unit,
     onCut: () -> Unit,
     onPaste: () -> Unit,
@@ -1160,6 +1187,11 @@ private fun ActionBar(
             verticalArrangement = Arrangement.spacedBy(2.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            ActionIcon(
+                icon = if (allSelected) Icons.Default.CheckBox else Icons.Default.SelectAll,
+                label = stringResource(if (allSelected) R.string.deselect_all_short else R.string.select_all_short),
+                onClick = onSelectAll,
+            )
             // Favorit & Detail first so they stay reachable at the top of the rail.
             ActionIcon(
                 Icons.Default.Star,
@@ -2135,7 +2167,9 @@ private fun AppSubFilterChips(
 
 @Composable
 private fun AppsActionBar(
+    allSelected: Boolean,
     canDetails: Boolean,
+    onSelectAll: () -> Unit,
     onShare: () -> Unit,
     onCompress: () -> Unit,
     onUninstall: () -> Unit,
@@ -2157,6 +2191,11 @@ private fun AppsActionBar(
             verticalArrangement = Arrangement.spacedBy(2.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            ActionIcon(
+                icon = if (allSelected) Icons.Default.CheckBox else Icons.Default.SelectAll,
+                label = stringResource(if (allSelected) R.string.deselect_all_short else R.string.select_all_short),
+                onClick = onSelectAll,
+            )
             ActionIcon(Icons.Default.Info, stringResource(R.string.details), onDetails, enabled = canDetails)
             ActionIcon(Icons.Default.Share, stringResource(R.string.share), onShare)
             ActionIcon(Icons.Default.FolderZip, stringResource(R.string.app_compress), onCompress)

@@ -111,7 +111,7 @@ class MainActivity : AppCompatActivity() {
                         onFullRescan = viewModel::fullRescan,
                         onToggleSelect = viewModel::toggleSelect,
                         onToggleSelectionMode = viewModel::toggleSelectionMode,
-                        onSelectAll = viewModel::selectAll,
+                        onSelectAll = viewModel::toggleSelectAll,
                         onClearSelection = viewModel::clearSelection,
                         onCopy = viewModel::copySelected,
                         onCut = viewModel::cutSelected,
