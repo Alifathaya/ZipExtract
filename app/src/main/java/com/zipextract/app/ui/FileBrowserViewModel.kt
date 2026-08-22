@@ -1296,6 +1296,11 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun openItem(item: FileItem) {
+        // In selection mode, taps always toggle — never open extract/viewer.
+        if (_uiState.value.selectionMode) {
+            toggleSelect(item)
+            return
+        }
         when {
             item.isInstalledApp -> {
                 val pkg = item.packageName ?: return

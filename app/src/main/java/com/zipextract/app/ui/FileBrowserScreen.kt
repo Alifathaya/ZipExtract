@@ -891,8 +891,10 @@ fun FileBrowserScreen(
                                     showFolder = state.showFavoritesOnly || state.explorerMode,
                                     onClick = {
                                         when {
-                                            item.isArchive -> onOpenExtract(item)
+                                            // Selection must win over extract — otherwise ZIP taps
+                                            // open the extract dialog and multi-delete is impossible.
                                             state.selectionMode -> onToggleSelect(item)
+                                            item.isArchive -> onOpenExtract(item)
                                             else -> onOpenItem(item)
                                         }
                                     },
@@ -1335,8 +1337,8 @@ private fun FavoritesGalleryGrid(
                         selectionMode = selectionMode,
                         onClick = {
                             when {
-                                item.isArchive -> onOpenExtract(item)
                                 selectionMode -> onToggleSelect(item)
+                                item.isArchive -> onOpenExtract(item)
                                 else -> onOpenItem(item)
                             }
                         },
@@ -1834,8 +1836,8 @@ private fun CategoryLibraryList(
                     showFolder = true,
                     onClick = {
                         when {
-                            item.isArchive -> onOpenExtract(item)
                             selectionMode -> onToggleSelect(item)
+                            item.isArchive -> onOpenExtract(item)
                             else -> onOpenItem(item)
                         }
                     },
