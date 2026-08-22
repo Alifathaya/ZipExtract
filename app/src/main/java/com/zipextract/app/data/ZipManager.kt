@@ -159,7 +159,9 @@ object ZipManager {
 
     /** Cheap check (central directory only) whether the ZIP has encrypted entries. */
     fun isEncryptedZip(file: File): Boolean {
-        return runCatching { net.lingala.zip4j.ZipFile(file).isEncrypted }.getOrDefault(false)
+        return runCatching {
+            net.lingala.zip4j.ZipFile(file).use { it.isEncrypted }
+        }.getOrDefault(false)
     }
 
     private fun extractZipEntriesInternal(
@@ -337,22 +339,23 @@ object ZipManager {
     }
 
     private fun listWithZip4j(zipFile: File): List<ZipEntryItem> {
-        val zip = net.lingala.zip4j.ZipFile(zipFile)
-        @Suppress("UNCHECKED_CAST")
-        val headers = zip.fileHeaders as List<FileHeader>
-        if (headers.isEmpty() && zip.isEncrypted) {
-            throw ZipPasswordException(msg(R.string.zip_password_required))
+        net.lingala.zip4j.ZipFile(zipFile).use { zip ->
+            @Suppress("UNCHECKED_CAST")
+            val headers = zip.fileHeaders as List<FileHeader>
+            if (headers.isEmpty() && zip.isEncrypted) {
+                throw ZipPasswordException(msg(R.string.zip_password_required))
+            }
+            return headers.map { header ->
+                val normalized = header.fileName.replace('\\', '/')
+                val displayName = normalized.trimEnd('/').substringAfterLast('/')
+                ZipEntryItem(
+                    path = normalized,
+                    displayName = displayName.ifEmpty { normalized },
+                    isDirectory = header.isDirectory || normalized.endsWith('/'),
+                    sizeBytes = header.uncompressedSize,
+                )
+            }.sortedBy { it.path.lowercase() }
         }
-        return headers.map { header ->
-            val normalized = header.fileName.replace('\\', '/')
-            val displayName = normalized.trimEnd('/').substringAfterLast('/')
-            ZipEntryItem(
-                path = normalized,
-                displayName = displayName.ifEmpty { normalized },
-                isDirectory = header.isDirectory || normalized.endsWith('/'),
-                sizeBytes = header.uncompressedSize,
-            )
-        }.sortedBy { it.path.lowercase() }
     }
 
     private fun listWithJavaZip(zipFile: File): List<ZipEntryItem> {
@@ -442,52 +445,56 @@ object ZipManager {
         } else {
             net.lingala.zip4j.ZipFile(zipFile, password.toCharArray())
         }
-        if (zip.isEncrypted && password.isNullOrBlank()) {
-            throw ZipPasswordException(msg(R.string.zip_password_required))
-        }
-        @Suppress("UNCHECKED_CAST")
-        val headers = zip.fileHeaders as List<FileHeader>
-        val allNames = headers.map { it.fileName.replace('\\', '/') }
-        val toExtract = expandSelectedPaths(allNames, selectedPaths).toSet()
-        if (toExtract.isEmpty()) error(msg(R.string.zip_no_matching_files))
+        try {
+            if (zip.isEncrypted && password.isNullOrBlank()) {
+                throw ZipPasswordException(msg(R.string.zip_password_required))
+            }
+            @Suppress("UNCHECKED_CAST")
+            val headers = zip.fileHeaders as List<FileHeader>
+            val allNames = headers.map { it.fileName.replace('\\', '/') }
+            val toExtract = expandSelectedPaths(allNames, selectedPaths).toSet()
+            if (toExtract.isEmpty()) error(msg(R.string.zip_no_matching_files))
 
-        val total = toExtract.size.coerceAtLeast(1)
-        var processed = 0
-        var written = 0
+            val total = toExtract.size.coerceAtLeast(1)
+            var processed = 0
+            var written = 0
 
-        headers.forEach { header ->
-            val originalName = header.fileName.replace('\\', '/')
-            if (originalName !in toExtract) return@forEach
-            val safeName = sanitizeEntryName(originalName)
-            onProgress?.invoke(++processed / total.toFloat(), safeName.ifBlank { originalName })
+            headers.forEach { header ->
+                val originalName = header.fileName.replace('\\', '/')
+                if (originalName !in toExtract) return@forEach
+                val safeName = sanitizeEntryName(originalName)
+                onProgress?.invoke(++processed / total.toFloat(), safeName.ifBlank { originalName })
 
-            if (header.isDirectory || originalName.endsWith('/') || safeName.isEmpty()) {
-                if (safeName.isNotEmpty()) {
-                    ensureDirectory(File(destinationDir, safeName))
+                if (header.isDirectory || originalName.endsWith('/') || safeName.isEmpty()) {
+                    if (safeName.isNotEmpty()) {
+                        ensureDirectory(File(destinationDir, safeName))
+                    }
+                    return@forEach
                 }
-                return@forEach
-            }
 
-            try {
-                zip.extractFile(header, destinationDir.absolutePath, safeName)
-            } catch (e: ZipException) {
-                if (e.type == ZipException.Type.WRONG_PASSWORD) {
-                    throw ZipPasswordException(msg(R.string.zip_wrong_password))
+                try {
+                    zip.extractFile(header, destinationDir.absolutePath, safeName)
+                } catch (e: ZipException) {
+                    if (e.type == ZipException.Type.WRONG_PASSWORD) {
+                        throw ZipPasswordException(msg(R.string.zip_wrong_password))
+                    }
+                    // Fallback: stream manually if extractFile fails for this entry.
+                    writeEntryBytes(
+                        destinationDir = destinationDir,
+                        safeName = safeName,
+                        bytes = zip.getInputStream(header).use { it.readBytes() },
+                    )
                 }
-                // Fallback: stream manually if extractFile fails for this entry.
-                writeEntryBytes(
-                    destinationDir = destinationDir,
-                    safeName = safeName,
-                    bytes = zip.getInputStream(header).use { it.readBytes() },
-                )
+                val out = File(destinationDir, safeName)
+                if (!out.isFile) {
+                    error(msg(R.string.zip_write_file_failed, out.absolutePath))
+                }
+                written++
             }
-            val out = File(destinationDir, safeName)
-            if (!out.isFile) {
-                error(msg(R.string.zip_write_file_failed, out.absolutePath))
-            }
-            written++
+            return written
+        } finally {
+            runCatching { zip.close() }
         }
-        return written
     }
 
     private fun extractWithJavaZip(

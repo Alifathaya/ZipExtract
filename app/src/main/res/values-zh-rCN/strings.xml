@@ -332,6 +332,8 @@
     <string name="saf_uri_denied">Access denied (URI permission). Open again via Cloud → Open cloud file.</string>
     <string name="extract_hint_download_top">Extract results appear at the top of the Download list.</string>
     <string name="extract_delete_zip">Delete ZIP file after extract</string>
+    <string name="extract_zip_deleted">Original ZIP deleted</string>
+    <string name="extract_zip_delete_failed">Could not delete ZIP</string>
     <string name="extract_success_top_toast">Extract successful (%1$d files) — at the top of Download</string>
     <string name="open_download">Open Download</string>
     <string name="apk_preparing_installer">Preparing installer…</string>

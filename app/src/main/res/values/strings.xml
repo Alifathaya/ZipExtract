@@ -337,6 +337,8 @@
     <string name="extract_hint_download_top">Hasil extract muncul di atas list halaman Download.</string>
     <string name="extract_save_where">Simpan hasil extract di mana?</string>
     <string name="extract_delete_zip">Hapus file ZIP setelah extract</string>
+    <string name="extract_zip_deleted">ZIP asli dihapus</string>
+    <string name="extract_zip_delete_failed">ZIP gagal dihapus</string>
     <string name="extract_success_top_toast">Extract berhasil (%1$d file) — ada di atas list Download</string>
     <string name="open_download">Buka Download</string>
     <string name="apk_preparing_installer">Menyiapkan installer…</string>

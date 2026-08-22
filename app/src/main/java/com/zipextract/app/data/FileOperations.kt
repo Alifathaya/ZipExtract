@@ -2,6 +2,7 @@ package com.zipextract.app.data
 
 import android.content.ContentResolver
 import android.content.Context
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -823,13 +824,36 @@ object FileOperations {
     fun deleteRecursively(context: Context, files: List<File>): OperationResult {
         var failed = 0
         files.forEach { file ->
-            if (!deleteDeep(file)) failed++
+            if (!deleteDeep(context, file)) failed++
         }
         return if (failed == 0) {
             OperationResult.Success(context.getString(R.string.items_deleted, files.size))
         } else {
             OperationResult.Error(context.getString(R.string.items_delete_partial, failed))
         }
+    }
+
+    /**
+     * Delete one file reliably after ZIP extract: close-friendly retries, then MediaStore
+     * row removal when plain [File.delete] is blocked on shared storage.
+     */
+    fun deleteSingleFile(context: Context, file: File): Boolean {
+        if (!file.exists()) return true
+        if (deleteDeep(context, file)) return true
+        // Brief retry — archive libraries sometimes release the FD a tick late.
+        repeat(3) { attempt ->
+            try {
+                Thread.sleep(80L * (attempt + 1))
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
+            if (!file.exists()) return true
+            if (file.delete()) {
+                notifyMediaStoreDeleted(context, file)
+                return true
+            }
+        }
+        return !file.exists()
     }
 
     fun paste(
@@ -886,13 +910,73 @@ object FileOperations {
         }
     }
 
-    private fun deleteDeep(file: File): Boolean {
+    private fun deleteDeep(context: Context, file: File): Boolean {
         if (file.isDirectory) {
             file.listFiles()?.forEach { child ->
-                if (!deleteDeep(child)) return false
+                if (!deleteDeep(context, child)) return false
             }
         }
-        return file.delete()
+        if (!file.exists()) return true
+        if (file.delete()) {
+            notifyMediaStoreDeleted(context, file)
+            return true
+        }
+        // Shared-storage fallback via MediaStore (Download / WhatsApp / etc.).
+        if (!file.isDirectory && deleteViaMediaStore(context, file)) {
+            return true
+        }
+        return !file.exists()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun deleteViaMediaStore(context: Context, file: File): Boolean {
+        val path = file.absolutePath
+        val resolver = context.contentResolver
+        val collections = buildList {
+            add(MediaStore.Files.getContentUri("external"))
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                add(MediaStore.Downloads.EXTERNAL_CONTENT_URI)
+            }
+        }
+        var removed = 0
+        collections.forEach { collection ->
+            runCatching {
+                removed += resolver.delete(
+                    collection,
+                    MediaStore.MediaColumns.DATA + "=?",
+                    arrayOf(path),
+                )
+            }
+        }
+        if (removed > 0 || !file.exists()) {
+            notifyMediaStoreDeleted(context, file)
+            return !file.exists() || removed > 0
+        }
+        // Last resort: delete by matching display name + relative path parent.
+        runCatching {
+            removed += resolver.delete(
+                MediaStore.Files.getContentUri("external"),
+                MediaStore.MediaColumns.DATA + " LIKE ?",
+                arrayOf(path),
+            )
+        }
+        if (file.exists()) {
+            runCatching { file.delete() }
+        }
+        val gone = !file.exists()
+        if (gone) notifyMediaStoreDeleted(context, file)
+        return gone
+    }
+
+    private fun notifyMediaStoreDeleted(context: Context, file: File) {
+        runCatching {
+            MediaScannerConnection.scanFile(
+                context.applicationContext,
+                arrayOf(file.absolutePath, file.parent ?: file.absolutePath),
+                null,
+                null,
+            )
+        }
     }
 
     private fun copyDeep(source: File, target: File): Boolean {

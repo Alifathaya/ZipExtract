@@ -1729,8 +1729,16 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 ) { progress, name ->
                     updateProgress(str(R.string.progress_extract_zip), name, progress)
                 }
-                if (deleteOriginal && zip.exists()) {
-                    runCatching { zip.delete() }
+                var deletedOriginal = false
+                if (deleteOriginal) {
+                    deletedOriginal = FileOperations.deleteSingleFile(localizedContext(), zip)
+                    if (deletedOriginal) {
+                        val removed = setOf(
+                            runCatching { zip.canonicalPath }.getOrDefault(zip.absolutePath),
+                            zip.absolutePath,
+                        )
+                        applyLocalRemovals(removed)
+                    }
                 }
 
                 val extractedItems = collectExtractedItems(destination, touchNewest = true)
@@ -1742,11 +1750,16 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 mediaLibraryCache = FileOperations.mergeIncremental(baseline, extractedItems)
                 showExtractedFolder(destination, extractedItems)
 
+                val baseMsg = if (written > 0) {
+                    str(R.string.extract_success_toast, written)
+                } else {
+                    str(R.string.extract_empty_toast)
+                }
                 emit(
-                    if (written > 0) {
-                        str(R.string.extract_success_toast, written)
-                    } else {
-                        str(R.string.extract_empty_toast)
+                    when {
+                        !deleteOriginal -> baseMsg
+                        deletedOriginal -> "$baseMsg · ${str(R.string.extract_zip_deleted)}"
+                        else -> "$baseMsg · ${str(R.string.extract_zip_delete_failed)}"
                     },
                 )
             } catch (e: ZipManager.ZipPasswordException) {
