@@ -5,6 +5,7 @@ import androidx.annotation.StringRes
 import android.content.Context
 import android.media.MediaScannerConnection
 import android.net.Uri
+import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.zipextract.app.data.AppLanguage
@@ -1727,8 +1728,19 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     destinationDir = destination,
                     password = password,
                 ) { progress, name ->
-                    updateProgress(str(R.string.progress_extract_zip), name, progress)
+                    updateProgressThrottled(str(R.string.progress_extract_zip), name, progress)
                 }
+
+                // Show results immediately — don't wait on MediaScanner / cache disk write.
+                val extractedItems = collectExtractedItems(destination, touchNewest = true)
+                mediaLibraryCache = FileOperations.mergeIncremental(
+                    mediaLibraryCache
+                        ?: MediaLibraryCache.load(appContext)
+                        ?: MediaLibrary(),
+                    extractedItems,
+                )
+                showExtractedFolder(destination, extractedItems)
+
                 var deletedOriginal = false
                 if (deleteOriginal) {
                     deletedOriginal = FileOperations.deleteSingleFile(localizedContext(), zip)
@@ -1741,14 +1753,18 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     }
                 }
 
-                val extractedItems = collectExtractedItems(destination, touchNewest = true)
-                scanExtractedFiles(destination)
-                // Upsert extracted rows into the cache without a full storage scan.
-                val baseline = mediaLibraryCache
-                    ?: MediaLibraryCache.load(appContext)
-                    ?: MediaLibrary()
-                mediaLibraryCache = FileOperations.mergeIncremental(baseline, extractedItems)
-                showExtractedFolder(destination, extractedItems)
+                // Media scan in the background so the gallery/Downloads index catches up
+                // without blocking the user from browsing extracted files.
+                if (extractedItems.isNotEmpty()) {
+                    MediaScannerConnection.scanFile(
+                        appContext,
+                        (extractedItems.map { it.path } + destination.absolutePath).toTypedArray(),
+                        null,
+                        null,
+                    )
+                } else {
+                    scanExtractedFiles(destination)
+                }
 
                 val baseMsg = if (written > 0) {
                     str(R.string.extract_success_toast, written)
@@ -1854,17 +1870,37 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 when {
                     child.isDirectory -> walk(child, depth + 1)
                     child.isFile -> {
-                        if (touchNewest) {
-                            runCatching { child.setLastModified(now) }
+                        // Prefer in-memory timestamp for "newest first" pin — touching
+                        // every file on disk (especially exFAT/SD) is very slow.
+                        items += if (touchNewest) {
+                            FileItem(
+                                file = child,
+                                name = child.name,
+                                path = child.absolutePath,
+                                isDirectory = false,
+                                sizeBytes = child.length(),
+                                lastModified = now,
+                            )
+                        } else {
+                            FileItem(child)
                         }
-                        items += FileItem(child)
                     }
                 }
             }
         }
         if (root.isFile) {
-            if (touchNewest) runCatching { root.setLastModified(now) }
-            items += FileItem(root)
+            items += if (touchNewest) {
+                FileItem(
+                    file = root,
+                    name = root.name,
+                    path = root.absolutePath,
+                    isDirectory = false,
+                    sizeBytes = root.length(),
+                    lastModified = now,
+                )
+            } else {
+                FileItem(root)
+            }
         } else {
             walk(root, 0)
         }
@@ -1881,12 +1917,15 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             else -> destination
         }
         if (!folder.exists()) folder.mkdirs()
-        val listing = FileOperations.listFiles(folder)
-        val extractedPaths = extracted.map { it.path }.toHashSet()
+        val extractedPaths = extracted.mapTo(HashSet(extracted.size)) { it.path }
         val pinned = extracted
-            .filter { it.file.exists() && it.file.isFile }
+            .filter { it.file.isFile }
             .sortedByDescending { it.lastModified }
-        val rest = listing.filter { it.path !in extractedPaths }
+        // Avoid a second full directory listing when we already have the extract set;
+        // only list siblings that were already there.
+        val rest = runCatching {
+            FileOperations.listFiles(folder).filter { it.path !in extractedPaths }
+        }.getOrDefault(emptyList())
         val items = pinned + rest
 
         _uiState.update {
@@ -1915,13 +1954,16 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 searchLoading = false,
             )
         }
+        // Persist cache off the critical path.
         mediaLibraryCache?.let { library ->
-            persistHomeSnapshot(
-                library = library,
-                categories = FileOperations.getCategorySummaries(library, appContext),
-                recentFiles = library.images.take(12),
-                storage = FileOperations.getStorageInfo(),
-            )
+            viewModelScope.launch(Dispatchers.IO) {
+                persistHomeSnapshot(
+                    library = library,
+                    categories = FileOperations.getCategorySummaries(library, appContext),
+                    recentFiles = library.images.take(12),
+                    storage = _uiState.value.storageInfo ?: FileOperations.getStorageInfo(),
+                )
+            }
         }
     }
 
@@ -2326,6 +2368,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         emit(str(R.string.operation_cancelled))
     }
 
+    private var lastProgressUiMs: Long = 0L
+
     private fun updateProgress(title: String, message: String, progress: Float) {
         _uiState.update {
             it.copy(
@@ -2334,11 +2378,18 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     message = message,
                     indeterminate = false,
                     progress = progress.coerceIn(0f, 1f),
-                )
+                ),
             )
         }
     }
 
+    /** Limit Compose recompositions during extract (~8 fps is plenty for a progress bar). */
+    private fun updateProgressThrottled(title: String, message: String, progress: Float) {
+        val now = SystemClock.elapsedRealtime()
+        if (progress < 1f && now - lastProgressUiMs < 120L) return
+        lastProgressUiMs = now
+        updateProgress(title, message, progress)
+    }
 
     fun setExtractDestination(dir: File) {
         val current = _uiState.value.extractDialog ?: return

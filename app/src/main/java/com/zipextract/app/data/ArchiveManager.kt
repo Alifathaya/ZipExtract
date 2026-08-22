@@ -84,11 +84,13 @@ object ArchiveManager {
         if (!destinationDir.isDirectory) destinationDir.mkdirs()
 
         return when (kindOf(file)) {
-            Kind.ZIP -> {
-                val paths = ZipManager.listZipEntryDetails(context, file).map { it.path }.toSet()
-                if (paths.isEmpty()) error(context.getString(R.string.zip_empty_unreadable))
-                ZipManager.extractZipEntries(context, file, destinationDir, paths, password, onProgress)
-            }
+            Kind.ZIP -> ZipManager.extractEntireArchive(
+                context = context,
+                zipFile = file,
+                destinationDir = destinationDir,
+                password = password,
+                onProgress = onProgress,
+            )
             Kind.RAR -> extractRar(context, file, destinationDir, password, onProgress)
             Kind.SEVEN_Z -> extract7z(context, file, destinationDir, password, onProgress)
             Kind.TAR -> countingStream(file) { input, progressOf ->
