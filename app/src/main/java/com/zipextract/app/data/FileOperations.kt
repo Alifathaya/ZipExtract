@@ -880,7 +880,7 @@ object FileOperations {
 
             val ok = when (clipboard.mode) {
                 ClipboardMode.COPY -> copyDeep(source, target)
-                ClipboardMode.CUT -> moveDeep(source, target)
+                ClipboardMode.CUT -> moveDeep(context, source, target)
             }
             if (!ok) {
                 return OperationResult.Error(context.getString(R.string.process_failed_item, source.name))
@@ -1002,10 +1002,10 @@ object FileOperations {
         }
     }
 
-    private fun moveDeep(source: File, target: File): Boolean {
+    private fun moveDeep(context: Context, source: File, target: File): Boolean {
         if (source.renameTo(target)) return true
         if (!copyDeep(source, target)) return false
-        return deleteDeep(source)
+        return deleteDeep(context, source)
     }
 
     private fun isNestedTarget(source: File, target: File): Boolean {
