@@ -583,6 +583,25 @@ object FileOperations {
         return out
     }
 
+    /**
+     * Hot download folders for [InboxFolderWatcher] (Opera + Chrome/Firefox media dirs).
+     * Exists even when the directory is not present yet — caller filters with isDirectory.
+     */
+    fun downloadWatchCandidates(storageRoot: File): List<File> {
+        val browsers = listOf(
+            "com.android.chrome",
+            "com.chrome.beta",
+            "org.mozilla.firefox",
+        )
+        val out = operaDownloadCandidates(storageRoot).toMutableList()
+        browsers.forEach { pkg ->
+            out += File(storageRoot, "Android/media/$pkg")
+            out += File(storageRoot, "Android/data/$pkg/files/Download")
+            out += File(storageRoot, "Android/data/$pkg/files/Downloads")
+        }
+        return out
+    }
+
     private fun mediaScanRoots(context: Context? = null): List<File> {
         val storage = Environment.getExternalStorageDirectory()
         val candidates = mutableListOf(

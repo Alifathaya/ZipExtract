@@ -25,7 +25,7 @@ import com.zipextract.app.data.InstalledApps
 import com.zipextract.app.data.AppSubFilter
 import com.zipextract.app.data.MediaAlbum
 import com.zipextract.app.data.MediaAlbumChip
-import com.zipextract.app.data.CameraFolderWatcher
+import com.zipextract.app.data.InboxFolderWatcher
 import com.zipextract.app.data.MediaChangeWatcher
 import com.zipextract.app.data.MediaStoreChange
 import com.zipextract.app.data.LibrarySubFilter
@@ -201,7 +201,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     private var cloudImportJob: Job? = null
     private var activeJob: Job? = null
     private var mediaWatcher: MediaChangeWatcher? = null
-    private var cameraWatcher: CameraFolderWatcher? = null
+    private var inboxWatcher: InboxFolderWatcher? = null
     private var incrementalPersistJob: Job? = null
     private val incrementalUpdateMutex = Mutex()
     @Volatile
@@ -220,13 +220,12 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         // Incremental MediaStore updates: insert changed rows, never rescan storage.
         mediaWatcher = MediaChangeWatcher(application) { change ->
             applyMediaStoreChange(change)
-            // MediaStore / downloads often finalize size after the first notify.
-            // Fast retries for photos; one slower pass for everything else.
+            // MediaStore often finalizes size after the first notify — retry quickly.
             viewModelScope.launch {
-                val delays = if (change.source == "images" || change.source == "video") {
-                    longArrayOf(400L, 1_200L)
-                } else {
-                    longArrayOf(2_000L)
+                val delays = when (change.source) {
+                    "images", "video" -> longArrayOf(400L, 1_200L)
+                    "downloads" -> longArrayOf(500L, 1_500L)
+                    else -> longArrayOf(700L, 1_800L)
                 }
                 for (wait in delays) {
                     delay(wait)
@@ -234,13 +233,14 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 }
             }
         }.also { it.start() }
-        // Filesystem watcher for DCIM/Camera — much faster than waiting for MediaStore.
-        cameraWatcher = CameraFolderWatcher(application) { files ->
+        // Filesystem watcher for camera / downloads / WhatsApp / Telegram / …
+        // Faster than waiting for MediaStore indexing on OEM devices.
+        inboxWatcher = InboxFolderWatcher(application) { files ->
             applyFilesystemMediaFiles(files)
-            // Follow up once MediaStore indexes the same files (thumbnails / metadata).
             viewModelScope.launch {
-                delay(600L)
-                applyMediaStoreChange(MediaStoreChange(source = "images", uri = null))
+                delay(500L)
+                val source = mediaStoreSourceForFiles(files)
+                applyMediaStoreChange(MediaStoreChange(source = source, uri = null))
             }
         }.also { it.start() }
         // Prefetch disk cache off the UI thread so the first category tap after
@@ -249,6 +249,27 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             if (mediaLibraryCache == null) {
                 mediaLibraryCache = MediaLibraryCache.load(appContext, allowStale = true)
             }
+        }
+    }
+
+    private fun mediaStoreSourceForFiles(files: List<File>): String {
+        var images = 0
+        var videos = 0
+        var downloads = 0
+        files.forEach { file ->
+            val item = FileItem(file)
+            val path = file.absolutePath.lowercase()
+            when {
+                path.contains("/download") || path.contains("/opera") -> downloads++
+                item.isImage -> images++
+                item.isVideo -> videos++
+            }
+        }
+        return when {
+            downloads >= images && downloads >= videos && downloads > 0 -> "downloads"
+            images >= videos && images > 0 -> "images"
+            videos > 0 -> "video"
+            else -> "files"
         }
     }
 
@@ -549,7 +570,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    /** Instant path from [CameraFolderWatcher] — no MediaStore wait. */
+    /** Instant path from [InboxFolderWatcher] — no MediaStore wait. */
     private fun applyFilesystemMediaFiles(files: List<File>) {
         if (files.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
@@ -576,8 +597,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 val since = when (change.source) {
                     "images", "video", "media" ->
                         minOf(lastIncrementalEpochSeconds, queryStartedAt - 20L)
-                    "files" ->
-                        // Soft catch-up / resume: cover photos taken while app was idle.
+                    "downloads", "files" ->
+                        // Soft catch-up / resume / browser downloads.
                         minOf(lastIncrementalEpochSeconds, queryStartedAt - 45L)
                     else -> lastIncrementalEpochSeconds
                 }
@@ -957,8 +978,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     override fun onCleared() {
         mediaWatcher?.stop()
         mediaWatcher = null
-        cameraWatcher?.stop()
-        cameraWatcher = null
+        inboxWatcher?.stop()
+        inboxWatcher = null
         // Last chance flush before process teardown.
         mediaLibraryCache?.let { library ->
             runCatching {
