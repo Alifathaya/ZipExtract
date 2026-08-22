@@ -1590,6 +1590,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun openExtractDialogForItem(item: FileItem) {
+        if (_uiState.value.selectionMode) {
+            toggleSelect(item)
+            return
+        }
         openExtractDialog(item.file)
     }
 
