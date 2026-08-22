@@ -195,7 +195,11 @@ fun VideoPlayerScreen(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                    Box(Modifier = Modifier.fillMaxSize().background(Color.Black))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black),
+                    ) {}
                 }
             }
         }
