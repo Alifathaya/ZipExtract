@@ -10,6 +10,7 @@ import android.os.Environment
 import android.os.StatFs
 import android.os.storage.StorageManager
 import android.os.storage.StorageVolume
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import com.zipextract.app.R
 import java.io.File
@@ -860,6 +861,101 @@ object FileOperations {
             if (deleteDeep(context, target)) return true
         }
         return !target.exists()
+    }
+
+    /**
+     * Delete the user-facing original archive after extract — including Chrome /
+     * Downloads / SAF sources that FileNest may have opened via a cache copy.
+     *
+     * Returns true only when every known original location is gone (content URI,
+     * public Downloads path by display name, and the local extract path when it
+     * was not merely a cache copy).
+     */
+    fun deleteOriginalArchive(
+        context: Context,
+        localFile: File,
+        sourceUri: Uri?,
+        displayName: String?,
+    ): Boolean {
+        val name = displayName?.takeIf { it.isNotBlank() } ?: localFile.name
+        val isCacheCopy = SharedFileResolver.isAppCacheFile(localFile)
+
+        // 1) Real paths we can see on disk (Chrome Download/, MediaStore DATA, …).
+        val originals = linkedSetOf<File>()
+        if (!isCacheCopy && localFile.exists()) {
+            originals += runCatching { localFile.canonicalFile }.getOrDefault(localFile)
+        }
+        sourceUri?.let { uri ->
+            SharedFileResolver.tryResolveFilesystemFile(context, uri, name)?.let { originals += it }
+        }
+        SharedFileResolver.findPublicFileByDisplayName(context, name)?.let { originals += it }
+
+        var allOriginalsGone = true
+        originals.forEach { file ->
+            if (file.exists() && !deleteSingleFile(context, file)) {
+                allOriginalsGone = false
+            }
+        }
+
+        // 2) Delete the content:// row itself (DocumentsContract / MediaStore URI).
+        if (sourceUri != null) {
+            deleteContentUri(context, sourceUri)
+            // Re-check: URI delete sometimes removes the MediaStore row first; path may lag.
+            originals.forEach { file ->
+                if (file.exists()) {
+                    deleteSingleFile(context, file)
+                }
+            }
+            SharedFileResolver.findPublicFileByDisplayName(context, name)?.let { leftover ->
+                if (leftover.exists() && !deleteSingleFile(context, leftover)) {
+                    allOriginalsGone = false
+                }
+            }
+            SharedFileResolver.tryResolveFilesystemFile(context, sourceUri, name)?.let { leftover ->
+                if (leftover.exists() && !deleteSingleFile(context, leftover)) {
+                    allOriginalsGone = false
+                }
+            }
+        }
+
+        // 3) Always drop the cache copy so we don't leave temp ZIPs behind.
+        if (isCacheCopy && localFile.exists()) {
+            deleteSingleFile(context, localFile)
+        } else if (!isCacheCopy && localFile.exists()) {
+            // Local path was the original — already attempted above; final retry.
+            if (!deleteSingleFile(context, localFile)) {
+                allOriginalsGone = false
+            }
+        }
+
+        // Success: no public original remains. Cache-only deletes without a found
+        // public file still count as success when the content URI is gone / unreadable.
+        val publicStillThere = SharedFileResolver.findPublicFileByDisplayName(context, name)
+            ?.takeIf { it.exists() }
+        if (publicStillThere != null) {
+            return false
+        }
+        if (sourceUri != null) {
+            val stillViaUri = SharedFileResolver.tryResolveFilesystemFile(context, sourceUri, name)
+            if (stillViaUri != null && stillViaUri.exists()) return false
+        }
+        if (!isCacheCopy && localFile.exists()) return false
+        return allOriginalsGone || !localFile.exists() || isCacheCopy
+    }
+
+    private fun deleteContentUri(context: Context, uri: Uri): Boolean {
+        val resolver = context.contentResolver
+        // SAF / Downloads document URIs (common when opening from Chrome).
+        if (DocumentsContract.isDocumentUri(context, uri)) {
+            val deleted = runCatching {
+                DocumentsContract.deleteDocument(resolver, uri)
+            }.getOrDefault(false)
+            if (deleted) return true
+        }
+        val rows = runCatching { resolver.delete(uri, null, null) }.getOrDefault(-1)
+        if (rows > 0) return true
+        // Some providers want an empty selection explicitly.
+        return runCatching { resolver.delete(uri, "", emptyArray()) }.getOrDefault(-1) > 0
     }
 
     fun paste(
