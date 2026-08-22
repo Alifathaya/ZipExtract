@@ -121,6 +121,8 @@
     <string name="create_folder">Folder baru</string>
     <string name="select_all">Pilih semua</string>
     <string name="deselect_all">Batal pilih semua</string>
+    <string name="select_all_short">Semua</string>
+    <string name="deselect_all_short">Batal</string>
     <string name="selection_mode">Mode seleksi</string>
     <string name="exit_selection">Keluar seleksi</string>
     <string name="sort_newest">Terbaru dulu</string>
