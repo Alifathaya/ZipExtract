@@ -72,28 +72,32 @@ class LicenseApi(
             }.orEmpty()
             val json = runCatching { JSONObject(text) }.getOrElse { JSONObject() }
             if (code !in 200..299) {
-                return LicenseServerResponse(
-                    status = json.optString("status", "error"),
-                    expiresAtEpochMs = parseIso(json.optString("expiresAt")),
-                    serverTimeEpochMs = parseIso(json.optString("serverTime")).takeIf { it > 0 }
-                        ?: System.currentTimeMillis(),
-                    error = json.optString("error").ifBlank { "http_$code" },
+                return parseResponse(
+                    json,
+                    httpError = json.optString("error").ifBlank { "http_$code" },
                 )
             }
+            return parseResponse(json)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    companion object {
+        fun parseResponse(json: JSONObject, httpError: String? = null): LicenseServerResponse {
             return LicenseServerResponse(
                 status = json.optString("status", "active"),
                 expiresAtEpochMs = parseIso(json.optString("expiresAt")),
                 serverTimeEpochMs = parseIso(json.optString("serverTime")).takeIf { it > 0 }
                     ?: System.currentTimeMillis(),
                 daysAdded = json.optInt("daysAdded", -1).takeIf { it >= 0 },
+                error = httpError ?: json.optString("error").ifBlank { null },
             )
-        } finally {
-            conn.disconnect()
         }
-    }
 
-    private fun parseIso(value: String): Long {
-        if (value.isBlank()) return 0L
-        return runCatching { Instant.parse(value).toEpochMilli() }.getOrDefault(0L)
+        fun parseIso(value: String): Long {
+            if (value.isBlank()) return 0L
+            return runCatching { Instant.parse(value).toEpochMilli() }.getOrDefault(0L)
+        }
     }
 }

@@ -33,9 +33,9 @@ echo "Remote hostname check..."
 "${SSH[@]}" hostname
 
 echo "Deploying branch ${BRANCH} to ${HOST}:${LICENSE_DIR} ..."
-"${SSH[@]}" bash -s -- "$BRANCH" "$REMOTE_DIR" "$LICENSE_DIR" "$DOMAIN" "$ADMIN_PASSWORD" "$PORT" <<'REMOTE'
+"${SSH[@]}" bash -s -- "$BRANCH" "$REMOTE_DIR" "$LICENSE_DIR" "$DOMAIN" "$ADMIN_PASSWORD" "$PORT" "$HOST" <<'REMOTE'
 set -euo pipefail
-BRANCH="$1"; REMOTE_DIR="$2"; LICENSE_DIR="$3"; DOMAIN="$4"; ADMIN_PASSWORD="$5"; PORT="$6"
+BRANCH="$1"; REMOTE_DIR="$2"; LICENSE_DIR="$3"; DOMAIN="$4"; ADMIN_PASSWORD="$5"; PORT="$6"; VPS_IP="$7"
 
 export DEBIAN_FRONTEND=noninteractive
 if ! command -v node >/dev/null 2>&1; then
@@ -84,8 +84,8 @@ systemctl restart filenest-license
 
 cat > /etc/nginx/sites-available/filenest-license <<NGX
 server {
-    listen 80;
-    server_name ${DOMAIN};
+    listen 80 default_server;
+    server_name ${DOMAIN} ${VPS_IP} _;
     location / {
         proxy_pass http://127.0.0.1:${PORT};
         proxy_http_version 1.1;
@@ -93,6 +93,10 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
     }
 }
 NGX
