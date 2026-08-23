@@ -56,8 +56,9 @@ class LicenseApi(
         val url = URL(baseUrl.trimEnd('/') + path)
         val conn = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
-            connectTimeout = 15_000
-            readTimeout = 20_000
+            // Keep short — checks run in the background and must not stall UX.
+            connectTimeout = 5_000
+            readTimeout = 8_000
             doOutput = true
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
             setRequestProperty("Accept", "application/json")
