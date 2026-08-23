@@ -19,6 +19,8 @@ class LicenseRepository private constructor(
 
     private var pushClient: LicensePushClient? = null
 
+    fun deviceId(): String = DeviceIdProvider.get(app)
+
     fun startPushChannel() {
         if (!api.isConfigured()) return
         if (pushClient != null) return
