@@ -341,9 +341,10 @@ app.post('/v1/admin/devices/:id/block', requireAdmin, (req, res) => {
 });
 
 /**
- * Allow device to run again:
- * - clear blocked status
- * - if license already expired (or forceExtend), extend from now by `days` (default TRIAL_DAYS)
+ * Clear blocked status.
+ * - If expires_at is still in the future: keep that date (resume remaining days).
+ * - If already expired: extend from now by `days` (default TRIAL_DAYS).
+ * - forceExtend: always add `days` from max(now, expires_at) — used by "+30 hari" only.
  */
 function allowDevice(id, days, forceExtend) {
   const row = db.prepare(`SELECT * FROM devices WHERE device_id = ?`).get(id);
@@ -367,14 +368,24 @@ function allowDevice(id, days, forceExtend) {
 
 app.post('/v1/admin/devices/:id/unblock', requireAdmin, (req, res) => {
   const id = req.params.id;
+  const row = db.prepare(`SELECT * FROM devices WHERE device_id = ?`).get(id);
+  if (!row) return res.status(404).json({ error: 'not_found' });
+
+  const expired = new Date(row.expires_at).getTime() <= Date.now();
   const days = Math.min(
     3650,
     Math.max(1, Number(req.body?.days) || TRIAL_DAYS),
   );
-  // Unblock always re-enables access: extend if expired so the phone unlocks.
+  // forceExtend=false → add days ONLY when already expired; otherwise keep expires_at.
   const result = allowDevice(id, days, false);
   if (!result) return res.status(404).json({ error: 'not_found' });
-  logEvent('admin_unblock', id, result.daysAdded ? `${result.daysAdded}d` : 'cleared');
+  logEvent(
+    'admin_unblock',
+    id,
+    expired && result.daysAdded
+      ? `extended_${result.daysAdded}d`
+      : 'resume_remaining',
+  );
   pushLicenseToDevice(id, result);
   return res.json(result);
 });
