@@ -11,3 +11,4 @@ app/build
 *.apk
 *.ap_
 *.aab
+scripts/.vps-agent-bootstrap-token

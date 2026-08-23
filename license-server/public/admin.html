@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>FileNest License Admin</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --ok: #4ade80;
+      --bad: #f87171;
+      --warn: #fbbf24;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: linear-gradient(160deg, #0f172a, #1e293b 60%, #0f172a);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 16px;
+      padding-bottom: 40px;
+    }
+    h1 { font-size: 1.35rem; margin: 0 0 4px; }
+    .sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 16px; }
+    .card {
+      background: var(--card);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 14px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.25);
+    }
+    label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 6px; }
+    input {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid #334155;
+      background: #0f172a;
+      color: var(--text);
+      font-size: 1rem;
+    }
+    button {
+      width: 100%;
+      margin-top: 10px;
+      padding: 13px 16px;
+      border: 0;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #0f172a;
+      font-weight: 700;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    button.secondary { background: #334155; color: var(--text); }
+    button.danger { background: var(--bad); color: #111; }
+    button:disabled { opacity: .5; }
+    .row { display: flex; gap: 8px; }
+    .row button { flex: 1; }
+    .stat {
+      display: flex; justify-content: space-between;
+      padding: 8px 0; border-bottom: 1px solid #334155;
+    }
+    .stat:last-child { border-bottom: 0; }
+    .keybox {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 1.15rem;
+      letter-spacing: 0.04em;
+      background: #0f172a;
+      padding: 12px;
+      border-radius: 10px;
+      word-break: break-all;
+      margin: 8px 0;
+      border: 1px dashed #475569;
+    }
+    .item {
+      padding: 10px 0;
+      border-bottom: 1px solid #334155;
+      font-size: 0.9rem;
+    }
+    .item:last-child { border-bottom: 0; }
+    .muted { color: var(--muted); font-size: 0.8rem; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+    .badge.active { background: #14532d; color: var(--ok); }
+    .badge.expired { background: #7f1d1d; color: var(--bad); }
+    .badge.blocked { background: #78350f; color: var(--warn); }
+    .badge.unused { background: #1e3a5f; color: var(--accent); }
+    .badge.used { background: #334155; color: var(--muted); }
+    .err { color: var(--bad); margin-top: 8px; font-size: 0.9rem; }
+    .ok { color: var(--ok); margin-top: 8px; font-size: 0.9rem; }
+    .hidden { display: none; }
+    .mono { font-family: ui-monospace, monospace; font-size: 0.78rem; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <h1>FileNest License</h1>
+  <p class="sub">Admin panel — generate key &amp; cek device</p>
+
+  <section id="loginCard" class="card">
+    <label for="password">Password admin</label>
+    <input id="password" type="password" autocomplete="current-password" placeholder="Admin password" />
+    <button id="loginBtn" type="button">Masuk</button>
+    <p id="loginErr" class="err hidden"></p>
+  </section>
+
+  <section id="app" class="hidden">
+    <div class="card">
+      <div class="stat"><span>Device terdaftar</span><strong id="statDevices">—</strong></div>
+      <div class="stat"><span>Aktif (belum expired)</span><strong id="statActive">—</strong></div>
+      <div class="stat"><span>Key belum dipakai</span><strong id="statKeys">—</strong></div>
+      <button class="secondary" id="refreshBtn" type="button">Muat ulang</button>
+      <button class="secondary" id="logoutBtn" type="button">Keluar</button>
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 8px;font-size:1.05rem;">Generate key</h2>
+      <label for="days">Hari per key</label>
+      <input id="days" type="number" min="1" max="3650" value="30" />
+      <div class="row">
+        <button id="gen1" type="button">Buat 1 key</button>
+        <button id="gen5" class="secondary" type="button">Buat 5</button>
+      </div>
+      <div id="newKeys"></div>
+      <p id="genMsg" class="ok hidden"></p>
+      <p id="genErr" class="err hidden"></p>
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 8px;font-size:1.05rem;">Key terbaru</h2>
+      <div id="keyList" class="muted">Memuat…</div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 8px;font-size:1.05rem;">Device</h2>
+      <div id="deviceList" class="muted">Memuat…</div>
+    </div>
+  </section>
+
+  <script>
+    const TOKEN_KEY = 'filenest_admin_token';
+    let token = localStorage.getItem(TOKEN_KEY) || '';
+
+    function $(id) { return document.getElementById(id); }
+    function show(el, on) { el.classList.toggle('hidden', !on); }
+
+    async function api(path, opts = {}) {
+      const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+      if (token) headers.Authorization = 'Bearer ' + token;
+      const res = await fetch(path, Object.assign({}, opts, { headers }));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = new Error(data.error || ('HTTP ' + res.status));
+        err.status = res.status;
+        err.data = data;
+        throw err;
+      }
+      return data;
+    }
+
+    function fmtDate(iso) {
+      if (!iso) return '—';
+      try {
+        return new Date(iso).toLocaleString();
+      } catch (_) { return iso; }
+    }
+
+    async function login() {
+      show($('loginErr'), false);
+      try {
+        const data = await api('/v1/admin/login', {
+          method: 'POST',
+          body: JSON.stringify({ password: $('password').value }),
+        });
+        token = data.token;
+        localStorage.setItem(TOKEN_KEY, token);
+        enterApp();
+      } catch (e) {
+        $('loginErr').textContent = 'Login gagal: ' + e.message;
+        show($('loginErr'), true);
+      }
+    }
+
+    function logout() {
+      token = '';
+      localStorage.removeItem(TOKEN_KEY);
+      show($('app'), false);
+      show($('loginCard'), true);
+    }
+
+    async function enterApp() {
+      show($('loginCard'), false);
+      show($('app'), true);
+      await refreshAll();
+    }
+
+    async function refreshAll() {
+      try {
+        const stats = await api('/v1/admin/stats');
+        $('statDevices').textContent = stats.devices;
+        $('statActive').textContent = stats.active;
+        $('statKeys').textContent = stats.unusedKeys;
+        await loadKeys();
+        await loadDevices();
+      } catch (e) {
+        if (e.status === 401) logout();
+        else alert(e.message);
+      }
+    }
+
+    async function generate(count) {
+      show($('genErr'), false);
+      show($('genMsg'), false);
+      const days = Number($('days').value) || 30;
+      try {
+        const data = await api('/v1/admin/keys/generate', {
+          method: 'POST',
+          body: JSON.stringify({ days, count }),
+        });
+        const box = $('newKeys');
+        box.innerHTML = '';
+        data.keys.forEach((k) => {
+          const div = document.createElement('div');
+          div.className = 'keybox';
+          div.textContent = k.key;
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'secondary';
+          btn.textContent = 'Salin ' + k.key;
+          btn.onclick = async () => {
+            try {
+              await navigator.clipboard.writeText(k.key);
+              btn.textContent = 'Tersalin';
+            } catch (_) {
+              prompt('Salin key:', k.key);
+            }
+          };
+          box.appendChild(div);
+          box.appendChild(btn);
+        });
+        $('genMsg').textContent = 'Key dibuat (' + data.keys.length + ' × ' + days + ' hari)';
+        show($('genMsg'), true);
+        await refreshAll();
+      } catch (e) {
+        $('genErr').textContent = e.message;
+        show($('genErr'), true);
+      }
+    }
+
+    async function loadKeys() {
+      const data = await api('/v1/admin/keys');
+      const el = $('keyList');
+      if (!data.keys.length) {
+        el.textContent = 'Belum ada key.';
+        return;
+      }
+      el.innerHTML = data.keys.slice(0, 30).map((k) => {
+        return '<div class="item"><div><span class="badge ' + k.status + '">' + k.status +
+          '</span> · ' + k.days + ' hari</div><div class="keybox" style="font-size:0.95rem">' + k.key_code +
+          '</div><div class="muted">' + fmtDate(k.created_at) +
+          (k.used_by_device ? '<br>→ ' + k.used_by_device : '') + '</div></div>';
+      }).join('');
+    }
+
+    async function loadDevices() {
+      const data = await api('/v1/admin/devices');
+      const el = $('deviceList');
+      if (!data.devices.length) {
+        el.textContent = 'Belum ada device.';
+        return;
+      }
+      el.innerHTML = data.devices.slice(0, 50).map((d) => {
+        const st = d.status || 'active';
+        const blockBtn = st === 'blocked'
+          ? '<button class="secondary" data-unblock="' + d.device_id + '">Unblock</button>'
+          : '<button class="danger" data-block="' + d.device_id + '">Block</button>';
+        return '<div class="item"><div><span class="badge ' + st + '">' + st +
+          '</span></div><div class="mono">' + d.device_id + '</div><div class="muted">Exp: ' +
+          fmtDate(d.expires_at) + '<br>Last check: ' + fmtDate(d.last_check_at) +
+          '</div>' + blockBtn + '</div>';
+      }).join('');
+      el.querySelectorAll('[data-block]').forEach((btn) => {
+        btn.onclick = async () => {
+          await api('/v1/admin/devices/' + encodeURIComponent(btn.dataset.block) + '/block', { method: 'POST', body: '{}' });
+          await refreshAll();
+        };
+      });
+      el.querySelectorAll('[data-unblock]').forEach((btn) => {
+        btn.onclick = async () => {
+          await api('/v1/admin/devices/' + encodeURIComponent(btn.dataset.unblock) + '/unblock', { method: 'POST', body: '{}' });
+          await refreshAll();
+        };
+      });
+    }
+
+    $('loginBtn').onclick = login;
+    $('password').addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
+    $('logoutBtn').onclick = logout;
+    $('refreshBtn').onclick = refreshAll;
+    $('gen1').onclick = () => generate(1);
+    $('gen5').onclick = () => generate(5);
+
+    if (token) {
+      enterApp().catch(() => logout());
+    }
+  </script>
+</body>
+</html>

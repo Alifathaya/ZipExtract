@@ -401,4 +401,19 @@
     <string name="noun_audio">audio files</string>
     <string name="noun_raw_apk">APKs</string>
     <string name="filter_audio">Audio</string>
+    <string name="license_lock_title">License expired</string>
+    <string name="license_expired">This device\'s license has ended. Enter a key to extend.</string>
+    <string name="license_expired_on">Ended: %1$s</string>
+    <string name="license_blocked">This device is blocked. Contact the admin.</string>
+    <string name="license_need_online">Internet is required to verify the license.</string>
+    <string name="license_key_hint">12-character key</string>
+    <string name="license_activate">Activate key</string>
+    <string name="license_retry_check">Retry check</string>
+    <string name="license_device_id">Device: %1$s</string>
+    <string name="license_key_invalid_length">Key must be 12 characters</string>
+    <string name="license_key_invalid">Invalid key</string>
+    <string name="license_key_used">Key already used</string>
+    <string name="license_activated_ok">License extended</string>
+    <string name="license_network_error">Could not reach the license server</string>
+    <string name="license_activate_failed">Activation failed (%1$s)</string>
 </resources>
