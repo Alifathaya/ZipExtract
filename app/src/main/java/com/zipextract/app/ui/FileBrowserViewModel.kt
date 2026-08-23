@@ -1897,12 +1897,11 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     updateProgressThrottled(str(R.string.progress_extract_zip), name, progress)
                 }
 
-                // Release archive FDs before delete — zip4j / ZipFile can lag one tick.
-                runCatching { System.gc() }
-                kotlinx.coroutines.delay(120)
-
                 var deletedOriginal = false
                 if (deleteOriginal) {
+                    // Only pay GC/delay cost when we must delete the source archive.
+                    runCatching { System.gc() }
+                    kotlinx.coroutines.delay(80)
                     deletedOriginal = FileOperations.deleteOriginalArchive(
                         context = localizedContext(),
                         localFile = zip,
@@ -1910,8 +1909,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                         displayName = displayName,
                     )
                     if (!deletedOriginal) {
-                        // One more pass after a longer pause if the OS still holds the file.
-                        kotlinx.coroutines.delay(250)
+                        kotlinx.coroutines.delay(200)
                         runCatching { System.gc() }
                         deletedOriginal = FileOperations.deleteOriginalArchive(
                             context = localizedContext(),

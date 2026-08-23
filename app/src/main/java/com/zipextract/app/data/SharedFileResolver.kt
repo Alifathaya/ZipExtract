@@ -345,20 +345,26 @@ object SharedFileResolver {
     }
 
     private fun copyUriBytes(context: Context, uri: Uri, target: File): Boolean {
-        context.contentResolver.openInputStream(uri)?.use { input ->
+        val buf = ByteArray(1024 * 1024)
+        fun pump(input: java.io.InputStream): Boolean {
             target.outputStream().use { output ->
-                input.copyTo(output)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    if (n > 0) output.write(buf, 0, n)
+                }
             }
             return true
         }
 
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            return pump(input)
+        }
+
         context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
             FileInputStream(pfd.fileDescriptor).use { input ->
-                target.outputStream().use { output ->
-                    input.copyTo(output)
-                }
+                return pump(input)
             }
-            return true
         }
 
         return false
