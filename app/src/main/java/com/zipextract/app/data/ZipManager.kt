@@ -506,12 +506,12 @@ object ZipManager {
         } else {
             net.lingala.zip4j.ZipFile(zipFile, password.toCharArray())
         }
-        try {
-            if (zip.isEncrypted && password.isNullOrBlank()) {
+        zip.use { archive ->
+            if (archive.isEncrypted && password.isNullOrBlank()) {
                 throw ZipPasswordException(msg(R.string.zip_password_required))
             }
             @Suppress("UNCHECKED_CAST")
-            val headers = zip.fileHeaders as List<FileHeader>
+            val headers = archive.fileHeaders as List<FileHeader>
             if (headers.isEmpty()) error(msg(R.string.zip_empty_unreadable))
             val total = headers.size.coerceAtLeast(1)
             var written = 0
@@ -529,7 +529,7 @@ object ZipManager {
                     return@forEachIndexed
                 }
                 try {
-                    zip.extractFile(header, destinationDir.absolutePath, safeName)
+                    archive.extractFile(header, destinationDir.absolutePath, safeName)
                 } catch (e: ZipException) {
                     if (e.type == ZipException.Type.WRONG_PASSWORD) {
                         throw ZipPasswordException(msg(R.string.zip_wrong_password))
@@ -537,7 +537,7 @@ object ZipManager {
                     writeEntryBytes(
                         destinationDir = destinationDir,
                         safeName = safeName,
-                        bytes = zip.getInputStream(header).use { it.readBytes() },
+                        bytes = archive.getInputStream(header).use { it.readBytes() },
                     )
                 }
                 val out = File(destinationDir, safeName)
@@ -546,8 +546,6 @@ object ZipManager {
             }
             onProgress?.invoke(1f, zipFile.name)
             return written
-        } finally {
-            runCatching { zip.close() }
         }
     }
 
@@ -671,12 +669,12 @@ object ZipManager {
         } else {
             net.lingala.zip4j.ZipFile(zipFile, password.toCharArray())
         }
-        try {
-            if (zip.isEncrypted && password.isNullOrBlank()) {
+        zip.use { archive ->
+            if (archive.isEncrypted && password.isNullOrBlank()) {
                 throw ZipPasswordException(msg(R.string.zip_password_required))
             }
             @Suppress("UNCHECKED_CAST")
-            val headers = zip.fileHeaders as List<FileHeader>
+            val headers = archive.fileHeaders as List<FileHeader>
             val allNames = headers.map { it.fileName.replace('\\', '/') }
             val toExtract = expandSelectedPaths(allNames, selectedPaths).toSet()
             if (toExtract.isEmpty()) error(msg(R.string.zip_no_matching_files))
@@ -699,7 +697,7 @@ object ZipManager {
                 }
 
                 try {
-                    zip.extractFile(header, destinationDir.absolutePath, safeName)
+                    archive.extractFile(header, destinationDir.absolutePath, safeName)
                 } catch (e: ZipException) {
                     if (e.type == ZipException.Type.WRONG_PASSWORD) {
                         throw ZipPasswordException(msg(R.string.zip_wrong_password))
@@ -708,7 +706,7 @@ object ZipManager {
                     writeEntryBytes(
                         destinationDir = destinationDir,
                         safeName = safeName,
-                        bytes = zip.getInputStream(header).use { it.readBytes() },
+                        bytes = archive.getInputStream(header).use { it.readBytes() },
                     )
                 }
                 val out = File(destinationDir, safeName)
@@ -718,8 +716,6 @@ object ZipManager {
                 written++
             }
             return written
-        } finally {
-            runCatching { zip.close() }
         }
     }
 
