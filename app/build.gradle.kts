@@ -28,7 +28,7 @@ val uploadStoreFile = rootProject.file("app/filenest-upload.jks")
 
 val licenseApiBaseUrl: String = localProperties.getProperty("LICENSE_API_BASE_URL")
     ?: System.getenv("LICENSE_API_BASE_URL")
-    ?: "https://license.example.com"
+    ?: "https://license.dwi.heryanto.com"
 
 android {
     namespace = "com.zipextract.app"
