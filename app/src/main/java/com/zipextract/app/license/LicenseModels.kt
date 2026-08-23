@@ -1,7 +1,10 @@
 package com.zipextract.app.license
 
 enum class LicenseGateStatus {
-    /** Checking server / loading local cache. */
+    /**
+     * Transient / unused on cold start — UI treats this like [Active]
+     * so the file browser opens immediately while a background check runs.
+     */
     Loading,
     /** Allowed to use the app. */
     Active,

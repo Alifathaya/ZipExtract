@@ -14,16 +14,30 @@ class LicenseRepository private constructor(
     private val api: LicenseApi = LicenseApi(),
     private val store: LicenseStore = LicenseStore(app),
 ) {
-    private val _state = MutableStateFlow(
-        LicenseUiState(
-            gate = if (api.isConfigured()) LicenseGateStatus.Loading else LicenseGateStatus.Disabled,
-            deviceId = DeviceIdProvider.get(app),
-        ),
-    )
+    private val _state = MutableStateFlow(buildInitialState())
     val state: StateFlow<LicenseUiState> = _state.asStateFlow()
 
     fun deviceId(): String = DeviceIdProvider.get(app)
 
+    /**
+     * Fast path for UI: use local cache only (no network, never Loading).
+     * Call [silentCheck] afterward to verify with the server in the background.
+     */
+    fun applyLocalCache() {
+        if (!api.isConfigured()) {
+            _state.value = LicenseUiState(
+                gate = LicenseGateStatus.Disabled,
+                deviceId = deviceId(),
+            )
+            return
+        }
+        applyOfflineGate(allowProvisional = true)
+    }
+
+    /**
+     * @deprecated Prefer [applyLocalCache] + [silentCheck] so the UI never waits on network.
+     * Kept for lock-screen "retry" — still avoids a full-screen Loading flash.
+     */
     suspend fun refresh(forceNetwork: Boolean = true) {
         if (!api.isConfigured()) {
             _state.value = LicenseUiState(
@@ -32,9 +46,12 @@ class LicenseRepository private constructor(
             )
             return
         }
-        _state.value = _state.value.copy(gate = LicenseGateStatus.Loading, message = null)
-        withContext(Dispatchers.IO) {
-            evaluate(forceNetwork = forceNetwork)
+        // Never set Loading — open the app immediately from local cache.
+        applyOfflineGate(allowProvisional = true)
+        if (forceNetwork) {
+            withContext(Dispatchers.IO) {
+                evaluate(forceNetwork = true)
+            }
         }
     }
 
@@ -48,7 +65,7 @@ class LicenseRepository private constructor(
             _state.value.gate == LicenseGateStatus.Active ||
                 _state.value.gate == LicenseGateStatus.Disabled
         } catch (_: Exception) {
-            applyOfflineGate()
+            applyOfflineGate(allowProvisional = true)
             _state.value.gate == LicenseGateStatus.Active
         }
     }
@@ -92,6 +109,17 @@ class LicenseRepository private constructor(
         }
     }
 
+    private fun buildInitialState(): LicenseUiState {
+        if (!api.isConfigured()) {
+            return LicenseUiState(
+                gate = LicenseGateStatus.Disabled,
+                deviceId = DeviceIdProvider.get(app),
+            )
+        }
+        // Synchronous local decision so first frame is never a spinner.
+        return computeOfflineState(allowProvisional = true)
+    }
+
     private fun evaluate(forceNetwork: Boolean) {
         val id = deviceId()
 
@@ -121,19 +149,21 @@ class LicenseRepository private constructor(
                     return
                 }
                 if (res.error != null && res.expiresAtEpochMs <= 0L) {
-                    applyOfflineGate(fallbackMessage = mapError(res.error))
+                    applyOfflineGate(
+                        allowProvisional = true,
+                        fallbackMessage = mapError(res.error),
+                    )
                     return
                 }
                 applyServerResponse(res)
                 return
             } catch (_: Exception) {
-                applyOfflineGate()
+                applyOfflineGate(allowProvisional = true)
                 return
             }
         }
 
-        // Local fast path then optional network
-        applyOfflineGate()
+        applyOfflineGate(allowProvisional = true)
         if (forceNetwork) {
             try {
                 val res = api.check(id)
@@ -192,49 +222,65 @@ class LicenseRepository private constructor(
         }
     }
 
-    private fun applyOfflineGate(fallbackMessage: String? = null) {
+    private fun applyOfflineGate(
+        allowProvisional: Boolean = false,
+        fallbackMessage: String? = null,
+    ) {
+        _state.value = computeOfflineState(
+            allowProvisional = allowProvisional,
+            fallbackMessage = fallbackMessage,
+        )
+    }
+
+    private fun computeOfflineState(
+        allowProvisional: Boolean,
+        fallbackMessage: String? = null,
+    ): LicenseUiState {
         val id = deviceId()
         val now = System.currentTimeMillis()
         if (store.blocked) {
-            _state.value = LicenseUiState(
+            return LicenseUiState(
                 gate = LicenseGateStatus.Locked,
                 expiresAtEpochMs = store.expiresAtEpochMs.takeIf { it > 0 },
                 deviceId = id,
                 message = app.getString(com.zipextract.app.R.string.license_blocked),
             )
-            return
         }
         val expires = store.expiresAtEpochMs
         if (expires <= 0L) {
-            // Never registered and offline — allow short provisional window then lock.
-            _state.value = LicenseUiState(
+            // First launch / not registered yet: open immediately; server verify runs in background.
+            if (allowProvisional) {
+                return LicenseUiState(
+                    gate = LicenseGateStatus.Active,
+                    deviceId = id,
+                    message = fallbackMessage,
+                )
+            }
+            return LicenseUiState(
                 gate = LicenseGateStatus.Locked,
                 deviceId = id,
                 message = fallbackMessage
                     ?: app.getString(com.zipextract.app.R.string.license_need_online),
             )
-            return
         }
         if (expires <= now) {
-            _state.value = LicenseUiState(
+            return LicenseUiState(
                 gate = LicenseGateStatus.Locked,
                 expiresAtEpochMs = expires,
                 deviceId = id,
                 message = app.getString(com.zipextract.app.R.string.license_expired),
             )
-            return
         }
         val last = store.lastSuccessfulCheckAtEpochMs
         if (last > 0L && now - last > LicenseStore.GRACE_MS) {
-            _state.value = LicenseUiState(
+            return LicenseUiState(
                 gate = LicenseGateStatus.Locked,
                 expiresAtEpochMs = expires,
                 deviceId = id,
                 message = app.getString(com.zipextract.app.R.string.license_need_online),
             )
-            return
         }
-        _state.value = LicenseUiState(
+        return LicenseUiState(
             gate = LicenseGateStatus.Active,
             expiresAtEpochMs = expires,
             deviceId = id,

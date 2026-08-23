@@ -103,7 +103,9 @@ class MainActivity : AppCompatActivity() {
                 LaunchedEffect(Unit) {
                     viewModel.setStorageGranted(hasStorageAccess())
                     handleIncomingIntent(intent)
-                    licenseRepo.refresh(forceNetwork = true)
+                    // Open UI from local cache immediately; verify license in background.
+                    licenseRepo.applyLocalCache()
+                    licenseRepo.silentCheck()
                     LicenseScheduler.schedule(context)
                 }
 
@@ -115,14 +117,6 @@ class MainActivity : AppCompatActivity() {
 
                 Surface(modifier = Modifier.fillMaxSize()) {
                     when (licenseState.gate) {
-                        LicenseGateStatus.Loading -> {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                CircularProgressIndicator()
-                            }
-                        }
                         LicenseGateStatus.Locked -> {
                             LicenseLockScreen(
                                 state = licenseState,
@@ -130,7 +124,10 @@ class MainActivity : AppCompatActivity() {
                                 onUnlocked = { },
                             )
                         }
-                        LicenseGateStatus.Active, LicenseGateStatus.Disabled -> {
+                        // Loading is unused on cold start (local cache opens immediately).
+                        LicenseGateStatus.Loading,
+                        LicenseGateStatus.Active,
+                        LicenseGateStatus.Disabled -> {
                     FileBrowserScreen(
                         state = state,
                         onOpen = viewModel::openDirectory,
