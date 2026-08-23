@@ -281,10 +281,13 @@
       }
       el.innerHTML = data.devices.slice(0, 50).map((d) => {
         const st = d.status || 'active';
+        const stillValid = new Date(d.expires_at).getTime() > Date.now();
         let actions = '';
         if (st === 'blocked') {
-          actions =
-            '<button class="secondary" data-unblock="' + d.device_id + '">Unblock (+30 hari)</button>';
+          // Keep remaining days on Unblock; only offer +30d when already expired.
+          actions = stillValid
+            ? '<button class="secondary" data-unblock="' + d.device_id + '">Unblock</button>'
+            : '<button class="secondary" data-unblock="' + d.device_id + '" data-extend="1">Unblock (+30 hari)</button>';
         } else if (st === 'expired') {
           actions =
             '<button class="secondary" data-allow="' + d.device_id + '">Izinkan 30 hari</button>' +
@@ -308,9 +311,11 @@
       });
       el.querySelectorAll('[data-unblock]').forEach((btn) => {
         btn.onclick = async () => {
+          // Server keeps remaining days; days is only used if already expired.
+          const body = btn.dataset.extend === '1' ? { days: 30 } : {};
           await api('/v1/admin/devices/' + encodeURIComponent(btn.dataset.unblock) + '/unblock', {
             method: 'POST',
-            body: JSON.stringify({ days: 30 }),
+            body: JSON.stringify(body),
           });
           await refreshAll();
         };
