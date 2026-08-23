@@ -29,6 +29,19 @@ Aplikasi Android untuk mengelola file: **buat ZIP**, **extract**, **kompresi**, 
 3. Hubungkan device/emulator (API 26+).
 4. Run konfigurasi `app`.
 
+## Lisensi bulanan (opsional)
+
+Folder `license-server/` berisi API Node + admin panel web (untuk HP Anda).
+
+1. Deploy ke VPS (lihat `license-server/README.md`).
+2. Set URL di `local.properties` atau CI:
+
+```properties
+LICENSE_API_BASE_URL=https://license.domain-anda.com
+```
+
+Tanpa URL (default `https://license.example.com`), lisensi **dimatikan** dan app berjalan normal.
+
 Saat pertama dibuka, app akan meminta **izin akses semua file** (Android 11+) agar bisa browse & menulis di storage.
 
 ## Build APK di GitHub Actions

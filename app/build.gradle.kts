@@ -26,6 +26,10 @@ val uploadKeyAlias: String = localProperties.getProperty("FILENEST_KEY_ALIAS")
     ?: "filenest"
 val uploadStoreFile = rootProject.file("app/filenest-upload.jks")
 
+val licenseApiBaseUrl: String = localProperties.getProperty("LICENSE_API_BASE_URL")
+    ?: System.getenv("LICENSE_API_BASE_URL")
+    ?: "https://license.example.com"
+
 android {
     namespace = "com.zipextract.app"
     compileSdk = 35
@@ -34,8 +38,13 @@ android {
         applicationId = "com.zipextract.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 95
-        versionName = "2.4.50"
+        versionCode = 96
+        versionName = "2.4.51"
+        buildConfigField(
+            "String",
+            "LICENSE_API_BASE_URL",
+            "\"${licenseApiBaseUrl.trimEnd('/')}\"",
+        )
     }
 
     signingConfigs {
@@ -73,6 +82,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -106,6 +116,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")
     implementation("androidx.media3:media3-common:1.4.1")
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

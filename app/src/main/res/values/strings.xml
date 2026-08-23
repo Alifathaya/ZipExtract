@@ -401,4 +401,19 @@
     <string name="noun_audio">audio</string>
     <string name="noun_raw_apk">APK</string>
     <string name="filter_audio">Audio</string>
+    <string name="license_lock_title">Masa pakai habis</string>
+    <string name="license_expired">Lisensi perangkat ini sudah berakhir. Masukkan key untuk memperpanjang.</string>
+    <string name="license_expired_on">Berakhir: %1$s</string>
+    <string name="license_blocked">Perangkat diblokir. Hubungi admin.</string>
+    <string name="license_need_online">Perlu koneksi internet untuk verifikasi lisensi.</string>
+    <string name="license_key_hint">Key 12 karakter</string>
+    <string name="license_activate">Aktivasi key</string>
+    <string name="license_retry_check">Coba cek ulang</string>
+    <string name="license_device_id">Device: %1$s</string>
+    <string name="license_key_invalid_length">Key harus 12 karakter</string>
+    <string name="license_key_invalid">Key tidak valid</string>
+    <string name="license_key_used">Key sudah pernah dipakai</string>
+    <string name="license_activated_ok">Lisensi diperpanjang</string>
+    <string name="license_network_error">Gagal menghubungi server lisensi</string>
+    <string name="license_activate_failed">Aktivasi gagal (%1$s)</string>
 </resources>

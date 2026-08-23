@@ -14,11 +14,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
@@ -26,8 +30,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zipextract.app.data.AppPreferences
 import com.zipextract.app.data.LocaleHelper
 import com.zipextract.app.data.ThemeMode
+import com.zipextract.app.license.LicenseGateStatus
+import com.zipextract.app.license.LicenseRepository
+import com.zipextract.app.license.LicenseScheduler
 import com.zipextract.app.ui.FileBrowserScreen
 import com.zipextract.app.ui.FileBrowserViewModel
+import com.zipextract.app.ui.license.LicenseLockScreen
 import com.zipextract.app.ui.theme.FileNestTheme
 
 /**
@@ -55,6 +63,8 @@ class MainActivity : AppCompatActivity() {
             key(state.appLanguage) {
                 FileNestTheme(darkTheme = darkTheme) {
                     val context = LocalContext.current
+                    val licenseRepo = remember { LicenseRepository.get(context) }
+                    val licenseState by licenseRepo.state.collectAsStateWithLifecycle()
 
                 val legacyPermissionLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestMultiplePermissions()
@@ -93,6 +103,8 @@ class MainActivity : AppCompatActivity() {
                 LaunchedEffect(Unit) {
                     viewModel.setStorageGranted(hasStorageAccess())
                     handleIncomingIntent(intent)
+                    licenseRepo.refresh(forceNetwork = true)
+                    LicenseScheduler.schedule(context)
                 }
 
                 LaunchedEffect(viewModel) {
@@ -102,6 +114,23 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 Surface(modifier = Modifier.fillMaxSize()) {
+                    when (licenseState.gate) {
+                        LicenseGateStatus.Loading -> {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator()
+                            }
+                        }
+                        LicenseGateStatus.Locked -> {
+                            LicenseLockScreen(
+                                state = licenseState,
+                                repository = licenseRepo,
+                                onUnlocked = { },
+                            )
+                        }
+                        LicenseGateStatus.Active, LicenseGateStatus.Disabled -> {
                     FileBrowserScreen(
                         state = state,
                         onOpen = viewModel::openDirectory,
@@ -177,6 +206,8 @@ class MainActivity : AppCompatActivity() {
                         onUpdateSafBookmarks = viewModel::updateSafBookmarks,
                         onOpenImportedCloudFile = viewModel::openImportedCloudFile,
                     )
+                        }
+                    }
                 }
                 }
             }
@@ -203,8 +234,15 @@ class MainActivity : AppCompatActivity() {
     private fun handleIncomingIntent(intent: Intent?) {
         if (intent == null) return
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
 
         val uri = extractIncomingUri(intent) ?: return
+        runCatching {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+        }
         val mimeType = intent.type ?: contentResolver.getType(uri)
         viewModel.openSharedUri(this, uri, mimeType)
     }

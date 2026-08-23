@@ -1,0 +1,98 @@
+package com.zipextract.app.license
+
+import com.zipextract.app.BuildConfig
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
+import java.time.Instant
+
+data class LicenseServerResponse(
+    val status: String,
+    val expiresAtEpochMs: Long,
+    val serverTimeEpochMs: Long,
+    val daysAdded: Int? = null,
+    val error: String? = null,
+)
+
+class LicenseApi(
+    private val baseUrl: String = BuildConfig.LICENSE_API_BASE_URL,
+) {
+    fun isConfigured(): Boolean {
+        val url = baseUrl.trim()
+        return url.isNotBlank() &&
+            !url.contains("license.example.com", ignoreCase = true) &&
+            (url.startsWith("http://") || url.startsWith("https://"))
+    }
+
+    fun register(deviceId: String, appVersion: String): LicenseServerResponse {
+        return post(
+            "/v1/license/register",
+            JSONObject()
+                .put("deviceId", deviceId)
+                .put("appVersion", appVersion),
+        )
+    }
+
+    fun check(deviceId: String): LicenseServerResponse {
+        return post(
+            "/v1/license/check",
+            JSONObject().put("deviceId", deviceId),
+        )
+    }
+
+    fun activate(deviceId: String, key: String): LicenseServerResponse {
+        return post(
+            "/v1/license/activate",
+            JSONObject()
+                .put("deviceId", deviceId)
+                .put("key", key),
+        )
+    }
+
+    private fun post(path: String, body: JSONObject): LicenseServerResponse {
+        val url = URL(baseUrl.trimEnd('/') + path)
+        val conn = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 15_000
+            readTimeout = 20_000
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            setRequestProperty("Accept", "application/json")
+        }
+        try {
+            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body.toString()) }
+            val code = conn.responseCode
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            val text = stream?.let { input ->
+                BufferedReader(InputStreamReader(input, Charsets.UTF_8)).use { it.readText() }
+            }.orEmpty()
+            val json = runCatching { JSONObject(text) }.getOrElse { JSONObject() }
+            if (code !in 200..299) {
+                return LicenseServerResponse(
+                    status = json.optString("status", "error"),
+                    expiresAtEpochMs = parseIso(json.optString("expiresAt")),
+                    serverTimeEpochMs = parseIso(json.optString("serverTime")).takeIf { it > 0 }
+                        ?: System.currentTimeMillis(),
+                    error = json.optString("error").ifBlank { "http_$code" },
+                )
+            }
+            return LicenseServerResponse(
+                status = json.optString("status", "active"),
+                expiresAtEpochMs = parseIso(json.optString("expiresAt")),
+                serverTimeEpochMs = parseIso(json.optString("serverTime")).takeIf { it > 0 }
+                    ?: System.currentTimeMillis(),
+                daysAdded = json.optInt("daysAdded", -1).takeIf { it >= 0 },
+            )
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private fun parseIso(value: String): Long {
+        if (value.isBlank()) return 0L
+        return runCatching { Instant.parse(value).toEpochMilli() }.getOrDefault(0L)
+    }
+}
