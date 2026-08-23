@@ -194,10 +194,12 @@ class LicenseRepository private constructor(
 
     private fun applyServerResponse(res: LicenseServerResponse) {
         val id = deviceId()
+        val unlimited = res.unlimited || LicenseApi.isUnlimitedEpoch(res.expiresAtEpochMs)
         when (res.status) {
             "blocked" -> {
                 store.blocked = true
                 store.registered = true
+                store.unlimited = unlimited
                 if (res.expiresAtEpochMs > 0) store.expiresAtEpochMs = res.expiresAtEpochMs
                 store.lastSuccessfulCheckAtEpochMs = System.currentTimeMillis()
                 _state.value = LicenseUiState(
@@ -205,11 +207,13 @@ class LicenseRepository private constructor(
                     expiresAtEpochMs = store.expiresAtEpochMs.takeIf { it > 0 },
                     deviceId = id,
                     message = app.getString(com.zipextract.app.R.string.license_blocked),
+                    unlimited = unlimited,
                 )
             }
             "expired" -> {
                 store.blocked = false
                 store.registered = true
+                store.unlimited = false
                 store.expiresAtEpochMs = res.expiresAtEpochMs
                 store.lastSuccessfulCheckAtEpochMs = System.currentTimeMillis()
                 _state.value = LicenseUiState(
@@ -217,15 +221,17 @@ class LicenseRepository private constructor(
                     expiresAtEpochMs = res.expiresAtEpochMs.takeIf { it > 0 },
                     deviceId = id,
                     message = app.getString(com.zipextract.app.R.string.license_expired),
+                    unlimited = false,
                 )
             }
             else -> {
                 store.blocked = false
                 store.registered = true
+                store.unlimited = unlimited
                 if (res.expiresAtEpochMs > 0) store.expiresAtEpochMs = res.expiresAtEpochMs
                 store.lastSuccessfulCheckAtEpochMs = System.currentTimeMillis()
                 val now = System.currentTimeMillis()
-                val active = store.expiresAtEpochMs > now
+                val active = unlimited || store.expiresAtEpochMs > now
                 _state.value = LicenseUiState(
                     gate = if (active) LicenseGateStatus.Active else LicenseGateStatus.Locked,
                     expiresAtEpochMs = store.expiresAtEpochMs.takeIf { it > 0 },
@@ -235,6 +241,7 @@ class LicenseRepository private constructor(
                     } else {
                         app.getString(com.zipextract.app.R.string.license_expired)
                     },
+                    unlimited = unlimited,
                 )
             }
         }
@@ -262,6 +269,16 @@ class LicenseRepository private constructor(
                 expiresAtEpochMs = store.expiresAtEpochMs.takeIf { it > 0 },
                 deviceId = id,
                 message = app.getString(com.zipextract.app.R.string.license_blocked),
+                unlimited = store.unlimited,
+            )
+        }
+        if (store.unlimited || LicenseApi.isUnlimitedEpoch(store.expiresAtEpochMs)) {
+            return LicenseUiState(
+                gate = LicenseGateStatus.Active,
+                expiresAtEpochMs = store.expiresAtEpochMs.takeIf { it > 0 },
+                deviceId = id,
+                message = fallbackMessage,
+                unlimited = true,
             )
         }
         val expires = store.expiresAtEpochMs

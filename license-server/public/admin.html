@@ -96,7 +96,7 @@
     .badge.expired { background: #7f1d1d; color: var(--bad); }
     .badge.blocked { background: #78350f; color: var(--warn); }
     .badge.unused { background: #1e3a5f; color: var(--accent); }
-    .badge.used { background: #334155; color: var(--muted); }
+    .badge.unlimited { background: #312e81; color: #c4b5fd; }
     .err { color: var(--bad); margin-top: 8px; font-size: 0.9rem; }
     .ok { color: var(--ok); margin-top: 8px; font-size: 0.9rem; }
     .hidden { display: none; }
@@ -127,6 +127,10 @@
       <h2 style="margin:0 0 8px;font-size:1.05rem;">Generate key</h2>
       <label for="days">Hari per key</label>
       <input id="days" type="number" min="1" max="3650" value="30" />
+      <label style="margin-top:10px;display:flex;align-items:center;gap:8px;color:var(--text);">
+        <input id="unlimitedKey" type="checkbox" style="width:auto;margin:0;" />
+        Unlimited (seumur hidup)
+      </label>
       <div class="row">
         <button id="gen1" type="button">Buat 1 key</button>
         <button id="gen5" class="secondary" type="button">Buat 5</button>
@@ -221,11 +225,13 @@
     async function generate(count) {
       show($('genErr'), false);
       show($('genMsg'), false);
+      const unlimited = $('unlimitedKey').checked;
       const days = Number($('days').value) || 30;
       try {
+        const body = unlimited ? { unlimited: true, count } : { days, count };
         const data = await api('/v1/admin/keys/generate', {
           method: 'POST',
-          body: JSON.stringify({ days, count }),
+          body: JSON.stringify(body),
         });
         const box = $('newKeys');
         box.innerHTML = '';
@@ -248,7 +254,9 @@
           box.appendChild(div);
           box.appendChild(btn);
         });
-        $('genMsg').textContent = 'Key dibuat (' + data.keys.length + ' × ' + days + ' hari)';
+        $('genMsg').textContent = unlimited
+          ? 'Key unlimited dibuat (' + data.keys.length + ')'
+          : 'Key dibuat (' + data.keys.length + ' × ' + days + ' hari)';
         show($('genMsg'), true);
         await refreshAll();
       } catch (e) {
@@ -265,8 +273,10 @@
         return;
       }
       el.innerHTML = data.keys.slice(0, 30).map((k) => {
-        return '<div class="item"><div><span class="badge ' + k.status + '">' + k.status +
-          '</span> · ' + k.days + ' hari</div><div class="keybox" style="font-size:0.95rem">' + k.key_code +
+        const daysLabel = Number(k.days) === 0 ? 'unlimited' : (k.days + ' hari');
+        const badgeExtra = Number(k.days) === 0 ? ' unlimited' : '';
+        return '<div class="item"><div><span class="badge ' + k.status + badgeExtra + '">' + k.status +
+          '</span> · ' + daysLabel + '</div><div class="keybox" style="font-size:0.95rem">' + k.key_code +
           '</div><div class="muted">' + fmtDate(k.created_at) +
           (k.used_by_device ? '<br>→ ' + k.used_by_device : '') + '</div></div>';
       }).join('');
@@ -281,25 +291,36 @@
       }
       el.innerHTML = data.devices.slice(0, 50).map((d) => {
         const st = d.status || 'active';
-        const stillValid = new Date(d.expires_at).getTime() > Date.now();
+        const unlimited = Boolean(d.unlimited);
+        const stillValid = unlimited || new Date(d.expires_at).getTime() > Date.now();
         let actions = '';
         if (st === 'blocked') {
-          // Keep remaining days on Unblock; only offer +30d when already expired.
           actions = stillValid
             ? '<button class="secondary" data-unblock="' + d.device_id + '">Unblock</button>'
             : '<button class="secondary" data-unblock="' + d.device_id + '" data-extend="1">Unblock (+30 hari)</button>';
+          actions +=
+            '<button class="secondary" data-unblock="' + d.device_id + '" data-unlimited="1">Unblock Unlimited</button>';
         } else if (st === 'expired') {
           actions =
             '<button class="secondary" data-allow="' + d.device_id + '">Izinkan 30 hari</button>' +
+            '<button class="secondary" data-allow="' + d.device_id + '" data-unlimited="1">Unlimited</button>' +
             '<button class="danger" data-block="' + d.device_id + '">Block</button>';
         } else {
           actions =
-            '<button class="secondary" data-allow="' + d.device_id + '" data-force="1">+30 hari</button>' +
-            '<button class="danger" data-block="' + d.device_id + '">Block</button>';
+            '<button class="secondary" data-allow="' + d.device_id + '" data-force="1">+30 hari</button>';
+          if (!unlimited) {
+            actions +=
+              '<button class="secondary" data-allow="' + d.device_id + '" data-unlimited="1">Unlimited</button>';
+          }
+          actions += '<button class="danger" data-block="' + d.device_id + '">Block</button>';
         }
-        return '<div class="item"><div><span class="badge ' + st + '">' + st +
-          '</span></div><div class="mono">' + d.device_id + '</div><div class="muted">Exp: ' +
-          fmtDate(d.expires_at) + '<br>Last check: ' + fmtDate(d.last_check_at) +
+        const expLabel = unlimited ? 'Unlimited' : fmtDate(d.expires_at);
+        const statusBadge = unlimited && st === 'active'
+          ? '<span class="badge unlimited">unlimited</span>'
+          : '<span class="badge ' + st + '">' + st + '</span>';
+        return '<div class="item"><div>' + statusBadge +
+          '</div><div class="mono">' + d.device_id + '</div><div class="muted">Exp: ' +
+          expLabel + '<br>Last check: ' + fmtDate(d.last_check_at) +
           '</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
           actions + '</div></div>';
       }).join('');
@@ -311,8 +332,9 @@
       });
       el.querySelectorAll('[data-unblock]').forEach((btn) => {
         btn.onclick = async () => {
-          // Server keeps remaining days; days is only used if already expired.
-          const body = btn.dataset.extend === '1' ? { days: 30 } : {};
+          const body = {};
+          if (btn.dataset.unlimited === '1') body.unlimited = true;
+          else if (btn.dataset.extend === '1') body.days = 30;
           await api('/v1/admin/devices/' + encodeURIComponent(btn.dataset.unblock) + '/unblock', {
             method: 'POST',
             body: JSON.stringify(body),
@@ -322,8 +344,13 @@
       });
       el.querySelectorAll('[data-allow]').forEach((btn) => {
         btn.onclick = async () => {
-          const body = { days: 30 };
-          if (btn.dataset.force === '1') body.forceExtend = true;
+          const body = {};
+          if (btn.dataset.unlimited === '1') {
+            body.unlimited = true;
+          } else {
+            body.days = 30;
+            if (btn.dataset.force === '1') body.forceExtend = true;
+          }
           await api('/v1/admin/devices/' + encodeURIComponent(btn.dataset.allow) + '/allow', {
             method: 'POST',
             body: JSON.stringify(body),
@@ -332,6 +359,10 @@
         };
       });
     }
+
+    $('unlimitedKey').addEventListener('change', () => {
+      $('days').disabled = $('unlimitedKey').checked;
+    });
 
     $('loginBtn').onclick = login;
     $('password').addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });

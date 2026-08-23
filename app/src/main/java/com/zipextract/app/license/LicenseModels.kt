@@ -20,4 +20,5 @@ data class LicenseUiState(
     val deviceId: String = "",
     val message: String? = null,
     val activating: Boolean = false,
+    val unlimited: Boolean = false,
 )
