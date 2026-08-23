@@ -14,11 +14,17 @@ import java.io.FileOutputStream
 import java.io.FilterInputStream
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.Deflater
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
 
 object ZipManager {
 
@@ -172,13 +178,28 @@ object ZipManager {
         }
 
         val errors = mutableListOf<String>()
-        // Prefer a single sequential stream pass (fastest for "extract everything").
-        // Do NOT open zip4j first for isEncrypted — that double-opens large archives.
+
+        // Many small files → parallel ZipFile workers (big win on multi-core).
+        // Few / large files → sequential ZipInputStream (better sequential disk read).
+        val entryCount = runCatching {
+            ZipFile(zipFile).use { it.size() }
+        }.getOrDefault(0)
+        if (entryCount >= PARALLEL_ENTRY_THRESHOLD) {
+            runCatching {
+                return@withMessages extractAllParallelJavaZip(
+                    context,
+                    zipFile,
+                    destinationDir,
+                    entryCount,
+                    onProgress,
+                )
+            }.onFailure { errors += "parallel: ${it.message ?: it.javaClass.simpleName}" }
+        }
+
         runCatching {
             return@withMessages extractAllWithZipInputStream(zipFile, destinationDir, onProgress)
         }.onFailure { errors += "stream: ${it.message ?: it.javaClass.simpleName}" }
 
-        // Stream failed — only now check if the ZIP is password-protected.
         if (isEncryptedZip(zipFile)) {
             throw ZipPasswordException(msg(R.string.zip_password_required))
         }
@@ -343,6 +364,7 @@ object ZipManager {
         fun tryDir(dir: File): File? {
             return runCatching {
                 ensureDirectory(dir)
+                // Prefer canWrite — probeWritable creates+deletes a file (slow on SD).
                 if (dir.isDirectory && (dir.canWrite() || probeWritable(dir))) dir else null
             }.getOrNull()
         }
@@ -441,6 +463,92 @@ object ZipManager {
         }
     }
 
+    private fun extractAllParallelJavaZip(
+        context: Context,
+        zipFile: File,
+        destinationDir: File,
+        entryCountHint: Int,
+        onProgress: ((Float, String) -> Unit)?,
+    ): Int {
+        val fileNames = ArrayList<String>(entryCountHint.coerceAtLeast(16))
+        val createdDirs = HashSet<String>(64)
+        ensureDirectoryCached(destinationDir, createdDirs)
+
+        ZipFile(zipFile).use { zip ->
+            val entries = zip.entries()
+            while (entries.hasMoreElements()) {
+                val entry = entries.nextElement()
+                val originalName = entry.name.replace('\\', '/')
+                val safeName = sanitizeEntryName(originalName)
+                if (entry.isDirectory || originalName.endsWith('/') || safeName.isEmpty()) {
+                    if (safeName.isNotEmpty()) {
+                        ensureDirectoryCached(File(destinationDir, safeName), createdDirs)
+                    }
+                } else {
+                    // Pre-create parents on the main pass to avoid races across workers.
+                    val outFile = File(destinationDir, safeName)
+                    outFile.parentFile?.let { ensureDirectoryCached(it, createdDirs) }
+                    fileNames += originalName
+                }
+            }
+        }
+        if (fileNames.isEmpty()) error(msg(R.string.zip_stream_wrote_none))
+
+        val workers = Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
+        val chunkSize = ((fileNames.size + workers - 1) / workers).coerceAtLeast(1)
+        val chunks = fileNames.chunked(chunkSize)
+        val written = AtomicInteger(0)
+        val total = fileNames.size.coerceAtLeast(1)
+        val lastProgressAt = java.util.concurrent.atomic.AtomicLong(0L)
+
+        runBlocking {
+            coroutineScope {
+                chunks.map { chunk ->
+                    async(Dispatchers.IO) {
+                        // Locale strings / path errors need the ThreadLocal message context.
+                        withMessages(context) {
+                            val buf = ByteArray(EXTRACT_BUFFER)
+                            ZipFile(zipFile).use { zip ->
+                                for (originalName in chunk) {
+                                    val entry = zip.getEntry(originalName)
+                                        ?: zip.entries().asSequence().firstOrNull {
+                                            it.name.replace('\\', '/') == originalName
+                                        }
+                                        ?: continue
+                                    val safeName = sanitizeEntryName(originalName)
+                                    val outFile = File(destinationDir, safeName)
+                                    zip.getInputStream(entry).use { rawIn ->
+                                        BufferedInputStream(rawIn, EXTRACT_BUFFER).use { input ->
+                                            FileOutputStream(outFile).use { fos ->
+                                                copyStream(input, fos, buf)
+                                            }
+                                        }
+                                    }
+                                    val done = written.incrementAndGet()
+                                    val now = System.nanoTime()
+                                    val prev = lastProgressAt.get()
+                                    if (onProgress != null && now - prev > PROGRESS_INTERVAL_NS) {
+                                        if (lastProgressAt.compareAndSet(prev, now)) {
+                                            onProgress(
+                                                (done.toFloat() / total).coerceIn(0f, 0.99f),
+                                                safeName.ifBlank { originalName },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }.awaitAll()
+            }
+        }
+
+        onProgress?.invoke(1f, zipFile.name)
+        val count = written.get()
+        if (count <= 0) error(msg(R.string.zip_stream_wrote_none))
+        return count
+    }
+
     private fun extractAllWithZipInputStream(
         zipFile: File,
         destinationDir: File,
@@ -454,8 +562,6 @@ object ZipManager {
         ensureDirectoryCached(destinationDir, createdDirs)
 
         FileInputStream(zipFile).use { raw ->
-            // Count compressed bytes read for progress without an extra FilterInputStream layer
-            // on every call — BufferedInputStream + ZipInputStream already buffer.
             val counting = object : FilterInputStream(BufferedInputStream(raw, EXTRACT_BUFFER)) {
                 var readBytes = 0L
                 override fun read(b: ByteArray, off: Int, len: Int): Int {
@@ -470,7 +576,7 @@ object ZipManager {
                     val originalName = entry.name.replace('\\', '/')
                     val safeName = sanitizeEntryName(originalName)
                     val now = System.nanoTime()
-                    if (onProgress != null && now - lastProgressAt > 120_000_000L) {
+                    if (onProgress != null && now - lastProgressAt > PROGRESS_INTERVAL_NS) {
                         lastProgressAt = now
                         val progress = (counting.readBytes.toFloat() / totalBytes).coerceIn(0f, 0.99f)
                         onProgress(progress, safeName.ifBlank { originalName })
@@ -480,7 +586,7 @@ object ZipManager {
                             ensureDirectoryCached(File(destinationDir, safeName), createdDirs)
                         }
                     } else {
-                        val outFile = safeResolve(destinationDir, safeName)
+                        val outFile = File(destinationDir, safeName)
                         outFile.parentFile?.let { ensureDirectoryCached(it, createdDirs) }
                         FileOutputStream(outFile).use { fos ->
                             copyStream(zis, fos, buf)
@@ -525,7 +631,7 @@ object ZipManager {
                 val originalName = header.fileName.replace('\\', '/')
                 val safeName = sanitizeEntryName(originalName)
                 val now = System.nanoTime()
-                if (onProgress != null && now - lastProgressAt > 120_000_000L) {
+                if (onProgress != null && now - lastProgressAt > PROGRESS_INTERVAL_NS) {
                     lastProgressAt = now
                     onProgress((index + 1f) / total, safeName.ifBlank { originalName })
                 }
@@ -536,11 +642,13 @@ object ZipManager {
                     return@forEachIndexed
                 }
                 try {
-                    val outFile = safeResolve(destinationDir, safeName)
+                    val outFile = File(destinationDir, safeName)
                     outFile.parentFile?.let { ensureDirectoryCached(it, createdDirs) }
-                    archive.getInputStream(header).use { input ->
-                        FileOutputStream(outFile).use { fos ->
-                            copyStream(input, fos, buf)
+                    archive.getInputStream(header).use { rawIn ->
+                        BufferedInputStream(rawIn, EXTRACT_BUFFER).use { input ->
+                            FileOutputStream(outFile).use { fos ->
+                                copyStream(input, fos, buf)
+                            }
                         }
                     }
                 } catch (e: ZipException) {
@@ -574,7 +682,7 @@ object ZipManager {
                 val originalName = entry.name.replace('\\', '/')
                 val safeName = sanitizeEntryName(originalName)
                 val now = System.nanoTime()
-                if (onProgress != null && now - lastProgressAt > 120_000_000L) {
+                if (onProgress != null && now - lastProgressAt > PROGRESS_INTERVAL_NS) {
                     lastProgressAt = now
                     onProgress((index + 1f) / total, safeName.ifBlank { originalName })
                 }
@@ -584,11 +692,13 @@ object ZipManager {
                     }
                     return@forEachIndexed
                 }
-                val outFile = safeResolve(destinationDir, safeName)
+                val outFile = File(destinationDir, safeName)
                 outFile.parentFile?.let { ensureDirectoryCached(it, createdDirs) }
-                zip.getInputStream(entry).use { input ->
-                    FileOutputStream(outFile).use { fos ->
-                        copyStream(input, fos, buf)
+                zip.getInputStream(entry).use { rawIn ->
+                    BufferedInputStream(rawIn, EXTRACT_BUFFER).use { input ->
+                        FileOutputStream(outFile).use { fos ->
+                            copyStream(input, fos, buf)
+                        }
                     }
                 }
                 written++
@@ -884,4 +994,8 @@ object ZipManager {
     private const val DEFAULT_BUFFER = 256 * 1024
     /** Larger I/O buffer for extract — fewer syscalls on big archives / SD cards. */
     private const val EXTRACT_BUFFER = 1024 * 1024
+    /** Prefer parallel ZipFile workers when the archive has at least this many entries. */
+    private const val PARALLEL_ENTRY_THRESHOLD = 12
+    /** UI progress updates — keep rare so extract stays CPU/IO bound. */
+    private const val PROGRESS_INTERVAL_NS = 250_000_000L
 }

@@ -1941,10 +1941,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
                 // Show results after delete so a SAME_FOLDER listing cannot re-pin the ZIP.
                 val extractedItems = collectExtractedItems(destination, touchNewest = true)
+                // Don't block extract completion on a cold MediaLibrary disk load.
                 mediaLibraryCache = FileOperations.mergeIncremental(
-                    mediaLibraryCache
-                        ?: MediaLibraryCache.load(appContext)
-                        ?: MediaLibrary(),
+                    mediaLibraryCache ?: MediaLibrary(),
                     extractedItems,
                 )
                 showExtractedFolder(destination, extractedItems)
@@ -2588,10 +2587,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    /** Limit Compose recompositions during extract (~8 fps is plenty for a progress bar). */
+    /** Limit Compose recompositions during extract (~4 fps is enough for a progress bar). */
     private fun updateProgressThrottled(title: String, message: String, progress: Float) {
         val now = SystemClock.elapsedRealtime()
-        if (progress < 1f && now - lastProgressUiMs < 120L) return
+        if (progress < 1f && now - lastProgressUiMs < 250L) return
         lastProgressUiMs = now
         updateProgress(title, message, progress)
     }
