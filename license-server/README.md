@@ -44,13 +44,21 @@ Put Nginx/Caddy in front with HTTPS, proxy to `127.0.0.1:8787`.
 
 ## Android app
 
-Set the public HTTPS base URL (no trailing slash) in `local.properties` or CI env:
+Default API base (no trailing slash):
 
-```properties
-LICENSE_API_BASE_URL=https://license.your-domain.com
+```text
+http://62.238.96.225
 ```
 
-Default in debug builds is `http://10.0.2.2:8787` (emulator → host).
+Admin panel: `http://62.238.96.225/admin.html`
+
+Override in `local.properties` or CI env if needed:
+
+```properties
+LICENSE_API_BASE_URL=http://62.238.96.225
+```
+
+Cleartext HTTP to that IP is allowed via `network_security_config.xml`.
 
 ## API summary
 

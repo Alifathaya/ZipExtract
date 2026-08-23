@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- License API is served over HTTP on the Helsinki VPS IP for now. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">62.238.96.225</domain>
+    </domain-config>
+</network-security-config>
