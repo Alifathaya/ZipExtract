@@ -17,7 +17,23 @@ class LicenseRepository private constructor(
     private val _state = MutableStateFlow(buildInitialState())
     val state: StateFlow<LicenseUiState> = _state.asStateFlow()
 
-    fun deviceId(): String = DeviceIdProvider.get(app)
+    private var pushClient: LicensePushClient? = null
+
+    fun startPushChannel() {
+        if (!api.isConfigured()) return
+        if (pushClient != null) return
+        val client = LicensePushClient(
+            deviceId = deviceId(),
+            onLicense = { res -> applyServerResponse(res) },
+        )
+        pushClient = client
+        client.start()
+    }
+
+    fun stopPushChannel() {
+        pushClient?.stop()
+        pushClient = null
+    }
 
     /**
      * Fast path for UI: use local cache only (no network, never Loading).

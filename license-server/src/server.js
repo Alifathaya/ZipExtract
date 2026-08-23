@@ -12,11 +12,13 @@
 
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
 const crypto = require('crypto');
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const Database = require('better-sqlite3');
+const { WebSocketServer } = require('ws');
 
 const PORT = Number(process.env.PORT || 8787);
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme';
@@ -333,7 +335,9 @@ app.post('/v1/admin/devices/:id/block', requireAdmin, (req, res) => {
     .run(id);
   if (info.changes === 0) return res.status(404).json({ error: 'not_found' });
   logEvent('admin_block', id, null);
-  return res.json({ ok: true });
+  const row = db.prepare(`SELECT * FROM devices WHERE device_id = ?`).get(id);
+  pushLicenseToDevice(id, devicePayload(row));
+  return res.json({ ok: true, ...devicePayload(row) });
 });
 
 /**
@@ -371,6 +375,7 @@ app.post('/v1/admin/devices/:id/unblock', requireAdmin, (req, res) => {
   const result = allowDevice(id, days, false);
   if (!result) return res.status(404).json({ error: 'not_found' });
   logEvent('admin_unblock', id, result.daysAdded ? `${result.daysAdded}d` : 'cleared');
+  pushLicenseToDevice(id, result);
   return res.json(result);
 });
 
@@ -384,6 +389,7 @@ app.post('/v1/admin/devices/:id/allow', requireAdmin, (req, res) => {
   const result = allowDevice(id, days, forceExtend);
   if (!result) return res.status(404).json({ error: 'not_found' });
   logEvent('admin_allow', id, `${days}d`);
+  pushLicenseToDevice(id, result);
   return res.json(result);
 });
 
@@ -416,9 +422,100 @@ app.get('/', (_req, res) => {
   res.redirect('/admin.html');
 });
 
-app.listen(PORT, () => {
+/** deviceId -> Set<WebSocket> — push channel for Block/Unblock (no phone polling). */
+const socketsByDevice = new Map();
+
+function pushLicenseToDevice(deviceId, payload) {
+  const set = socketsByDevice.get(deviceId);
+  if (!set || set.size === 0) return 0;
+  const msg = JSON.stringify({
+    type: 'license',
+    status: payload.status,
+    expiresAt: payload.expiresAt,
+    serverTime: payload.serverTime || nowIso(),
+    trialDays: payload.trialDays,
+    daysAdded: payload.daysAdded,
+  });
+  let sent = 0;
+  for (const ws of set) {
+    if (ws.readyState === 1) {
+      try {
+        ws.send(msg);
+        sent += 1;
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  }
+  return sent;
+}
+
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server, path: '/v1/license/ws' });
+
+wss.on('connection', (ws, req) => {
+  let deviceId = '';
+  try {
+    const host = req.headers.host || 'localhost';
+    const url = new URL(req.url || '/', `http://${host}`);
+    deviceId = String(url.searchParams.get('deviceId') || '').trim();
+  } catch (_) {
+    deviceId = '';
+  }
+  if (!deviceId || deviceId.length < 8 || deviceId.length > 128) {
+    ws.close(1008, 'invalid_device_id');
+    return;
+  }
+
+  let set = socketsByDevice.get(deviceId);
+  if (!set) {
+    set = new Set();
+    socketsByDevice.set(deviceId, set);
+  }
+  set.add(ws);
+
+  // Immediate snapshot so a late-connecting app syncs without HTTP poll loops.
+  const row = db.prepare(`SELECT * FROM devices WHERE device_id = ?`).get(deviceId);
+  if (row) {
+    try {
+      ws.send(
+        JSON.stringify({
+          type: 'license',
+          ...devicePayload(row),
+        }),
+      );
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  ws.on('close', () => {
+    const s = socketsByDevice.get(deviceId);
+    if (!s) return;
+    s.delete(ws);
+    if (s.size === 0) socketsByDevice.delete(deviceId);
+  });
+
+  ws.on('error', () => {
+    /* close handler cleans up */
+  });
+
+  // Client may send ping JSON; reply pong to keep NAT paths warm.
+  ws.on('message', (data) => {
+    try {
+      const text = String(data || '');
+      if (text.includes('ping')) {
+        ws.send(JSON.stringify({ type: 'pong', serverTime: nowIso() }));
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  });
+});
+
+server.listen(PORT, () => {
   // eslint-disable-next-line no-console
-  console.log(`FileNest license server on :${PORT}`);
+  console.log(`FileNest license server on :${PORT} (ws /v1/license/ws)`);
   if (ADMIN_PASSWORD === 'changeme') {
     // eslint-disable-next-line no-console
     console.warn('WARNING: ADMIN_PASSWORD is default "changeme" — change it.');

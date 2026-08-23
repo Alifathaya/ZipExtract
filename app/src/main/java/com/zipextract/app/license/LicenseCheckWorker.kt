@@ -6,6 +6,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import java.util.Calendar
 import java.util.concurrent.TimeUnit
 
 class LicenseCheckWorker(
@@ -23,24 +24,21 @@ class LicenseCheckWorker(
 }
 
 object LicenseScheduler {
-    private const val UNIQUE = "filenest_license_periodic"
-
-    /** How often the open app asks the server for block/unblock updates. */
-    const val FOREGROUND_POLL_MS: Long = 20_000L
+    private const val UNIQUE = "filenest_license_daily"
 
     /**
-     * Background safety net while the app is closed.
-     * WorkManager minimum period is 15 minutes.
+     * Rare backup only. Live Block/Unblock uses WebSocket push from the server —
+     * do not poll every few seconds.
      */
     fun schedule(context: Context) {
         if (!LicenseApi().isConfigured()) return
 
         val wm = WorkManager.getInstance(context.applicationContext)
-        // Drop the old once-a-day unique work if present.
-        wm.cancelUniqueWork("filenest_license_daily")
+        wm.cancelUniqueWork("filenest_license_periodic")
 
-        val request = PeriodicWorkRequestBuilder<LicenseCheckWorker>(15, TimeUnit.MINUTES)
-            .setInitialDelay(15, TimeUnit.MINUTES)
+        val delayMs = millisUntilNextMidnight()
+        val request = PeriodicWorkRequestBuilder<LicenseCheckWorker>(1, TimeUnit.DAYS)
+            .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
             .build()
 
         wm.enqueueUniquePeriodicWork(
@@ -48,5 +46,17 @@ object LicenseScheduler {
             ExistingPeriodicWorkPolicy.UPDATE,
             request,
         )
+    }
+
+    private fun millisUntilNextMidnight(): Long {
+        val now = Calendar.getInstance()
+        val next = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 5)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        return (next.timeInMillis - now.timeInMillis).coerceAtLeast(60_000L)
     }
 }
