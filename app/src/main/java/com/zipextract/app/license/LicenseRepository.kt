@@ -94,17 +94,10 @@ class LicenseRepository private constructor(
 
     private fun evaluate(forceNetwork: Boolean) {
         val id = deviceId()
-        if (store.blocked) {
-            _state.value = LicenseUiState(
-                gate = LicenseGateStatus.Locked,
-                expiresAtEpochMs = store.expiresAtEpochMs.takeIf { it > 0 },
-                deviceId = id,
-                message = app.getString(com.zipextract.app.R.string.license_blocked),
-            )
-            return
-        }
 
-        if (forceNetwork || !store.registered || store.expiresAtEpochMs <= 0L) {
+        // Always prefer server when online. Local blocked/expired is only a cache —
+        // admin unblock/extend must be able to unlock the phone without clearing app data.
+        if (forceNetwork || !store.registered || store.expiresAtEpochMs <= 0L || store.blocked) {
             try {
                 val res = if (!store.registered || store.expiresAtEpochMs <= 0L) {
                     api.register(id, BuildConfig.VERSION_NAME)
@@ -114,6 +107,17 @@ class LicenseRepository private constructor(
                 if (res.error == "unknown_device") {
                     val reg = api.register(id, BuildConfig.VERSION_NAME)
                     applyServerResponse(reg)
+                    return
+                }
+                if (res.error == "device_blocked") {
+                    store.blocked = true
+                    store.registered = true
+                    _state.value = LicenseUiState(
+                        gate = LicenseGateStatus.Locked,
+                        expiresAtEpochMs = store.expiresAtEpochMs.takeIf { it > 0 },
+                        deviceId = id,
+                        message = app.getString(com.zipextract.app.R.string.license_blocked),
+                    )
                     return
                 }
                 if (res.error != null && res.expiresAtEpochMs <= 0L) {

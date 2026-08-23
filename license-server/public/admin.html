@@ -281,13 +281,24 @@
       }
       el.innerHTML = data.devices.slice(0, 50).map((d) => {
         const st = d.status || 'active';
-        const blockBtn = st === 'blocked'
-          ? '<button class="secondary" data-unblock="' + d.device_id + '">Unblock</button>'
-          : '<button class="danger" data-block="' + d.device_id + '">Block</button>';
+        let actions = '';
+        if (st === 'blocked') {
+          actions =
+            '<button class="secondary" data-unblock="' + d.device_id + '">Unblock (+30 hari)</button>';
+        } else if (st === 'expired') {
+          actions =
+            '<button class="secondary" data-allow="' + d.device_id + '">Izinkan 30 hari</button>' +
+            '<button class="danger" data-block="' + d.device_id + '">Block</button>';
+        } else {
+          actions =
+            '<button class="secondary" data-allow="' + d.device_id + '" data-force="1">+30 hari</button>' +
+            '<button class="danger" data-block="' + d.device_id + '">Block</button>';
+        }
         return '<div class="item"><div><span class="badge ' + st + '">' + st +
           '</span></div><div class="mono">' + d.device_id + '</div><div class="muted">Exp: ' +
           fmtDate(d.expires_at) + '<br>Last check: ' + fmtDate(d.last_check_at) +
-          '</div>' + blockBtn + '</div>';
+          '</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
+          actions + '</div></div>';
       }).join('');
       el.querySelectorAll('[data-block]').forEach((btn) => {
         btn.onclick = async () => {
@@ -297,7 +308,21 @@
       });
       el.querySelectorAll('[data-unblock]').forEach((btn) => {
         btn.onclick = async () => {
-          await api('/v1/admin/devices/' + encodeURIComponent(btn.dataset.unblock) + '/unblock', { method: 'POST', body: '{}' });
+          await api('/v1/admin/devices/' + encodeURIComponent(btn.dataset.unblock) + '/unblock', {
+            method: 'POST',
+            body: JSON.stringify({ days: 30 }),
+          });
+          await refreshAll();
+        };
+      });
+      el.querySelectorAll('[data-allow]').forEach((btn) => {
+        btn.onclick = async () => {
+          const body = { days: 30 };
+          if (btn.dataset.force === '1') body.forceExtend = true;
+          await api('/v1/admin/devices/' + encodeURIComponent(btn.dataset.allow) + '/allow', {
+            method: 'POST',
+            body: JSON.stringify(body),
+          });
           await refreshAll();
         };
       });

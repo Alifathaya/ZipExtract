@@ -336,14 +336,55 @@ app.post('/v1/admin/devices/:id/block', requireAdmin, (req, res) => {
   return res.json({ ok: true });
 });
 
+/**
+ * Allow device to run again:
+ * - clear blocked status
+ * - if license already expired (or forceExtend), extend from now by `days` (default TRIAL_DAYS)
+ */
+function allowDevice(id, days, forceExtend) {
+  const row = db.prepare(`SELECT * FROM devices WHERE device_id = ?`).get(id);
+  if (!row) return null;
+  const now = nowIso();
+  const expired = new Date(row.expires_at).getTime() <= Date.now();
+  let expiresAt = row.expires_at;
+  let daysAdded = 0;
+  if (forceExtend || expired) {
+    const base =
+      new Date(row.expires_at).getTime() > Date.now() ? row.expires_at : now;
+    expiresAt = addDays(base, days);
+    daysAdded = days;
+  }
+  db.prepare(
+    `UPDATE devices SET status = 'active', expires_at = ?, last_check_at = ? WHERE device_id = ?`,
+  ).run(expiresAt, now, id);
+  const updated = db.prepare(`SELECT * FROM devices WHERE device_id = ?`).get(id);
+  return { ...devicePayload(updated), daysAdded, ok: true };
+}
+
 app.post('/v1/admin/devices/:id/unblock', requireAdmin, (req, res) => {
   const id = req.params.id;
-  const info = db
-    .prepare(`UPDATE devices SET status = 'active' WHERE device_id = ?`)
-    .run(id);
-  if (info.changes === 0) return res.status(404).json({ error: 'not_found' });
-  logEvent('admin_unblock', id, null);
-  return res.json({ ok: true });
+  const days = Math.min(
+    3650,
+    Math.max(1, Number(req.body?.days) || TRIAL_DAYS),
+  );
+  // Unblock always re-enables access: extend if expired so the phone unlocks.
+  const result = allowDevice(id, days, false);
+  if (!result) return res.status(404).json({ error: 'not_found' });
+  logEvent('admin_unblock', id, result.daysAdded ? `${result.daysAdded}d` : 'cleared');
+  return res.json(result);
+});
+
+app.post('/v1/admin/devices/:id/allow', requireAdmin, (req, res) => {
+  const id = req.params.id;
+  const days = Math.min(
+    3650,
+    Math.max(1, Number(req.body?.days) || TRIAL_DAYS),
+  );
+  const forceExtend = Boolean(req.body?.forceExtend);
+  const result = allowDevice(id, days, forceExtend);
+  if (!result) return res.status(404).json({ error: 'not_found' });
+  logEvent('admin_allow', id, `${days}d`);
+  return res.json(result);
 });
 
 app.post('/v1/admin/keys/:code/revoke', requireAdmin, (req, res) => {
