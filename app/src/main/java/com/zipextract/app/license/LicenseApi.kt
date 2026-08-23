@@ -14,6 +14,7 @@ data class LicenseServerResponse(
     val expiresAtEpochMs: Long,
     val serverTimeEpochMs: Long,
     val daysAdded: Int? = null,
+    val unlimited: Boolean = false,
     val error: String? = null,
 )
 
@@ -91,6 +92,8 @@ class LicenseApi(
                 serverTimeEpochMs = parseIso(json.optString("serverTime")).takeIf { it > 0 }
                     ?: System.currentTimeMillis(),
                 daysAdded = json.optInt("daysAdded", -1).takeIf { it >= 0 },
+                unlimited = json.optBoolean("unlimited", false) ||
+                    isUnlimitedEpoch(parseIso(json.optString("expiresAt"))),
                 error = httpError ?: json.optString("error").ifBlank { null },
             )
         }
@@ -98,6 +101,15 @@ class LicenseApi(
         fun parseIso(value: String): Long {
             if (value.isBlank()) return 0L
             return runCatching { Instant.parse(value).toEpochMilli() }.getOrDefault(0L)
+        }
+
+        /** Year 9000+ (server uses 9999-12-31) means lifetime license. */
+        fun isUnlimitedEpoch(epochMs: Long): Boolean {
+            if (epochMs <= 0L) return false
+            val year = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).apply {
+                timeInMillis = epochMs
+            }.get(java.util.Calendar.YEAR)
+            return year >= 9000
         }
     }
 }

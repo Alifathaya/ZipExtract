@@ -72,6 +72,19 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+/** Far-future expiry used for lifetime / unlimited licenses. */
+const UNLIMITED_EXPIRES = '9999-12-31T23:59:59.000Z';
+/** Stored in keys.days — 0 means unlimited lifetime. */
+const UNLIMITED_KEY_DAYS = 0;
+
+function isUnlimitedExpires(iso) {
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return String(iso).startsWith('9999');
+  // Anything in year 9000+ is treated as unlimited.
+  return new Date(iso).getUTCFullYear() >= 9000;
+}
+
 function addDays(isoOrDate, days) {
   const d = new Date(isoOrDate);
   d.setUTCDate(d.getUTCDate() + days);
@@ -101,7 +114,8 @@ function generateKeyCode() {
 
 function devicePayload(row) {
   const serverTime = nowIso();
-  const expired = new Date(row.expires_at).getTime() <= Date.now();
+  const unlimited = isUnlimitedExpires(row.expires_at);
+  const expired = !unlimited && new Date(row.expires_at).getTime() <= Date.now();
   const blocked = row.status === 'blocked';
   let status = 'active';
   if (blocked) status = 'blocked';
@@ -111,6 +125,7 @@ function devicePayload(row) {
     expiresAt: row.expires_at,
     serverTime,
     trialDays: TRIAL_DAYS,
+    unlimited,
   };
 }
 
@@ -228,8 +243,9 @@ app.post('/v1/license/activate', activateLimiter, (req, res) => {
 
   let device = db.prepare(`SELECT * FROM devices WHERE device_id = ?`).get(deviceId);
   const now = nowIso();
+  const unlimitedKey = Number(keyRow.days) === UNLIMITED_KEY_DAYS;
   if (!device) {
-    const expires = addDays(now, keyRow.days);
+    const expires = unlimitedKey ? UNLIMITED_EXPIRES : addDays(now, keyRow.days);
     db.prepare(
       `INSERT INTO devices (device_id, created_at, expires_at, last_check_at, status)
        VALUES (?, ?, ?, ?, 'active')`,
@@ -238,11 +254,17 @@ app.post('/v1/license/activate', activateLimiter, (req, res) => {
     if (device.status === 'blocked') {
       return res.status(403).json({ error: 'device_blocked' });
     }
-    const base =
-      new Date(device.expires_at).getTime() > Date.now()
-        ? device.expires_at
-        : now;
-    const expires = addDays(base, keyRow.days);
+    let expires;
+    if (unlimitedKey) {
+      expires = UNLIMITED_EXPIRES;
+    } else {
+      const base =
+        new Date(device.expires_at).getTime() > Date.now() &&
+        !isUnlimitedExpires(device.expires_at)
+          ? device.expires_at
+          : now;
+      expires = addDays(base, keyRow.days);
+    }
     db.prepare(
       `UPDATE devices SET expires_at = ?, last_check_at = ?, status = 'active' WHERE device_id = ?`,
     ).run(expires, now, deviceId);
@@ -253,10 +275,10 @@ app.post('/v1/license/activate', activateLimiter, (req, res) => {
   ).run(now, deviceId, key);
 
   device = db.prepare(`SELECT * FROM devices WHERE device_id = ?`).get(deviceId);
-  logEvent('activate_ok', deviceId, key);
+  logEvent('activate_ok', deviceId, unlimitedKey ? 'unlimited' : key);
   return res.json({
     ...devicePayload(device),
-    daysAdded: keyRow.days,
+    daysAdded: unlimitedKey ? null : keyRow.days,
   });
 });
 
@@ -275,7 +297,10 @@ app.post('/v1/admin/login', adminLoginLimiter, (req, res) => {
 });
 
 app.post('/v1/admin/keys/generate', requireAdmin, (req, res) => {
-  const days = Math.min(3650, Math.max(1, Number(req.body?.days) || TRIAL_DAYS));
+  const unlimited = Boolean(req.body?.unlimited) || Number(req.body?.days) === 0;
+  const days = unlimited
+    ? UNLIMITED_KEY_DAYS
+    : Math.min(3650, Math.max(1, Number(req.body?.days) || TRIAL_DAYS));
   const count = Math.min(50, Math.max(1, Number(req.body?.count) || 1));
   const created = nowIso();
   const insert = db.prepare(
@@ -289,7 +314,12 @@ app.post('/v1/admin/keys/generate', requireAdmin, (req, res) => {
         code = generateKeyCode();
         try {
           insert.run(code, days, created);
-          keys.push({ key: code, days, createdAt: created });
+          keys.push({
+            key: code,
+            days,
+            unlimited,
+            createdAt: created,
+          });
           break;
         } catch (_) {
           /* collision */
@@ -298,7 +328,11 @@ app.post('/v1/admin/keys/generate', requireAdmin, (req, res) => {
     }
   });
   tx();
-  logEvent('admin_generate', null, `${keys.length}x${days}d`);
+  logEvent(
+    'admin_generate',
+    null,
+    unlimited ? `${keys.length}x_unlimited` : `${keys.length}x${days}d`,
+  );
   return res.json({ keys });
 });
 
@@ -341,23 +375,35 @@ app.post('/v1/admin/devices/:id/block', requireAdmin, (req, res) => {
 });
 
 /**
- * Clear blocked status.
+ * Clear blocked status and/or extend license.
+ * - unlimited=true: set lifetime expiry (never expires by date).
  * - If expires_at is still in the future: keep that date (resume remaining days).
  * - If already expired: extend from now by `days` (default TRIAL_DAYS).
  * - forceExtend: always add `days` from max(now, expires_at) — used by "+30 hari" only.
  */
-function allowDevice(id, days, forceExtend) {
+function allowDevice(id, days, forceExtend, unlimited) {
   const row = db.prepare(`SELECT * FROM devices WHERE device_id = ?`).get(id);
   if (!row) return null;
   const now = nowIso();
-  const expired = new Date(row.expires_at).getTime() <= Date.now();
   let expiresAt = row.expires_at;
   let daysAdded = 0;
-  if (forceExtend || expired) {
-    const base =
-      new Date(row.expires_at).getTime() > Date.now() ? row.expires_at : now;
-    expiresAt = addDays(base, days);
-    daysAdded = days;
+  if (unlimited) {
+    expiresAt = UNLIMITED_EXPIRES;
+    daysAdded = null;
+  } else {
+    const expired =
+      isUnlimitedExpires(row.expires_at)
+        ? false
+        : new Date(row.expires_at).getTime() <= Date.now();
+    if (forceExtend || expired) {
+      const base =
+        new Date(row.expires_at).getTime() > Date.now() &&
+        !isUnlimitedExpires(row.expires_at)
+          ? row.expires_at
+          : now;
+      expiresAt = addDays(base, days);
+      daysAdded = days;
+    }
   }
   db.prepare(
     `UPDATE devices SET status = 'active', expires_at = ?, last_check_at = ? WHERE device_id = ?`,
@@ -371,20 +417,24 @@ app.post('/v1/admin/devices/:id/unblock', requireAdmin, (req, res) => {
   const row = db.prepare(`SELECT * FROM devices WHERE device_id = ?`).get(id);
   if (!row) return res.status(404).json({ error: 'not_found' });
 
-  const expired = new Date(row.expires_at).getTime() <= Date.now();
+  const unlimited = Boolean(req.body?.unlimited);
+  const expired =
+    !isUnlimitedExpires(row.expires_at) &&
+    new Date(row.expires_at).getTime() <= Date.now();
   const days = Math.min(
     3650,
     Math.max(1, Number(req.body?.days) || TRIAL_DAYS),
   );
-  // forceExtend=false → add days ONLY when already expired; otherwise keep expires_at.
-  const result = allowDevice(id, days, false);
+  const result = allowDevice(id, days, false, unlimited);
   if (!result) return res.status(404).json({ error: 'not_found' });
   logEvent(
     'admin_unblock',
     id,
-    expired && result.daysAdded
-      ? `extended_${result.daysAdded}d`
-      : 'resume_remaining',
+    unlimited
+      ? 'unlimited'
+      : expired && result.daysAdded
+        ? `extended_${result.daysAdded}d`
+        : 'resume_remaining',
   );
   pushLicenseToDevice(id, result);
   return res.json(result);
@@ -392,14 +442,15 @@ app.post('/v1/admin/devices/:id/unblock', requireAdmin, (req, res) => {
 
 app.post('/v1/admin/devices/:id/allow', requireAdmin, (req, res) => {
   const id = req.params.id;
+  const unlimited = Boolean(req.body?.unlimited);
   const days = Math.min(
     3650,
     Math.max(1, Number(req.body?.days) || TRIAL_DAYS),
   );
-  const forceExtend = Boolean(req.body?.forceExtend);
-  const result = allowDevice(id, days, forceExtend);
+  const forceExtend = Boolean(req.body?.forceExtend) && !unlimited;
+  const result = allowDevice(id, days, forceExtend, unlimited);
   if (!result) return res.status(404).json({ error: 'not_found' });
-  logEvent('admin_allow', id, `${days}d`);
+  logEvent('admin_allow', id, unlimited ? 'unlimited' : `${days}d`);
   pushLicenseToDevice(id, result);
   return res.json(result);
 });
@@ -446,6 +497,7 @@ function pushLicenseToDevice(deviceId, payload) {
     serverTime: payload.serverTime || nowIso(),
     trialDays: payload.trialDays,
     daysAdded: payload.daysAdded,
+    unlimited: Boolean(payload.unlimited),
   });
   let sent = 0;
   for (const ws of set) {

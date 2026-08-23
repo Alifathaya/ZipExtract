@@ -21,12 +21,17 @@ class LicenseStore(context: Context) {
         get() = prefs.getBoolean(BLOCKED, false)
         set(value) = prefs.edit().putBoolean(BLOCKED, value).apply()
 
+    var unlimited: Boolean
+        get() = prefs.getBoolean(UNLIMITED, false)
+        set(value) = prefs.edit().putBoolean(UNLIMITED, value).apply()
+
     fun clearLicenseFlags() {
         prefs.edit()
             .remove(EXPIRES)
             .remove(LAST_CHECK)
             .remove(REGISTERED)
             .remove(BLOCKED)
+            .remove(UNLIMITED)
             .apply()
     }
 
@@ -36,6 +41,7 @@ class LicenseStore(context: Context) {
         private const val LAST_CHECK = "last_check_ms"
         private const val REGISTERED = "registered"
         private const val BLOCKED = "blocked"
+        private const val UNLIMITED = "unlimited"
 
         /** Offline grace without a successful server check. */
         const val GRACE_MS: Long = 3L * 24 * 60 * 60 * 1000
