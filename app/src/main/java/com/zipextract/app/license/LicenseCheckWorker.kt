@@ -35,11 +35,15 @@ object LicenseScheduler {
     fun schedule(context: Context) {
         if (!LicenseApi().isConfigured()) return
 
+        val wm = WorkManager.getInstance(context.applicationContext)
+        // Drop the old once-a-day unique work if present.
+        wm.cancelUniqueWork("filenest_license_daily")
+
         val request = PeriodicWorkRequestBuilder<LicenseCheckWorker>(15, TimeUnit.MINUTES)
             .setInitialDelay(15, TimeUnit.MINUTES)
             .build()
 
-        WorkManager.getInstance(context.applicationContext).enqueueUniquePeriodicWork(
+        wm.enqueueUniquePeriodicWork(
             UNIQUE,
             ExistingPeriodicWorkPolicy.UPDATE,
             request,
