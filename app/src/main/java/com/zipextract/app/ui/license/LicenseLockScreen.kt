@@ -15,7 +15,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,8 +31,6 @@ import com.zipextract.app.R
 import com.zipextract.app.license.LicenseGateStatus
 import com.zipextract.app.license.LicenseRepository
 import com.zipextract.app.license.LicenseUiState
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
@@ -46,14 +43,7 @@ fun LicenseLockScreen(
 ) {
     var key by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
-
-    // While locked, poll the server so admin Unblock / Izinkan unlocks the phone automatically.
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            delay(20_000L)
-            repository.silentCheck()
-        }
-    }
+    // Polling for admin Unblock lives in MainActivity (shared foreground loop).
 
     Box(
         modifier = Modifier
