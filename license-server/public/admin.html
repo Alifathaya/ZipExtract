@@ -101,6 +101,62 @@
     .ok { color: var(--ok); margin-top: 8px; font-size: 0.9rem; }
     .hidden { display: none; }
     .mono { font-family: ui-monospace, monospace; font-size: 0.78rem; word-break: break-all; }
+    .device-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      position: relative;
+    }
+    .device-main { flex: 1; min-width: 0; }
+    .menu-btn {
+      width: 40px;
+      min-width: 40px;
+      margin: 0;
+      padding: 6px 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 1.35rem;
+      line-height: 1;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+    .menu-btn:hover, .menu-btn[aria-expanded="true"] {
+      background: #334155;
+      color: var(--text);
+    }
+    .menu-pop {
+      display: none;
+      position: absolute;
+      top: 36px;
+      right: 0;
+      z-index: 20;
+      min-width: 180px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      box-shadow: 0 12px 28px rgba(0,0,0,.45);
+      padding: 6px;
+      overflow: hidden;
+    }
+    .menu-pop.open { display: block; }
+    .menu-pop button {
+      width: 100%;
+      margin: 0;
+      padding: 11px 12px;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text);
+      font-weight: 600;
+      font-size: 0.9rem;
+      text-align: left;
+    }
+    .menu-pop button:hover { background: #1e293b; }
+    .menu-pop button.danger {
+      background: transparent;
+      color: var(--bad);
+    }
+    .menu-pop button.danger:hover { background: #7f1d1d33; }
   </style>
 </head>
 <body>
@@ -289,76 +345,122 @@
         el.textContent = 'Belum ada device.';
         return;
       }
-      el.innerHTML = data.devices.slice(0, 50).map((d) => {
+      el.innerHTML = data.devices.slice(0, 50).map((d, idx) => {
         const st = d.status || 'active';
         const unlimited = Boolean(d.unlimited);
         const stillValid = unlimited || new Date(d.expires_at).getTime() > Date.now();
-        let actions = '';
+        const id = d.device_id;
+        const menuItems = [];
         if (st === 'blocked') {
-          actions = stillValid
-            ? '<button class="secondary" data-unblock="' + d.device_id + '">Unblock</button>'
-            : '<button class="secondary" data-unblock="' + d.device_id + '" data-extend="1">Unblock (+30 hari)</button>';
-          actions +=
-            '<button class="secondary" data-unblock="' + d.device_id + '" data-unlimited="1">Unblock Unlimited</button>';
-        } else if (st === 'expired') {
-          actions =
-            '<button class="secondary" data-allow="' + d.device_id + '">Izinkan 30 hari</button>' +
-            '<button class="secondary" data-allow="' + d.device_id + '" data-unlimited="1">Unlimited</button>' +
-            '<button class="danger" data-block="' + d.device_id + '">Block</button>';
-        } else {
-          actions =
-            '<button class="secondary" data-allow="' + d.device_id + '" data-force="1">+30 hari</button>';
-          if (!unlimited) {
-            actions +=
-              '<button class="secondary" data-allow="' + d.device_id + '" data-unlimited="1">Unlimited</button>';
+          if (stillValid) {
+            menuItems.push({ action: 'unblock', label: 'Unblock', id: id });
+          } else {
+            menuItems.push({ action: 'unblock', label: 'Unblock (+30 hari)', id: id, extend: true });
           }
-          actions += '<button class="danger" data-block="' + d.device_id + '">Block</button>';
+          menuItems.push({ action: 'unblock', label: 'Unblock Unlimited', id: id, unlimited: true });
+        } else if (st === 'expired') {
+          menuItems.push({ action: 'allow', label: '+30 hari', id: id });
+          menuItems.push({ action: 'allow', label: 'Unlimited', id: id, unlimited: true });
+          menuItems.push({ action: 'block', label: 'Block', id: id, danger: true });
+        } else {
+          menuItems.push({ action: 'allow', label: '+30 hari', id: id, force: true });
+          if (!unlimited) {
+            menuItems.push({ action: 'allow', label: 'Unlimited', id: id, unlimited: true });
+          }
+          menuItems.push({ action: 'block', label: 'Block', id: id, danger: true });
         }
+        const menuHtml = menuItems.map((m) => {
+          const attrs = [
+            'type="button"',
+            'data-action="' + m.action + '"',
+            'data-id="' + m.id + '"',
+          ];
+          if (m.unlimited) attrs.push('data-unlimited="1"');
+          if (m.extend) attrs.push('data-extend="1"');
+          if (m.force) attrs.push('data-force="1"');
+          if (m.danger) attrs.push('class="danger"');
+          return '<button ' + attrs.join(' ') + '>' + m.label + '</button>';
+        }).join('');
         const expLabel = unlimited ? 'Unlimited' : fmtDate(d.expires_at);
         const statusBadge = unlimited && st === 'active'
           ? '<span class="badge unlimited">unlimited</span>'
           : '<span class="badge ' + st + '">' + st + '</span>';
-        return '<div class="item"><div>' + statusBadge +
-          '</div><div class="mono">' + d.device_id + '</div><div class="muted">Exp: ' +
-          expLabel + '<br>Last check: ' + fmtDate(d.last_check_at) +
-          '</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
-          actions + '</div></div>';
+        return '<div class="item">' +
+          '<div class="device-row">' +
+            '<div class="device-main">' +
+              '<div>' + statusBadge + '</div>' +
+              '<div class="mono">' + id + '</div>' +
+              '<div class="muted">Exp: ' + expLabel + '<br>Last check: ' + fmtDate(d.last_check_at) + '</div>' +
+            '</div>' +
+            '<button type="button" class="menu-btn" data-menu="' + idx + '" aria-label="Menu" aria-expanded="false">⋮</button>' +
+            '<div class="menu-pop" data-menu-pop="' + idx + '">' + menuHtml + '</div>' +
+          '</div>' +
+        '</div>';
       }).join('');
-      el.querySelectorAll('[data-block]').forEach((btn) => {
-        btn.onclick = async () => {
-          await api('/v1/admin/devices/' + encodeURIComponent(btn.dataset.block) + '/block', { method: 'POST', body: '{}' });
-          await refreshAll();
-        };
-      });
-      el.querySelectorAll('[data-unblock]').forEach((btn) => {
-        btn.onclick = async () => {
-          const body = {};
-          if (btn.dataset.unlimited === '1') body.unlimited = true;
-          else if (btn.dataset.extend === '1') body.days = 30;
-          await api('/v1/admin/devices/' + encodeURIComponent(btn.dataset.unblock) + '/unblock', {
-            method: 'POST',
-            body: JSON.stringify(body),
-          });
-          await refreshAll();
-        };
-      });
-      el.querySelectorAll('[data-allow]').forEach((btn) => {
-        btn.onclick = async () => {
-          const body = {};
-          if (btn.dataset.unlimited === '1') {
-            body.unlimited = true;
-          } else {
-            body.days = 30;
-            if (btn.dataset.force === '1') body.forceExtend = true;
+
+      el.querySelectorAll('.menu-btn').forEach((btn) => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          const idx = btn.dataset.menu;
+          const pop = el.querySelector('[data-menu-pop="' + idx + '"]');
+          const wasOpen = pop.classList.contains('open');
+          closeAllDeviceMenus();
+          if (!wasOpen) {
+            pop.classList.add('open');
+            btn.setAttribute('aria-expanded', 'true');
           }
-          await api('/v1/admin/devices/' + encodeURIComponent(btn.dataset.allow) + '/allow', {
-            method: 'POST',
-            body: JSON.stringify(body),
-          });
-          await refreshAll();
+        };
+      });
+
+      el.querySelectorAll('.menu-pop button').forEach((btn) => {
+        btn.onclick = async (e) => {
+          e.stopPropagation();
+          closeAllDeviceMenus();
+          const action = btn.dataset.action;
+          const id = btn.dataset.id;
+          try {
+            if (action === 'block') {
+              await api('/v1/admin/devices/' + encodeURIComponent(id) + '/block', {
+                method: 'POST',
+                body: '{}',
+              });
+            } else if (action === 'unblock') {
+              const body = {};
+              if (btn.dataset.unlimited === '1') body.unlimited = true;
+              else if (btn.dataset.extend === '1') body.days = 30;
+              await api('/v1/admin/devices/' + encodeURIComponent(id) + '/unblock', {
+                method: 'POST',
+                body: JSON.stringify(body),
+              });
+            } else if (action === 'allow') {
+              const body = {};
+              if (btn.dataset.unlimited === '1') {
+                body.unlimited = true;
+              } else {
+                body.days = 30;
+                if (btn.dataset.force === '1') body.forceExtend = true;
+              }
+              await api('/v1/admin/devices/' + encodeURIComponent(id) + '/allow', {
+                method: 'POST',
+                body: JSON.stringify(body),
+              });
+            }
+            await refreshAll();
+          } catch (err) {
+            alert(err.message);
+          }
         };
       });
     }
+
+    function closeAllDeviceMenus() {
+      document.querySelectorAll('.menu-pop.open').forEach((p) => p.classList.remove('open'));
+      document.querySelectorAll('.menu-btn[aria-expanded="true"]').forEach((b) => {
+        b.setAttribute('aria-expanded', 'false');
+      });
+    }
+
+    document.addEventListener('click', () => closeAllDeviceMenus());
 
     $('unlimitedKey').addEventListener('change', () => {
       $('days').disabled = $('unlimitedKey').checked;
