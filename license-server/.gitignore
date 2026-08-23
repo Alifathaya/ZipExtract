@@ -1,5 +1,6 @@
-data/
-node_modules/
-.env
+scripts/.vps-agent-bootstrap-token
+license-server/data/
+license-server/node_modules/
+license-server/.env
 *.sqlite
 *.sqlite-*
