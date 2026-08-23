@@ -14,15 +14,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
@@ -37,6 +34,7 @@ import com.zipextract.app.ui.FileBrowserScreen
 import com.zipextract.app.ui.FileBrowserViewModel
 import com.zipextract.app.ui.license.LicenseLockScreen
 import com.zipextract.app.ui.theme.FileNestTheme
+import kotlinx.coroutines.delay
 
 /**
  * AppCompatActivity so [AppCompatDelegate.setApplicationLocales] applies reliably
@@ -105,8 +103,13 @@ class MainActivity : AppCompatActivity() {
                     handleIncomingIntent(intent)
                     // Open UI from local cache immediately; verify license in background.
                     licenseRepo.applyLocalCache()
-                    licenseRepo.silentCheck()
                     LicenseScheduler.schedule(context)
+                    // Keep asking the server while the app is open so admin Block/Unblock
+                    // applies without restart (no push channel — app polls /v1/license/check).
+                    while (true) {
+                        licenseRepo.silentCheck()
+                        delay(LicenseScheduler.FOREGROUND_POLL_MS)
+                    }
                 }
 
                 LaunchedEffect(viewModel) {
