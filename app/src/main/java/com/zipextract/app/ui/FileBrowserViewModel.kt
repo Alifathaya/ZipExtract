@@ -2055,53 +2055,6 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    private fun collectExtractedItems(root: File, touchNewest: Boolean): List<FileItem> {
-        val now = System.currentTimeMillis()
-        val items = mutableListOf<FileItem>()
-        fun walk(dir: File, depth: Int) {
-            if (depth > 8) return
-            val children = dir.listFiles() ?: return
-            children.forEach { child ->
-                when {
-                    child.isDirectory -> walk(child, depth + 1)
-                    child.isFile -> {
-                        // Prefer in-memory timestamp for "newest first" pin — touching
-                        // every file on disk (especially exFAT/SD) is very slow.
-                        items += if (touchNewest) {
-                            FileItem(
-                                file = child,
-                                name = child.name,
-                                path = child.absolutePath,
-                                isDirectory = false,
-                                sizeBytes = child.length(),
-                                lastModified = now,
-                            )
-                        } else {
-                            FileItem(child)
-                        }
-                    }
-                }
-            }
-        }
-        if (root.isFile) {
-            items += if (touchNewest) {
-                FileItem(
-                    file = root,
-                    name = root.name,
-                    path = root.absolutePath,
-                    isDirectory = false,
-                    sizeBytes = root.length(),
-                    lastModified = now,
-                )
-            } else {
-                FileItem(root)
-            }
-        } else {
-            walk(root, 0)
-        }
-        return items.sortedByDescending { it.lastModified }
-    }
-
     /**
      * Top-level-only listing for post-extract MediaStore merge — avoids a full tree walk
      * that could take longer than the extract itself on large archives / SD cards.
