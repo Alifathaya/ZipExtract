@@ -972,6 +972,7 @@ object FileOperations {
         if (items.isEmpty()) return OperationResult.Error(context.getString(R.string.clipboard_empty))
 
         val total = items.size.coerceAtLeast(1)
+        val written = ArrayList<File>(items.size)
         items.forEachIndexed { index, source ->
             onProgress?.invoke((index + 1f) / total, source.name)
             val target = uniqueName(File(destinationDir, source.name))
@@ -987,7 +988,11 @@ object FileOperations {
             if (!ok) {
                 return OperationResult.Error(context.getString(R.string.process_failed_item, source.name))
             }
+            written += target
         }
+
+        // Make pasted media visible in Photos/Camera albums without a full rescan.
+        notifyMediaStoreAdded(context, written)
 
         val action = context.getString(
             if (clipboard.mode == ClipboardMode.COPY) R.string.action_copied else R.string.action_moved,
@@ -1175,6 +1180,28 @@ object FileOperations {
             MediaScannerConnection.scanFile(
                 context.applicationContext,
                 arrayOf(file.absolutePath, file.parent ?: file.absolutePath),
+                null,
+                null,
+            )
+        }
+    }
+
+    private fun notifyMediaStoreAdded(context: Context, files: List<File>) {
+        if (files.isEmpty()) return
+        val paths = ArrayList<String>()
+        fun collect(file: File) {
+            if (file.isDirectory) {
+                file.listFiles()?.forEach { collect(it) }
+            } else if (file.exists()) {
+                paths += file.absolutePath
+            }
+        }
+        files.forEach { collect(it) }
+        if (paths.isEmpty()) return
+        runCatching {
+            MediaScannerConnection.scanFile(
+                context.applicationContext,
+                paths.toTypedArray(),
                 null,
                 null,
             )
