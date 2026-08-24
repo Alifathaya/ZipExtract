@@ -77,6 +77,11 @@
     <string name="storage_usb">USB / OTG</string>
     <string name="storage_unavailable">Storage unavailable. Reinsert it or tap Refresh.</string>
     <string name="storage_used_of">%1$s used of %2$s</string>
+    <string name="storage_eject_safe">Safe eject</string>
+    <string name="storage_format">Format</string>
+    <string name="storage_eject_system_hint">In Settings, select the USB/SD volume, then tap Eject / Eject safely.</string>
+    <string name="storage_format_system_hint">In Settings, select the USB/SD volume, then tap Format. All data will be erased.</string>
+    <string name="storage_settings_open_failed">Could not open storage settings</string>
     <string name="search_results">Search results</string>
     <string name="search_none_found">No files found</string>
     <string name="language_menu">Language</string>

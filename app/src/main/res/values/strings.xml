@@ -77,6 +77,11 @@
     <string name="storage_usb">USB / OTG</string>
     <string name="storage_unavailable">Penyimpanan tidak tersedia. Cabut lalu pasang lagi, atau ketuk Refresh.</string>
     <string name="storage_used_of">%1$s terpakai dari %2$s</string>
+    <string name="storage_eject_safe">Eject aman</string>
+    <string name="storage_format">Format</string>
+    <string name="storage_eject_system_hint">Di Pengaturan, pilih USB/SD lalu ketuk Eject / Keluarkan dengan aman.</string>
+    <string name="storage_format_system_hint">Di Pengaturan, pilih USB/SD lalu ketuk Format. Semua data akan terhapus.</string>
+    <string name="storage_settings_open_failed">Tidak bisa membuka pengaturan penyimpanan</string>
     <string name="search_results">Hasil pencarian</string>
     <string name="search_none_found">Tidak ada file ditemukan</string>
     <string name="language_menu">Bahasa</string>

@@ -93,6 +93,8 @@ import com.zipextract.app.data.FileCategory
 import com.zipextract.app.data.FileItem
 import com.zipextract.app.data.StorageInfo
 import com.zipextract.app.data.StorageKind
+import com.zipextract.app.data.StorageVolumeActions
+import androidx.compose.ui.platform.LocalContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -666,6 +668,7 @@ private fun StorageSection(
                     compact = true,
                     clickable = volume.canBrowse,
                     onClick = { onOpenVolume(volume) },
+                    showManageActions = StorageVolumeActions.supportsManageActions(volume),
                     modifier = Modifier.width(220.dp),
                 )
             }
@@ -683,6 +686,7 @@ private fun StorageSection(
                 compact = compact,
                 clickable = volume.canBrowse,
                 onClick = { onOpenVolume(volume) },
+                showManageActions = StorageVolumeActions.supportsManageActions(volume),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -710,7 +714,9 @@ private fun StorageVolumeCard(
     clickable: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    showManageActions: Boolean = false,
 ) {
+    val context = LocalContext.current
     val usedBytes = if (totalBytes != null && freeBytes != null) {
         (totalBytes - freeBytes).coerceAtLeast(0L)
     } else {
@@ -807,6 +813,44 @@ private fun StorageVolumeCard(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                 )
+            }
+
+            if (showManageActions) {
+                Spacer(modifier = Modifier.height(if (compact) 4.dp else 6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    TextButton(
+                        onClick = {
+                            StorageVolumeActions.openSystemStorageSettings(
+                                context,
+                                StorageVolumeActions.Purpose.EJECT,
+                            )
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.storage_eject_safe),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                    TextButton(
+                        onClick = {
+                            StorageVolumeActions.openSystemStorageSettings(
+                                context,
+                                StorageVolumeActions.Purpose.FORMAT,
+                            )
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.storage_format),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
             }
         }
     }
