@@ -38,9 +38,6 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.filled.ZoomIn
-import androidx.compose.material.icons.filled.ZoomOut
-import androidx.compose.material.icons.filled.ZoomOutMap
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -407,24 +404,12 @@ fun PdfViewerScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            text = file.name,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text = if (pageCount > 0) {
-                                stringResource(R.string.pdf_pages_zoom_hint, pageCount)
-                            } else {
-                                stringResource(R.string.pdf_zoom_hint)
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
+                    Text(
+                        text = file.name,
+                        style = MaterialTheme.typography.labelLarge,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 },
                 navigationIcon = {
                     IconButton(onClick = onClose) {
@@ -453,21 +438,6 @@ fun PdfViewerScreen(
                             contentDescription = stringResource(R.string.delete),
                             tint = MaterialTheme.colorScheme.error,
                         )
-                    }
-                    IconButton(
-                        onClick = { zoomState.zoomOut() },
-                        enabled = zoomState.isZoomed,
-                    ) {
-                        Icon(Icons.Default.ZoomOut, contentDescription = stringResource(R.string.zoom_out))
-                    }
-                    IconButton(onClick = { zoomState.zoomIn() }) {
-                        Icon(Icons.Default.ZoomIn, contentDescription = stringResource(R.string.zoom_in))
-                    }
-                    IconButton(
-                        onClick = { zoomState.reset() },
-                        enabled = zoomState.isZoomed,
-                    ) {
-                        Icon(Icons.Default.ZoomOutMap, contentDescription = stringResource(R.string.zoom_reset))
                     }
                 },
             )
