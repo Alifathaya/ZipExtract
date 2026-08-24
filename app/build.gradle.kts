@@ -38,8 +38,8 @@ android {
         applicationId = "com.zipextract.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 105
-        versionName = "2.4.60"
+        versionCode = 112
+        versionName = "2.4.67"
         buildConfigField(
             "String",
             "LICENSE_API_BASE_URL",
