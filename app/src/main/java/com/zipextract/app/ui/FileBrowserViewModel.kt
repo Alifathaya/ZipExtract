@@ -2476,17 +2476,36 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         val moving = clipboard.mode == ClipboardMode.CUT
         val title = str(R.string.progress_pasting)
         val busy = if (moving) str(R.string.progress_moving) else str(R.string.progress_copying)
+        val sourcePaths = clipboard.items.mapTo(LinkedHashSet()) { file ->
+            runCatching { file.canonicalPath }.getOrDefault(file.absolutePath)
+        }
         // Hide Tempel/Pindah immediately on tap (copy and cut).
         _uiState.update { it.copy(clipboard = null) }
-        runJob(title, busy) {
+        // No full refreshAfter — patch the visible list locally when paste finishes.
+        runJob(title, busy, refreshAfter = false) {
             val result = FileOperations.paste(
                 localizedContext(),
                 clipboard,
                 targetDir,
             ) { progress, name ->
-                updateProgress(title, name, progress)
+                updateProgressThrottled(title, name, progress)
             }
-            handleResult(result)
+            when (result) {
+                is OperationResult.Success -> {
+                    val added = result.files.map { FileItem(it) }
+                    withContext(Dispatchers.Main) {
+                        if (moving) applyLocalRemovals(sourcePaths)
+                        mediaLibraryCache = FileOperations.mergeIncremental(
+                            mediaLibraryCache ?: MediaLibrary(),
+                            added,
+                        )
+                        applyLocalPasteAdditions(targetDir, added)
+                    }
+                    mediaLibraryCache?.let(::scheduleIncrementalCacheSave)
+                    emit(result.message)
+                }
+                is OperationResult.Error -> emit(result.message)
+            }
         }
     }
 
@@ -2568,6 +2587,36 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 categorySummaries = nextCategories,
                 selectedPaths = emptySet(),
                 selectionMode = false,
+                progress = null,
+            )
+        }
+    }
+
+    /**
+     * Pin just-pasted files at the top of the destination folder list without a full rescan.
+     */
+    private fun applyLocalPasteAdditions(destinationDir: File, added: List<FileItem>) {
+        if (added.isEmpty()) return
+        val dest = runCatching { destinationDir.canonicalFile }.getOrDefault(destinationDir)
+        _uiState.update { state ->
+            val current = runCatching { state.currentDir.canonicalFile }.getOrDefault(state.currentDir)
+            if (!FileOperations.samePath(current, dest)) {
+                return@update state.copy(progress = null)
+            }
+            val addedPaths = added.mapTo(HashSet(added.size)) { it.path }
+            val pinned = added.sortedByDescending { it.lastModified }
+            val rest = state.items.filter { it.path !in addedPaths }
+            val library = mediaLibraryCache
+            state.copy(
+                items = pinned + rest,
+                recentFiles = (added.filter { it.file.isFile } + state.recentFiles)
+                    .distinctBy { it.path }
+                    .take(12),
+                categorySummaries = if (library != null) {
+                    FileOperations.getCategorySummaries(library, appContext)
+                } else {
+                    state.categorySummaries
+                },
                 progress = null,
             )
         }

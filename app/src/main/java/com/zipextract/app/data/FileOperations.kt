@@ -13,10 +13,19 @@ import android.os.storage.StorageVolume
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import com.zipextract.app.R
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.nio.file.Files
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.concurrent.thread
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
 
 object FileOperations {
 
@@ -826,9 +835,12 @@ object FileOperations {
 
     fun deleteRecursively(context: Context, files: List<File>): OperationResult {
         var failed = 0
+        val scanPaths = ArrayList<String>(files.size * 2)
         files.forEach { file ->
-            if (!deleteDeep(context, file)) failed++
+            if (!deleteDeep(context, file, scanPaths)) failed++
         }
+        // One batched scanner call instead of per-file notify (big win on multi-delete).
+        flushMediaStoreScan(context, scanPaths)
         return if (failed == 0) {
             OperationResult.Success(context.getString(R.string.items_deleted, files.size))
         } else {
@@ -971,33 +983,69 @@ object FileOperations {
         val items = clipboard.items.filter { it.exists() }
         if (items.isEmpty()) return OperationResult.Error(context.getString(R.string.clipboard_empty))
 
-        val total = items.size.coerceAtLeast(1)
-        val written = ArrayList<File>(items.size)
-        items.forEachIndexed { index, source ->
-            onProgress?.invoke((index + 1f) / total, source.name)
+        // Resolve unique targets sequentially first (avoids name races under parallel copy).
+        val planned = ArrayList<Pair<File, File>>(items.size)
+        for (source in items) {
             val target = uniqueName(File(destinationDir, source.name))
-
             if (isNestedTarget(source, target)) {
                 return OperationResult.Error(context.getString(R.string.paste_into_source))
             }
-
-            val ok = when (clipboard.mode) {
-                ClipboardMode.COPY -> copyDeep(source, target)
-                ClipboardMode.CUT -> moveDeep(context, source, target)
-            }
-            if (!ok) {
-                return OperationResult.Error(context.getString(R.string.process_failed_item, source.name))
-            }
-            written += target
+            planned += source to target
         }
 
-        // Make pasted media visible in Photos/Camera albums without a full rescan.
-        notifyMediaStoreAdded(context, written)
+        val total = planned.size.coerceAtLeast(1)
+        val done = AtomicInteger(0)
+        val nextIndex = AtomicInteger(0)
+        val written = java.util.concurrent.CopyOnWriteArrayList<File>()
+        val errors = java.util.concurrent.ConcurrentLinkedQueue<String>()
+
+        val workers = when {
+            planned.size == 1 -> 1
+            planned.size < 4 -> 2
+            else -> Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
+        }
+
+        runBlocking {
+            coroutineScope {
+                List(workers) {
+                    async(Dispatchers.IO) {
+                        while (true) {
+                            val index = nextIndex.getAndIncrement()
+                            if (index >= planned.size) break
+                            val (source, target) = planned[index]
+                            val ok = when (clipboard.mode) {
+                                ClipboardMode.COPY -> copyDeep(source, target)
+                                ClipboardMode.CUT -> moveDeep(context, source, target)
+                            }
+                            if (!ok) {
+                                errors += source.name
+                                break
+                            }
+                            written += target
+                            val n = done.incrementAndGet()
+                            onProgress?.invoke((n.toFloat() / total).coerceIn(0f, 1f), source.name)
+                        }
+                    }
+                }.awaitAll()
+            }
+        }
+
+        if (errors.isNotEmpty()) {
+            return OperationResult.Error(
+                context.getString(R.string.process_failed_item, errors.first()),
+            )
+        }
+
+        // MediaStore off the critical path — UI can finish as soon as bytes are on disk.
+        scheduleMediaStoreAdded(context, written.toList())
 
         val action = context.getString(
             if (clipboard.mode == ClipboardMode.COPY) R.string.action_copied else R.string.action_moved,
         )
-        return OperationResult.Success(context.getString(R.string.items_pasted, items.size, action))
+        return OperationResult.Success(
+            message = context.getString(R.string.items_pasted, items.size, action),
+            files = written.toList(),
+        )
     }
 
     fun uniqueName(file: File): File {
@@ -1017,29 +1065,53 @@ object FileOperations {
         }
     }
 
-    private fun deleteDeep(context: Context, file: File): Boolean {
+    private fun deleteDeep(
+        context: Context,
+        file: File,
+        scanPaths: MutableList<String>? = null,
+    ): Boolean {
         if (file.isDirectory) {
             file.listFiles()?.forEach { child ->
-                if (!deleteDeep(context, child)) return false
+                if (!deleteDeep(context, child, scanPaths)) return false
             }
         }
         if (!file.exists()) return true
         if (file.delete()) {
-            notifyMediaStoreDeleted(context, file)
+            rememberDeletedPath(context, file, scanPaths)
             return true
         }
         runCatching {
             Files.deleteIfExists(file.toPath())
         }
         if (!file.exists()) {
-            notifyMediaStoreDeleted(context, file)
+            rememberDeletedPath(context, file, scanPaths)
             return true
         }
         // Shared-storage fallback via MediaStore (Download / WhatsApp / etc.).
-        if (!file.isDirectory && deleteViaMediaStore(context, file)) {
+        if (!file.isDirectory && deleteViaMediaStore(context, file, scanPaths)) {
             return true
         }
         return !file.exists()
+    }
+
+    private fun rememberDeletedPath(
+        context: Context,
+        file: File,
+        scanPaths: MutableList<String>?,
+    ) {
+        val parent = file.parent
+        if (scanPaths != null) {
+            scanPaths += file.absolutePath
+            if (!parent.isNullOrBlank()) scanPaths += parent
+        } else {
+            flushMediaStoreScan(
+                context,
+                buildList {
+                    add(file.absolutePath)
+                    if (!parent.isNullOrBlank()) add(parent)
+                },
+            )
+        }
     }
 
     /**
@@ -1048,7 +1120,11 @@ object FileOperations {
      * is not enough (OEM indexes can drop while the ZIP file remains).
      */
     @Suppress("DEPRECATION")
-    private fun deleteViaMediaStore(context: Context, file: File): Boolean {
+    private fun deleteViaMediaStore(
+        context: Context,
+        file: File,
+        scanPaths: MutableList<String>? = null,
+    ): Boolean {
         val absolute = file.absolutePath
         val canonical = runCatching { file.canonicalPath }.getOrDefault(absolute)
         val resolver = context.contentResolver
@@ -1096,7 +1172,7 @@ object FileOperations {
         }
 
         val gone = !file.exists()
-        if (gone) notifyMediaStoreDeleted(context, file)
+        if (gone) rememberDeletedPath(context, file, scanPaths)
         return gone
     }
 
@@ -1175,14 +1251,24 @@ object FileOperations {
         return null
     }
 
-    private fun notifyMediaStoreDeleted(context: Context, file: File) {
+    private fun flushMediaStoreScan(context: Context, paths: List<String>) {
+        if (paths.isEmpty()) return
+        val unique = paths.distinct()
         runCatching {
             MediaScannerConnection.scanFile(
                 context.applicationContext,
-                arrayOf(file.absolutePath, file.parent ?: file.absolutePath),
+                unique.toTypedArray(),
                 null,
                 null,
             )
+        }
+    }
+
+    private fun scheduleMediaStoreAdded(context: Context, files: List<File>) {
+        if (files.isEmpty()) return
+        val appContext = context.applicationContext
+        thread(name = "media-scan-paste", isDaemon = true) {
+            notifyMediaStoreAdded(appContext, files)
         }
     }
 
@@ -1198,14 +1284,7 @@ object FileOperations {
         }
         files.forEach { collect(it) }
         if (paths.isEmpty()) return
-        runCatching {
-            MediaScannerConnection.scanFile(
-                context.applicationContext,
-                paths.toTypedArray(),
-                null,
-                null,
-            )
-        }
+        flushMediaStoreScan(context, paths)
     }
 
     private fun copyDeep(source: File, target: File): Boolean {
@@ -1218,9 +1297,14 @@ object FileOperations {
                 true
             } else {
                 target.parentFile?.mkdirs()
-                FileInputStream(source).use { input ->
-                    FileOutputStream(target).use { output ->
-                        input.copyTo(output, bufferSize = 64 * 1024)
+                val buffer = ByteArray(COPY_BUFFER)
+                BufferedInputStream(FileInputStream(source), COPY_BUFFER).use { input ->
+                    BufferedOutputStream(FileOutputStream(target), COPY_BUFFER).use { output ->
+                        while (true) {
+                            val n = input.read(buffer)
+                            if (n < 0) break
+                            output.write(buffer, 0, n)
+                        }
                     }
                 }
                 target.setLastModified(source.lastModified())
@@ -1232,9 +1316,14 @@ object FileOperations {
     }
 
     private fun moveDeep(context: Context, source: File, target: File): Boolean {
+        // Same-volume rename is effectively free — try that before any byte copy.
         if (source.renameTo(target)) return true
+        // Cross-device / EXDEV: copy then delete source.
         if (!copyDeep(source, target)) return false
-        return deleteDeep(context, source)
+        val scanPaths = ArrayList<String>()
+        val ok = deleteDeep(context, source, scanPaths)
+        flushMediaStoreScan(context, scanPaths)
+        return ok
     }
 
     private fun isNestedTarget(source: File, target: File): Boolean {
@@ -1243,4 +1332,6 @@ object FileOperations {
         val targetPath = target.canonicalPath
         return targetPath == sourcePath || targetPath.startsWith(sourcePath + File.separator)
     }
+
+    private const val COPY_BUFFER = 1024 * 1024
 }
