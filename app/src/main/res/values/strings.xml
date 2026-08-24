@@ -277,6 +277,12 @@
     <string name="pdf_empty">PDF kosong atau tidak bisa dibaca</string>
     <string name="pdf_share_failed">Gagal membagikan PDF</string>
     <string name="pdf_prepare_edit_failed">Gagal menyiapkan halaman untuk diedit</string>
+    <string name="pdf_password_title">PDF terkunci</string>
+    <string name="pdf_password_hint">Masukkan password PDF</string>
+    <string name="pdf_password_required">PDF ini membutuhkan password</string>
+    <string name="pdf_wrong_password">Password salah. Coba lagi.</string>
+    <string name="pdf_unlocking">Membuka PDF…</string>
+    <string name="pdf_open">Buka</string>
     <string name="zoom_in">Perbesar</string>
     <string name="zoom_out">Perkecil</string>
     <string name="zoom_reset">Kembalikan ukuran asli</string>

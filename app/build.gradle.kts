@@ -38,8 +38,8 @@ android {
         applicationId = "com.zipextract.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 104
-        versionName = "2.4.59"
+        versionCode = 108
+        versionName = "2.4.63"
         buildConfigField(
             "String",
             "LICENSE_API_BASE_URL",
@@ -118,6 +118,7 @@ dependencies {
     implementation("androidx.media3:media3-common:1.4.1")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

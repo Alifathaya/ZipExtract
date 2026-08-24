@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -35,6 +36,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material.icons.filled.ZoomOutMap
@@ -44,6 +47,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -72,10 +76,14 @@ import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.zipextract.app.data.FileActions
+import com.zipextract.app.data.PdfPasswordHelper
+import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
@@ -124,20 +132,89 @@ fun PdfViewerScreen(
     var editTitle by remember { mutableStateOf("") }
     var preparingEdit by remember { mutableStateOf(false) }
 
-    DisposableEffect(openKey) {
-        val holder = runCatching {
-            PdfRendererHolder.open(context, file, sourceUri)
-        }.getOrElse {
+    var sourceFile by remember { mutableStateOf<File?>(null) }
+    var renderFile by remember { mutableStateOf<File?>(null) }
+    var showPasswordDialog by remember { mutableStateOf(false) }
+    var passwordInput by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
+    var passwordError by remember { mutableStateOf<String?>(null) }
+    var unlocking by remember { mutableStateOf(false) }
+
+    LaunchedEffect(openKey) {
+        loading = true
+        error = null
+        showPasswordDialog = false
+        passwordInput = ""
+        passwordError = null
+        renderFile = null
+        sourceFile = null
+        val prepared = withContext(Dispatchers.IO) {
+            runCatching {
+                PdfPasswordHelper.materializeLocalFile(context, file, sourceUri)
+            }
+        }
+        val local = prepared.getOrElse {
             error = it.message ?: context.getString(R.string.pdf_open_failed)
             loading = false
-            null
+            return@LaunchedEffect
         }
-        rendererHolder = holder
-        pageCount = holder?.pageCount ?: 0
-        loading = false
-        onDispose {
-            holder?.close()
+        sourceFile = local
+        when (
+            val probe = withContext(Dispatchers.IO) { PdfPasswordHelper.probe(context, local) }
+        ) {
+            PdfPasswordHelper.ProbeResult.Openable -> {
+                val canRender = withContext(Dispatchers.IO) {
+                    runCatching {
+                        PdfRendererHolder.open(context, local, null).close()
+                    }.isSuccess
+                }
+                if (canRender) {
+                    renderFile = local
+                } else {
+                    // PdfRenderer failed — often encryption Android cannot open.
+                    showPasswordDialog = true
+                    loading = false
+                }
+            }
+            PdfPasswordHelper.ProbeResult.NeedsPassword -> {
+                showPasswordDialog = true
+                loading = false
+            }
+            is PdfPasswordHelper.ProbeResult.Failed -> {
+                error = probe.message
+                loading = false
+            }
+        }
+    }
+
+    DisposableEffect(renderFile) {
+        val target = renderFile
+        if (target == null) {
             rendererHolder = null
+            pageCount = 0
+            onDispose { }
+        } else {
+            val holder = runCatching {
+                PdfRendererHolder.open(context, target, null)
+            }.getOrElse {
+                if (PdfPasswordHelper.isPasswordRelated(it)) {
+                    showPasswordDialog = true
+                    error = null
+                } else {
+                    error = it.message ?: context.getString(R.string.pdf_open_failed)
+                }
+                loading = false
+                null
+            }
+            rendererHolder = holder
+            pageCount = holder?.pageCount ?: 0
+            loading = false
+            onDispose {
+                holder?.close()
+                if (rendererHolder === holder) {
+                    rendererHolder = null
+                }
+            }
         }
     }
 
@@ -161,6 +238,39 @@ fun PdfViewerScreen(
                     }
                 }
             }
+    }
+
+    fun submitPdfPassword() {
+        val local = sourceFile ?: return
+        val password = passwordInput
+        if (password.isBlank()) {
+            passwordError = context.getString(R.string.pdf_password_required)
+            return
+        }
+        unlocking = true
+        passwordError = null
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { PdfPasswordHelper.unlockToCache(context, local, password) }
+            }
+            unlocking = false
+            result.fold(
+                onSuccess = { unlocked ->
+                    showPasswordDialog = false
+                    passwordInput = ""
+                    passwordError = null
+                    loading = true
+                    renderFile = unlocked
+                },
+                onFailure = { err ->
+                    passwordError = when {
+                        err is InvalidPasswordException || PdfPasswordHelper.isPasswordRelated(err) ->
+                            context.getString(R.string.pdf_wrong_password)
+                        else -> err.message ?: context.getString(R.string.pdf_open_failed)
+                    }
+                },
+            )
+        }
     }
 
     if (editBitmap != null) {
@@ -195,6 +305,79 @@ fun PdfViewerScreen(
                 editBitmap = bitmap
             }
         }
+    }
+
+    if (showPasswordDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!unlocking) {
+                    showPasswordDialog = false
+                    onClose()
+                }
+            },
+            title = { Text(stringResource(R.string.pdf_password_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.pdf_password_required))
+                    OutlinedTextField(
+                        value = passwordInput,
+                        onValueChange = {
+                            passwordInput = it
+                            passwordError = null
+                        },
+                        label = { Text(stringResource(R.string.pdf_password_hint)) },
+                        singleLine = true,
+                        enabled = !unlocking,
+                        isError = passwordError != null,
+                        visualTransformation = if (passwordVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        trailingIcon = {
+                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                Icon(
+                                    if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = null,
+                                )
+                            }
+                        },
+                        supportingText = passwordError?.let { msg ->
+                            { Text(msg, color = MaterialTheme.colorScheme.error) }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (unlocking) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            Text(stringResource(R.string.pdf_unlocking))
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { submitPdfPassword() },
+                    enabled = !unlocking && passwordInput.isNotBlank(),
+                ) {
+                    Text(stringResource(R.string.pdf_open))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showPasswordDialog = false
+                        onClose()
+                    },
+                    enabled = !unlocking,
+                ) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
     }
 
     if (confirmDelete) {
@@ -297,8 +480,11 @@ fun PdfViewerScreen(
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
             contentAlignment = Alignment.Center,
         ) {
-            when {
-                loading || preparingEdit -> CircularProgressIndicator()
+                when {
+                loading || preparingEdit || unlocking -> CircularProgressIndicator()
+                showPasswordDialog -> {
+                    // Password dialog is shown above; keep a calm empty canvas behind it.
+                }
                 error != null -> Text(error ?: stringResource(R.string.error_generic), color = MaterialTheme.colorScheme.error)
                 rendererHolder == null || pageCount == 0 -> {
                     Text(stringResource(R.string.pdf_empty))
