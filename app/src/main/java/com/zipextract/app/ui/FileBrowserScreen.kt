@@ -116,6 +116,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -126,6 +128,7 @@ import com.zipextract.app.R
 import com.zipextract.app.data.AppLanguage
 import com.zipextract.app.data.AppSubFilter
 import com.zipextract.app.data.ClipboardMode
+import com.zipextract.app.data.ClipboardState
 import com.zipextract.app.data.DuplicateGroup
 import com.zipextract.app.data.FileFilter
 import com.zipextract.app.data.FileCategory
@@ -712,10 +715,9 @@ fun FileBrowserScreen(
                 ),
             )
         },
-        floatingActionButton = {},
     ) { padding ->
         val pullState = rememberPullToRefreshState()
-        val canPasteHere = canPasteIntoBrowserView(state)
+        val canPasteHere = state.canPasteHere()
         val clipboardPaths = remember(state.clipboard) {
             state.clipboard?.items?.mapTo(HashSet()) { it.absolutePath }.orEmpty()
         }
@@ -743,14 +745,10 @@ fun FileBrowserScreen(
             val showSelectionRail = state.selectionMode && selectedCount > 0
             Column(modifier = Modifier.fillMaxSize()) {
                 state.clipboard?.let { clipboard ->
-                    val needsAlbumPick = state.libraryMode &&
-                        (state.activeCategory == FileCategory.IMAGES ||
-                            state.activeCategory == FileCategory.VIDEOS) &&
-                        (state.mediaAlbumId == MediaAlbum.ALL || state.mediaAlbumId.isBlank())
                     ClipboardBanner(
                         clipboard = clipboard,
                         canPasteHere = canPasteHere,
-                        needsAlbumPick = needsAlbumPick,
+                        needsAlbumPick = state.needsAlbumPickForPaste(),
                         onPaste = onPaste,
                         onClear = onClearClipboard,
                     )
@@ -1181,31 +1179,9 @@ fun FileBrowserScreen(
     }
 }
 
-private fun resolvePasteTargetDir(state: BrowserUiState): java.io.File? {
-    if (state.showFavoritesOnly ||
-        state.showLargestFiles ||
-        state.showDuplicates ||
-        state.showCloud
-    ) {
-        return null
-    }
-    if (state.libraryMode) {
-        val category = state.activeCategory
-        if (category == FileCategory.IMAGES || category == FileCategory.VIDEOS) {
-            return MediaAlbum.resolvePasteDirectory(state.mediaAlbumId, state.items)
-        }
-        return state.currentDir.takeIf { it.isDirectory }
-    }
-    return state.currentDir.takeIf { it.isDirectory }
-}
-
-private fun canPasteIntoBrowserView(state: BrowserUiState): Boolean {
-    return resolvePasteTargetDir(state) != null
-}
-
 @Composable
 private fun ClipboardBanner(
-    clipboard: com.zipextract.app.data.ClipboardState,
+    clipboard: ClipboardState,
     canPasteHere: Boolean,
     needsAlbumPick: Boolean,
     onPaste: () -> Unit,
@@ -1282,7 +1258,7 @@ private fun ClipboardBanner(
                     onClick = onClear,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text(stringResource(R.string.clipboard_clear))
+                    Text(stringResource(R.string.cancel))
                 }
             }
         }
@@ -2468,9 +2444,9 @@ private fun SharePasswordDialog(
                     label = { Text(stringResource(R.string.share_password_field)) },
                     singleLine = true,
                     visualTransformation = if (visible) {
-                        androidx.compose.ui.text.input.VisualTransformation.None
+                        VisualTransformation.None
                     } else {
-                        androidx.compose.ui.text.input.PasswordVisualTransformation()
+                        PasswordVisualTransformation()
                     },
                     trailingIcon = {
                         IconButton(onClick = { visible = !visible }) {

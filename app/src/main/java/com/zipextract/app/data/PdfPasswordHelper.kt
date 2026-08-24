@@ -128,8 +128,6 @@ object PdfPasswordHelper {
                 doc.protect(policy)
                 doc.save(out)
             }
-        } catch (e: InvalidPasswordException) {
-            throw IOException(context.getString(R.string.share_password_pdf_already_locked), e)
         } catch (e: IOException) {
             if (isPasswordRelated(e)) {
                 throw IOException(context.getString(R.string.share_password_pdf_already_locked), e)

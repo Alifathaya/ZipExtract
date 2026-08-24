@@ -2328,33 +2328,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update { it.copy(clipboard = null) }
     }
 
-    /**
-     * Folder that Paste/Move will write into for the current screen.
-     * Explorer → [currentDir]; photo/video album → that album's folder; other library → category folder.
-     */
-    fun resolvePasteTarget(state: BrowserUiState = _uiState.value): java.io.File? {
-        if (state.showHome ||
-            state.showExplorerRoots ||
-            state.showFavoritesOnly ||
-            state.showLargestFiles ||
-            state.showDuplicates ||
-            state.showCloud
-        ) {
-            return null
-        }
-        if (state.libraryMode) {
-            val category = state.activeCategory
-            if (category == FileCategory.IMAGES || category == FileCategory.VIDEOS) {
-                return MediaAlbum.resolvePasteDirectory(state.mediaAlbumId, state.items)
-            }
-            return state.currentDir.takeIf { it.isDirectory }
-        }
-        return state.currentDir.takeIf { it.isDirectory }
-    }
-
-    private fun canPasteIntoCurrentView(state: BrowserUiState = _uiState.value): Boolean {
-        return resolvePasteTarget(state) != null
-    }
+    fun resolvePasteTarget(state: BrowserUiState = _uiState.value): File? =
+        state.resolvePasteTargetDir()
 
     private fun putClipboard(mode: ClipboardMode) {
         val files = selectedFiles()
@@ -2382,13 +2357,10 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             emit(str(R.string.clipboard_empty))
             return
         }
-        val targetDir = resolvePasteTarget(state)
+        val targetDir = state.resolvePasteTargetDir()
         if (targetDir == null) {
             emit(
-                if (state.libraryMode &&
-                    (state.activeCategory == FileCategory.IMAGES || state.activeCategory == FileCategory.VIDEOS) &&
-                    (state.mediaAlbumId == MediaAlbum.ALL || state.mediaAlbumId.isBlank())
-                ) {
+                if (state.needsAlbumPickForPaste()) {
                     str(R.string.paste_pick_album)
                 } else {
                     str(R.string.paste_need_folder)
@@ -2711,7 +2683,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             emit(str(R.string.select_one_share))
             return
         }
-        val usePdf = files.all { it.isFile && FileItem(it).isPdf }
+        val usePdf = selectionUsesPdfPassword()
         val title = str(R.string.share_password_preparing)
         runJob(title, if (usePdf) str(R.string.progress_pdf_encrypt) else str(R.string.progress_creating_zip), refreshAfter = false) {
             try {
