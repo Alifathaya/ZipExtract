@@ -40,6 +40,7 @@ import com.zipextract.app.data.StorageInfo
 import com.zipextract.app.data.StorageKind
 import com.zipextract.app.data.ThemeMode
 import com.zipextract.app.data.ArchiveManager
+import com.zipextract.app.data.PdfPasswordHelper
 import com.zipextract.app.data.ZipManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -2621,6 +2622,80 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
         if (!FileActions.shareFiles(context, files)) {
             emit(str(R.string.share_failed))
+        }
+    }
+
+    /** True when selection is only PDF files — password share uses PDF encryption. */
+    fun selectionUsesPdfPassword(): Boolean {
+        val files = selectedFiles()
+        return files.isNotEmpty() && files.all { it.isFile && FileItem(it).isPdf }
+    }
+
+    /**
+     * Share with password:
+     * - PDF only → encrypt each PDF (native PDF password)
+     * - anything else → one encrypted ZIP
+     */
+    fun shareSelectedWithPassword(context: Context, password: String) {
+        val pass = password.trim()
+        if (pass.isEmpty()) {
+            emit(str(R.string.share_password_required))
+            return
+        }
+        if (selectedInstalledApps().isNotEmpty()) {
+            emit(str(R.string.share_password_apps_unsupported))
+            return
+        }
+        val files = selectedFiles()
+        if (files.isEmpty()) {
+            emit(str(R.string.select_one_share))
+            return
+        }
+        val usePdf = files.all { it.isFile && FileItem(it).isPdf }
+        val title = str(R.string.share_password_preparing)
+        runJob(title, if (usePdf) str(R.string.progress_pdf_encrypt) else str(R.string.progress_creating_zip), refreshAfter = false) {
+            try {
+                val toShare = if (usePdf) {
+                    val total = files.size.coerceAtLeast(1)
+                    files.mapIndexed { index, file ->
+                        updateProgress(title, file.name, (index + 1f) / total)
+                        PdfPasswordHelper.encryptToCache(localizedContext(), file, pass)
+                    }
+                } else {
+                    val zipDir = File(appContext.cacheDir, "share_zip").also { it.mkdirs() }
+                    val base = when {
+                        files.size == 1 -> {
+                            val n = files.first().name
+                            if (n.contains('.')) n.substringBeforeLast('.') else n
+                        }
+                        else -> "shared-${files.size}"
+                    }.ifBlank { "shared" }
+                    val destination = FileOperations.uniqueName(File(zipDir, "$base.zip"))
+                    ZipManager.createZip(
+                        localizedContext(),
+                        files,
+                        destination,
+                        password = pass,
+                    ) { progress, name ->
+                        updateProgress(title, name, progress)
+                    }
+                    listOf(destination)
+                }
+                val shared = withContext(Dispatchers.Main) {
+                    FileActions.shareFiles(context, toShare)
+                }
+                if (!shared) {
+                    emit(str(R.string.share_failed))
+                    return@runJob
+                }
+                _uiState.update { it.copy(selectionMode = false, selectedPaths = emptySet()) }
+                emit(
+                    if (usePdf) str(R.string.share_password_done_pdf, toShare.size)
+                    else str(R.string.share_password_done_zip, toShare.first().name),
+                )
+            } catch (e: Exception) {
+                emit(e.message?.takeIf { it.isNotBlank() } ?: str(R.string.share_password_failed))
+            }
         }
     }
 

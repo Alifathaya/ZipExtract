@@ -182,6 +182,10 @@ class MainActivity : AppCompatActivity() {
                         onDismissExtractResult = viewModel::dismissExtractResult,
                         onOpenExtractResultFolder = viewModel::openExtractResultFolder,
                         onShareSelected = { viewModel.shareSelected(context) },
+                        onShareSelectedWithPassword = { password ->
+                            viewModel.shareSelectedWithPassword(context, password)
+                        },
+                        selectionUsesPdfPassword = viewModel::selectionUsesPdfPassword,
                         onOpenWithSelected = { viewModel.openWithSelected(context) },
                         onToggleFavoriteSelected = viewModel::toggleFavoriteSelected,
                         onShowSelectedDetails = viewModel::showSelectedDetails,

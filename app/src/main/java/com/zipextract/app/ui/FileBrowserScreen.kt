@@ -83,6 +83,8 @@ import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Unarchive
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -156,6 +158,8 @@ private enum class DialogType {
     CREATE_ZIP,
     DELETE_CONFIRM,
     UNINSTALL_CONFIRM,
+    SHARE_CHOICE,
+    SHARE_PASSWORD,
 }
 
 private enum class TimeBucket(@StringRes val labelRes: Int) {
@@ -249,6 +253,8 @@ fun FileBrowserScreen(
     onDismissExtractResult: () -> Unit,
     onOpenExtractResultFolder: () -> Unit,
     onShareSelected: () -> Unit,
+    onShareSelectedWithPassword: (String) -> Unit,
+    selectionUsesPdfPassword: () -> Boolean,
     onOpenWithSelected: () -> Unit,
     onToggleFavoriteSelected: () -> Unit,
     onShowSelectedDetails: () -> Unit,
@@ -975,7 +981,7 @@ fun FileBrowserScreen(
                         onExtract = {
                             singleSelected?.let { onOpenExtract(it) }
                         },
-                        onShare = onShareSelected,
+                        onShare = { dialog = DialogType.SHARE_CHOICE },
                         onOpenWith = onOpenWithSelected,
                         onFavorite = onToggleFavoriteSelected,
                         onDetails = onShowSelectedDetails,
@@ -1049,6 +1055,43 @@ fun FileBrowserScreen(
             },
             dismissButton = {
                 TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+        DialogType.SHARE_CHOICE -> AlertDialog(
+            onDismissRequest = { dialog = null },
+            title = { Text(stringResource(R.string.share_choice_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(
+                        onClick = {
+                            dialog = null
+                            onShareSelected()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.share_normal))
+                    }
+                    TextButton(
+                        onClick = { dialog = DialogType.SHARE_PASSWORD },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.share_with_password))
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { dialog = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+        DialogType.SHARE_PASSWORD -> SharePasswordDialog(
+            usesPdfPassword = selectionUsesPdfPassword(),
+            onDismiss = { dialog = null },
+            onConfirm = { password ->
+                dialog = null
+                onShareSelectedWithPassword(password)
             },
         )
         null -> Unit
@@ -2276,6 +2319,66 @@ private fun TextInputDialog(
         confirmButton = {
             TextButton(onClick = onConfirm, enabled = value.isNotBlank()) {
                 Text(confirmLabel)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
+}
+
+@Composable
+private fun SharePasswordDialog(
+    usesPdfPassword: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var password by remember { mutableStateOf("") }
+    var visible by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.share_password_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = stringResource(
+                        if (usesPdfPassword) {
+                            R.string.share_password_hint_pdf
+                        } else {
+                            R.string.share_password_hint_zip
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text(stringResource(R.string.share_password_field)) },
+                    singleLine = true,
+                    visualTransformation = if (visible) {
+                        androidx.compose.ui.text.input.VisualTransformation.None
+                    } else {
+                        androidx.compose.ui.text.input.PasswordVisualTransformation()
+                    },
+                    trailingIcon = {
+                        IconButton(onClick = { visible = !visible }) {
+                            Icon(
+                                if (visible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = null,
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(password) },
+                enabled = password.isNotBlank(),
+            ) {
+                Text(stringResource(R.string.share_password_confirm))
             }
         },
         dismissButton = {

@@ -4,10 +4,13 @@ import android.content.Context
 import android.net.Uri
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission
 import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
+import com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy
 import com.zipextract.app.R
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Detects password-protected PDFs and unlocks them to a temp file for [android.graphics.pdf.PdfRenderer].
@@ -97,6 +100,48 @@ object PdfPasswordHelper {
         return out
     }
 
+    /**
+     * Encrypt [file] with a user password and write a locked copy under cacheDir for sharing.
+     * Recipients open it in any PDF reader that supports passwords (including FileNest).
+     */
+    fun encryptToCache(context: Context, file: File, password: String): File {
+        ensureInit(context)
+        val pass = password.trim()
+        if (pass.isEmpty()) {
+            throw IOException(context.getString(R.string.pdf_password_required))
+        }
+        if (!file.exists() || !file.isFile) {
+            throw IOException(context.getString(R.string.pdf_open_failed))
+        }
+        val dir = File(context.cacheDir, "pdf_share_locked").also { it.mkdirs() }
+        val baseName = file.nameWithoutExtension.ifBlank { "document" }
+        val out = File(dir, "${baseName}_locked_${ENCRYPT_SEQ.incrementAndGet()}.pdf")
+        try {
+            PDDocument.load(file).use { doc ->
+                if (doc.isEncrypted) {
+                    doc.setAllSecurityToBeRemoved(true)
+                }
+                val permissions = AccessPermission()
+                val policy = StandardProtectionPolicy(pass, pass, permissions).apply {
+                    encryptionKeyLength = 128
+                }
+                doc.protect(policy)
+                doc.save(out)
+            }
+        } catch (e: InvalidPasswordException) {
+            throw IOException(context.getString(R.string.share_password_pdf_already_locked), e)
+        } catch (e: IOException) {
+            if (isPasswordRelated(e)) {
+                throw IOException(context.getString(R.string.share_password_pdf_already_locked), e)
+            }
+            throw e
+        }
+        if (!out.exists() || out.length() <= 0L) {
+            throw IOException(context.getString(R.string.share_password_failed))
+        }
+        return out
+    }
+
     fun isPasswordRelated(error: Throwable): Boolean {
         var current: Throwable? = error
         while (current != null) {
@@ -113,4 +158,6 @@ object PdfPasswordHelper {
         }
         return false
     }
+
+    private val ENCRYPT_SEQ = AtomicLong(0L)
 }
