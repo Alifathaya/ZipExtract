@@ -708,24 +708,7 @@ fun FileBrowserScreen(
                 ),
             )
         },
-        floatingActionButton = {
-            val clipboard = state.clipboard
-            val canPasteHere = canPasteIntoBrowserView(state)
-            if (state.storageGranted && clipboard != null && canPasteHere) {
-                val pasteLabel = if (clipboard.mode == ClipboardMode.CUT) {
-                    stringResource(R.string.move_here)
-                } else {
-                    stringResource(R.string.paste_here)
-                }
-                ExtendedFloatingActionButton(
-                    onClick = onPaste,
-                    icon = {
-                        Icon(Icons.Default.ContentPaste, contentDescription = pasteLabel)
-                    },
-                    text = { Text(pasteLabel) },
-                )
-            }
-        },
+        floatingActionButton = {},
     ) { padding ->
         val pullState = rememberPullToRefreshState()
         val canPasteHere = canPasteIntoBrowserView(state)
@@ -988,10 +971,8 @@ fun FileBrowserScreen(
                         canExtract = canExtract,
                         canRename = canRename,
                         canFavoriteOrDetails = canFavoriteOrDetails,
-                        hasClipboard = state.clipboard != null,
                         onCopy = onCopy,
                         onCut = onCut,
-                        onPaste = onPaste,
                         onDelete = { dialog = DialogType.DELETE_CONFIRM },
                         onRename = {
                             inputText = singleSelected?.name.orEmpty()
@@ -1272,10 +1253,8 @@ private fun ActionBar(
     canExtract: Boolean,
     canRename: Boolean,
     canFavoriteOrDetails: Boolean,
-    hasClipboard: Boolean,
     onCopy: () -> Unit,
     onCut: () -> Unit,
-    onPaste: () -> Unit,
     onDelete: () -> Unit,
     onRename: () -> Unit,
     onZip: () -> Unit,
@@ -1313,12 +1292,6 @@ private fun ActionBar(
             ActionIcon(Icons.Default.OpenInNew, stringResource(R.string.open), onOpenWith)
             ActionIcon(Icons.Default.ContentCopy, stringResource(R.string.copy), onCopy)
             ActionIcon(Icons.Default.ContentCut, stringResource(R.string.cut), onCut)
-            ActionIcon(
-                icon = Icons.Default.ContentPaste,
-                label = stringResource(R.string.paste),
-                enabled = hasClipboard,
-                onClick = onPaste,
-            )
             ActionIcon(Icons.Default.FolderZip, stringResource(R.string.zip_action), onZip)
             ActionIcon(Icons.Default.Unarchive, stringResource(R.string.extract), onExtract, enabled = canExtract)
             ActionIcon(Icons.Default.DriveFileRenameOutline, stringResource(R.string.rename), onRename, enabled = canRename)

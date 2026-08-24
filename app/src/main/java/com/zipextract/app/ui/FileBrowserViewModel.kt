@@ -2409,6 +2409,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         val moving = clipboard.mode == ClipboardMode.CUT
         val title = str(R.string.progress_pasting)
         val busy = if (moving) str(R.string.progress_moving) else str(R.string.progress_copying)
+        // Hide Tempel/Pindah immediately on tap (copy and cut).
+        _uiState.update { it.copy(clipboard = null) }
         runJob(title, busy) {
             val result = FileOperations.paste(
                 localizedContext(),
@@ -2416,9 +2418,6 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 targetDir,
             ) { progress, name ->
                 updateProgress(title, name, progress)
-            }
-            if (moving && result is OperationResult.Success) {
-                _uiState.update { it.copy(clipboard = null) }
             }
             handleResult(result)
         }
