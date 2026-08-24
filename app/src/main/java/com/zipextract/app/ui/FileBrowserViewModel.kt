@@ -2324,6 +2324,38 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
     fun cutSelected() = putClipboard(ClipboardMode.CUT)
 
+    fun clearClipboard() {
+        _uiState.update { it.copy(clipboard = null) }
+    }
+
+    /**
+     * Folder that Paste/Move will write into for the current screen.
+     * Explorer → [currentDir]; photo/video album → that album's folder; other library → category folder.
+     */
+    fun resolvePasteTarget(state: BrowserUiState = _uiState.value): java.io.File? {
+        if (state.showHome ||
+            state.showExplorerRoots ||
+            state.showFavoritesOnly ||
+            state.showLargestFiles ||
+            state.showDuplicates ||
+            state.showCloud
+        ) {
+            return null
+        }
+        if (state.libraryMode) {
+            val category = state.activeCategory
+            if (category == FileCategory.IMAGES || category == FileCategory.VIDEOS) {
+                return MediaAlbum.resolvePasteDirectory(state.mediaAlbumId, state.items)
+            }
+            return state.currentDir.takeIf { it.isDirectory }
+        }
+        return state.currentDir.takeIf { it.isDirectory }
+    }
+
+    private fun canPasteIntoCurrentView(state: BrowserUiState = _uiState.value): Boolean {
+        return resolvePasteTarget(state) != null
+    }
+
     private fun putClipboard(mode: ClipboardMode) {
         val files = selectedFiles()
         if (files.isEmpty()) {
@@ -2344,21 +2376,49 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun paste() {
-        val clipboard = _uiState.value.clipboard
+        val state = _uiState.value
+        val clipboard = state.clipboard
         if (clipboard == null) {
             emit(str(R.string.clipboard_empty))
             return
         }
-        runJob(str(R.string.progress_pasting), str(R.string.progress_copying)) {
+        val targetDir = resolvePasteTarget(state)
+        if (targetDir == null) {
+            emit(
+                if (state.libraryMode &&
+                    (state.activeCategory == FileCategory.IMAGES || state.activeCategory == FileCategory.VIDEOS) &&
+                    (state.mediaAlbumId == MediaAlbum.ALL || state.mediaAlbumId.isBlank())
+                ) {
+                    str(R.string.paste_pick_album)
+                } else {
+                    str(R.string.paste_need_folder)
+                },
+            )
+            return
+        }
+        if (clipboard.mode == ClipboardMode.CUT) {
+            val targetCanonical = runCatching { targetDir.canonicalFile }.getOrElse { targetDir }
+            val allAlreadyHere = clipboard.items.all { file ->
+                val parent = file.parentFile ?: return@all false
+                runCatching { parent.canonicalFile }.getOrElse { parent } == targetCanonical
+            }
+            if (allAlreadyHere) {
+                emit(str(R.string.paste_same_folder_cut))
+                return
+            }
+        }
+        val moving = clipboard.mode == ClipboardMode.CUT
+        val title = str(R.string.progress_pasting)
+        val busy = if (moving) str(R.string.progress_moving) else str(R.string.progress_copying)
+        // Hide Tempel/Pindah immediately on tap (copy and cut).
+        _uiState.update { it.copy(clipboard = null) }
+        runJob(title, busy) {
             val result = FileOperations.paste(
                 localizedContext(),
                 clipboard,
-                _uiState.value.currentDir,
+                targetDir,
             ) { progress, name ->
-                updateProgress(str(R.string.progress_pasting), name, progress)
-            }
-            if (clipboard.mode == ClipboardMode.CUT && result is OperationResult.Success) {
-                _uiState.update { it.copy(clipboard = null) }
+                updateProgress(title, name, progress)
             }
             handleResult(result)
         }

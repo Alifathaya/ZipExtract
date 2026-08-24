@@ -1,5 +1,6 @@
 package com.zipextract.app.data
 
+import android.os.Environment
 import java.io.File
 
 /**
@@ -26,6 +27,58 @@ object MediaAlbum {
 
     fun folderPathFromId(id: String): String? =
         id.takeIf { isFolderId(it) }?.removePrefix(FOLDER_PREFIX)
+
+    /**
+     * Real folder to paste/move into while browsing an album chip.
+     * Returns null for "Semua" (ambiguous) or when no folder can be resolved.
+     */
+    fun resolvePasteDirectory(albumId: String, itemsInView: List<FileItem>): File? {
+        if (albumId == ALL || albumId.isBlank()) return null
+
+        folderPathFromId(albumId)?.let { path ->
+            val dir = File(path)
+            return dir.takeIf { it.isDirectory }
+        }
+
+        val fromItems = majorityParentDir(itemsInView)
+        if (fromItems != null) return fromItems
+
+        return defaultDirForAlbum(albumId)
+    }
+
+    private fun majorityParentDir(items: List<FileItem>): File? {
+        if (items.isEmpty()) return null
+        val counts = LinkedHashMap<String, Int>()
+        items.forEach { item ->
+            val parent = item.file.parentFile ?: return@forEach
+            val key = runCatching { parent.canonicalPath }.getOrElse { parent.absolutePath }
+            counts[key] = (counts[key] ?: 0) + 1
+        }
+        val bestPath = counts.maxByOrNull { it.value }?.key ?: return null
+        return File(bestPath).takeIf { it.isDirectory }
+    }
+
+    private fun defaultDirForAlbum(albumId: String): File? {
+        val candidates = when (albumId) {
+            CAMERA -> listOf(
+                File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM), "Camera"),
+                File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "Camera"),
+            )
+            SCREENSHOTS -> listOf(
+                File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "Screenshots"),
+                File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM), "Screenshots"),
+            )
+            WHATSAPP -> listOf(
+                File(
+                    Environment.getExternalStorageDirectory(),
+                    "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images",
+                ),
+                File(Environment.getExternalStorageDirectory(), "WhatsApp/Media/WhatsApp Images"),
+            )
+            else -> emptyList()
+        }
+        return candidates.firstOrNull { it.isDirectory }
+    }
 
     /**
      * Build chip list: fixed albums first (only if they have items), then other parent folders
