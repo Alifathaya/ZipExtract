@@ -15,9 +15,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.ZoomIn
-import androidx.compose.material.icons.filled.ZoomOut
-import androidx.compose.material.icons.filled.ZoomOutMap
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -134,7 +131,7 @@ fun ImageViewerScreen(
                     Text(
                         text = currentFile.name,
                         style = MaterialTheme.typography.labelLarge,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                 },
@@ -162,21 +159,6 @@ fun ImageViewerScreen(
                             contentDescription = stringResource(R.string.delete),
                             tint = MaterialTheme.colorScheme.error,
                         )
-                    }
-                    IconButton(
-                        onClick = { zoomState.zoomOut() },
-                        enabled = zoomState.isZoomed,
-                    ) {
-                        Icon(Icons.Default.ZoomOut, contentDescription = stringResource(R.string.zoom_out))
-                    }
-                    IconButton(onClick = { zoomState.zoomIn() }) {
-                        Icon(Icons.Default.ZoomIn, contentDescription = stringResource(R.string.zoom_in))
-                    }
-                    IconButton(
-                        onClick = { zoomState.reset() },
-                        enabled = zoomState.isZoomed,
-                    ) {
-                        Icon(Icons.Default.ZoomOutMap, contentDescription = stringResource(R.string.zoom_reset))
                     }
                 },
             )
