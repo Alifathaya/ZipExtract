@@ -84,6 +84,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -97,6 +98,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -754,9 +756,14 @@ fun FileBrowserScreen(
             val showSelectionRail = state.selectionMode && selectedCount > 0
             Column(modifier = Modifier.fillMaxSize()) {
                 state.clipboard?.let { clipboard ->
+                    val needsAlbumPick = state.libraryMode &&
+                        (state.activeCategory == FileCategory.IMAGES ||
+                            state.activeCategory == FileCategory.VIDEOS) &&
+                        (state.mediaAlbumId == MediaAlbum.ALL || state.mediaAlbumId.isBlank())
                     ClipboardBanner(
                         clipboard = clipboard,
                         canPasteHere = canPasteHere,
+                        needsAlbumPick = needsAlbumPick,
                         onPaste = onPaste,
                         onClear = onClearClipboard,
                     )
@@ -1152,18 +1159,33 @@ fun FileBrowserScreen(
     }
 }
 
+private fun resolvePasteTargetDir(state: BrowserUiState): java.io.File? {
+    if (state.showFavoritesOnly ||
+        state.showLargestFiles ||
+        state.showDuplicates ||
+        state.showCloud
+    ) {
+        return null
+    }
+    if (state.libraryMode) {
+        val category = state.activeCategory
+        if (category == FileCategory.IMAGES || category == FileCategory.VIDEOS) {
+            return MediaAlbum.resolvePasteDirectory(state.mediaAlbumId, state.items)
+        }
+        return state.currentDir.takeIf { it.isDirectory }
+    }
+    return state.currentDir.takeIf { it.isDirectory }
+}
+
 private fun canPasteIntoBrowserView(state: BrowserUiState): Boolean {
-    return !state.libraryMode &&
-        !state.showFavoritesOnly &&
-        !state.showLargestFiles &&
-        !state.showDuplicates &&
-        !state.showCloud
+    return resolvePasteTargetDir(state) != null
 }
 
 @Composable
 private fun ClipboardBanner(
     clipboard: com.zipextract.app.data.ClipboardState,
     canPasteHere: Boolean,
+    needsAlbumPick: Boolean,
     onPaste: () -> Unit,
     onClear: () -> Unit,
 ) {
@@ -1173,10 +1195,10 @@ private fun ClipboardBanner(
     } else {
         stringResource(R.string.clipboard_banner_copy, clipboard.items.size)
     }
-    val hint = if (canPasteHere) {
-        stringResource(R.string.clipboard_banner_hint)
-    } else {
-        stringResource(R.string.clipboard_banner_hint_blocked)
+    val hint = when {
+        canPasteHere -> stringResource(R.string.clipboard_banner_hint_folder)
+        needsAlbumPick -> stringResource(R.string.clipboard_banner_hint_blocked)
+        else -> stringResource(R.string.clipboard_banner_hint)
     }
     val pasteLabel = if (isCut) {
         stringResource(R.string.move_here)
@@ -1185,48 +1207,61 @@ private fun ClipboardBanner(
     }
 
     Surface(
-        tonalElevation = 2.dp,
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.92f),
+        tonalElevation = 3.dp,
+        shadowElevation = 4.dp,
+        color = MaterialTheme.colorScheme.secondaryContainer,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(
-                imageVector = if (isCut) Icons.Default.ContentCut else Icons.Default.ContentCopy,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = if (isCut) Icons.Default.ContentCut else Icons.Default.ContentCopy,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
-                Text(
-                    text = hint,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (canPasteHere) {
-                TextButton(onClick = onPaste) {
-                    Text(pasteLabel)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = hint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
-            IconButton(onClick = onClear) {
-                Icon(
-                    Icons.Default.Close,
-                    contentDescription = stringResource(R.string.cd_clear_clipboard),
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (canPasteHere) {
+                    Button(
+                        onClick = onPaste,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(pasteLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                OutlinedButton(
+                    onClick = onClear,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(stringResource(R.string.clipboard_clear))
+                }
             }
         }
     }

@@ -2327,15 +2327,32 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update { it.copy(clipboard = null) }
     }
 
-    /** Real folder browser only — not library / favorites / largest / duplicates lists. */
+    /**
+     * Folder that Paste/Move will write into for the current screen.
+     * Explorer → [currentDir]; photo/video album → that album's folder; other library → category folder.
+     */
+    fun resolvePasteTarget(state: BrowserUiState = _uiState.value): java.io.File? {
+        if (state.showHome ||
+            state.showExplorerRoots ||
+            state.showFavoritesOnly ||
+            state.showLargestFiles ||
+            state.showDuplicates ||
+            state.showCloud
+        ) {
+            return null
+        }
+        if (state.libraryMode) {
+            val category = state.activeCategory
+            if (category == FileCategory.IMAGES || category == FileCategory.VIDEOS) {
+                return MediaAlbum.resolvePasteDirectory(state.mediaAlbumId, state.items)
+            }
+            return state.currentDir.takeIf { it.isDirectory }
+        }
+        return state.currentDir.takeIf { it.isDirectory }
+    }
+
     private fun canPasteIntoCurrentView(state: BrowserUiState = _uiState.value): Boolean {
-        return !state.showHome &&
-            !state.showExplorerRoots &&
-            !state.libraryMode &&
-            !state.showFavoritesOnly &&
-            !state.showLargestFiles &&
-            !state.showDuplicates &&
-            !state.showCloud
+        return resolvePasteTarget(state) != null
     }
 
     private fun putClipboard(mode: ClipboardMode) {
@@ -2364,11 +2381,20 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             emit(str(R.string.clipboard_empty))
             return
         }
-        if (!canPasteIntoCurrentView(state)) {
-            emit(str(R.string.paste_need_folder))
+        val targetDir = resolvePasteTarget(state)
+        if (targetDir == null) {
+            emit(
+                if (state.libraryMode &&
+                    (state.activeCategory == FileCategory.IMAGES || state.activeCategory == FileCategory.VIDEOS) &&
+                    (state.mediaAlbumId == MediaAlbum.ALL || state.mediaAlbumId.isBlank())
+                ) {
+                    str(R.string.paste_pick_album)
+                } else {
+                    str(R.string.paste_need_folder)
+                },
+            )
             return
         }
-        val targetDir = state.currentDir
         if (clipboard.mode == ClipboardMode.CUT) {
             val targetCanonical = runCatching { targetDir.canonicalFile }.getOrElse { targetDir }
             val allAlreadyHere = clipboard.items.all { file ->
@@ -2387,7 +2413,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             val result = FileOperations.paste(
                 localizedContext(),
                 clipboard,
-                _uiState.value.currentDir,
+                targetDir,
             ) { progress, name ->
                 updateProgress(title, name, progress)
             }

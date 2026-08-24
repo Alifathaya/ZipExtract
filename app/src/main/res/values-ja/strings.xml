@@ -214,12 +214,14 @@
     <string name="clipboard_cut">%1$d items ready to move. Open the destination folder, then tap Paste.</string>
     <string name="clipboard_banner_copy">Ready to copy: %1$d items</string>
     <string name="clipboard_banner_cut">Ready to move: %1$d items</string>
-    <string name="clipboard_banner_hint">Open the destination folder, then tap Paste</string>
-    <string name="clipboard_banner_hint_blocked">Open a folder in Browse to paste</string>
+    <string name="clipboard_banner_hint">Tap Paste in the destination folder/album</string>
+    <string name="clipboard_banner_hint_blocked">Pick a destination album (Camera, Screenshots, …) then tap Paste</string>
+    <string name="clipboard_banner_hint_folder">Tap a choice below for this folder</string>
     <string name="clipboard_clear">Cancel</string>
     <string name="paste_here">Paste here</string>
     <string name="move_here">Move here</string>
     <string name="paste_need_folder">Open a folder in Browse first, then tap Paste</string>
+    <string name="paste_pick_album">Pick a destination album first (not All), then tap Paste</string>
     <string name="paste_same_folder_cut">Items are already in this folder. Open another destination, then tap Paste</string>
     <string name="progress_moving">Moving files</string>
     <string name="cd_clear_clipboard">Cancel copy/move</string>
