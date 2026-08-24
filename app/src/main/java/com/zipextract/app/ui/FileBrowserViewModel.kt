@@ -1902,6 +1902,12 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 // merge used to dominate wall-clock after the archive was already written.
                 showExtractedFolder(destination, emptyList())
 
+                // Auto-open / install primary extracted content (APK, PDF, media, …)
+                // without waiting for another tap.
+                withContext(Dispatchers.Main) {
+                    autoOpenAfterExtract(destination)
+                }
+
                 var deletedOriginal = false
                 if (deleteOriginal) {
                     // No System.gc() / sleep — those added hundreds of ms for no benefit.
@@ -2096,6 +2102,101 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 else -> null
             }
         }
+    }
+
+    /**
+     * After extract: automatically install/open the primary content so the user does not
+     * need a second tap. Priority: APK → PDF → uniform media set → single other file.
+     */
+    private fun autoOpenAfterExtract(destination: File) {
+        val files = listExtractedFilesForAutoOpen(destination)
+        if (files.isEmpty()) return
+        val items = files.map { FileItem(it) }
+
+        items.filter { it.isApk }.maxByOrNull { it.sizeBytes }?.let { apk ->
+            installApkFile(apk.file)
+            return
+        }
+
+        items.firstOrNull { it.isPdf }?.let { pdf ->
+            openViewer(ViewerContent.Pdf(pdf.file))
+            return
+        }
+
+        val images = items.filter { it.isImage }
+        if (images.isNotEmpty() && images.size == items.size) {
+            val list = images.map { it.file }
+            openViewer(ViewerContent.Image(file = list.first(), playlist = list, index = 0))
+            return
+        }
+
+        val videos = items.filter { it.isVideo }
+        if (videos.isNotEmpty() && videos.size == items.size) {
+            val list = videos.map { it.file }
+            openViewer(ViewerContent.Video(file = list.first(), playlist = list, index = 0))
+            return
+        }
+
+        val audios = items.filter { it.isAudio }
+        if (audios.isNotEmpty() && audios.size == items.size) {
+            val list = audios.map { it.file }
+            openViewer(ViewerContent.Video(file = list.first(), playlist = list, index = 0))
+            return
+        }
+
+        if (items.size != 1) return
+        val item = items.first()
+        when {
+            item.isArchive || (item.isApp && !item.isApk) -> openExtractDialog(item.file)
+            item.isDocument || item.isAudio || item.isVideo || item.isImage -> {
+                // Documents (non-PDF) and any leftover single media → system / in-app open.
+                if (item.isImage) {
+                    openViewer(ViewerContent.Image(item.file))
+                } else if (item.isVideo || item.isAudio) {
+                    openViewer(ViewerContent.Video(item.file))
+                } else {
+                    FileActions.openWith(appContext, item.file)
+                }
+            }
+            else -> FileActions.openWith(appContext, item.file)
+        }
+    }
+
+    /** Shallow file list for auto-open (unwraps a single root folder ZIP layout). */
+    private fun listExtractedFilesForAutoOpen(root: File, maxFiles: Int = 48): List<File> {
+        if (root.isFile) return listOf(root)
+        if (!root.isDirectory) return emptyList()
+
+        fun listFilesShallow(dir: File): List<File> {
+            return dir.listFiles()
+                ?.asSequence()
+                ?.filter { !it.name.startsWith(".") }
+                ?.filter { it.isFile }
+                ?.sortedBy { it.name.lowercase() }
+                ?.take(maxFiles)
+                ?.toList()
+                .orEmpty()
+        }
+
+        val topFiles = listFilesShallow(root)
+        if (topFiles.isNotEmpty()) return topFiles
+
+        val topDirs = root.listFiles()
+            ?.filter { it.isDirectory && !it.name.startsWith(".") }
+            .orEmpty()
+        // Common ZIP layout: one wrapper folder containing the real payload.
+        if (topDirs.size == 1) {
+            val nested = listFilesShallow(topDirs.first())
+            if (nested.isNotEmpty()) return nested
+            // One more level for e.g. archive/name/app.apk
+            val deeperDirs = topDirs.first().listFiles()
+                ?.filter { it.isDirectory && !it.name.startsWith(".") }
+                .orEmpty()
+            if (deeperDirs.size == 1) {
+                return listFilesShallow(deeperDirs.first())
+            }
+        }
+        return emptyList()
     }
 
     /**
