@@ -1897,11 +1897,13 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     updateProgressThrottled(str(R.string.progress_extract_zip), name, progress)
                 }
 
+                // Open the folder immediately (shallow listing). Deep walks / MediaStore
+                // merge used to dominate wall-clock after the archive was already written.
+                showExtractedFolder(destination, emptyList())
+
                 var deletedOriginal = false
                 if (deleteOriginal) {
-                    // Only pay GC/delay cost when we must delete the source archive.
-                    runCatching { System.gc() }
-                    kotlinx.coroutines.delay(80)
+                    // No System.gc() / sleep — those added hundreds of ms for no benefit.
                     deletedOriginal = FileOperations.deleteOriginalArchive(
                         context = localizedContext(),
                         localFile = zip,
@@ -1909,8 +1911,6 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                         displayName = displayName,
                     )
                     if (!deletedOriginal) {
-                        kotlinx.coroutines.delay(200)
-                        runCatching { System.gc() }
                         deletedOriginal = FileOperations.deleteOriginalArchive(
                             context = localizedContext(),
                             localFile = zip,
@@ -1939,26 +1939,23 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     }
                 }
 
-                // Show results after delete so a SAME_FOLDER listing cannot re-pin the ZIP.
-                val extractedItems = collectExtractedItems(destination, touchNewest = true)
-                // Don't block extract completion on a cold MediaLibrary disk load.
-                mediaLibraryCache = FileOperations.mergeIncremental(
-                    mediaLibraryCache ?: MediaLibrary(),
-                    extractedItems,
-                )
-                showExtractedFolder(destination, extractedItems)
-
-                // Media scan in the background so the gallery/Downloads index catches up
-                // without blocking the user from browsing extracted files.
-                if (extractedItems.isNotEmpty()) {
-                    MediaScannerConnection.scanFile(
-                        appContext,
-                        (extractedItems.map { it.path } + destination.absolutePath).toTypedArray(),
-                        null,
-                        null,
+                // Media library + scan off the critical path so the user can browse now.
+                viewModelScope.launch(Dispatchers.IO) {
+                    val extractedItems = collectExtractedItemsShallow(destination, touchNewest = true)
+                    mediaLibraryCache = FileOperations.mergeIncremental(
+                        mediaLibraryCache ?: MediaLibrary(),
+                        extractedItems,
                     )
-                } else {
-                    scanExtractedFiles(destination)
+                    if (extractedItems.isNotEmpty()) {
+                        MediaScannerConnection.scanFile(
+                            appContext,
+                            (extractedItems.map { it.path } + destination.absolutePath).toTypedArray(),
+                            null,
+                            null,
+                        )
+                    } else {
+                        scanExtractedFiles(destination)
+                    }
                 }
 
                 val baseMsg = if (written > 0) {
@@ -2102,6 +2099,49 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             walk(root, 0)
         }
         return items.sortedByDescending { it.lastModified }
+    }
+
+    /**
+     * Top-level-only listing for post-extract MediaStore merge — avoids a full tree walk
+     * that could take longer than the extract itself on large archives / SD cards.
+     */
+    private fun collectExtractedItemsShallow(root: File, touchNewest: Boolean): List<FileItem> {
+        val now = System.currentTimeMillis()
+        if (root.isFile) {
+            return listOf(
+                if (touchNewest) {
+                    FileItem(
+                        file = root,
+                        name = root.name,
+                        path = root.absolutePath,
+                        isDirectory = false,
+                        sizeBytes = root.length(),
+                        lastModified = now,
+                    )
+                } else {
+                    FileItem(root)
+                },
+            )
+        }
+        if (!root.isDirectory) return emptyList()
+        val children = root.listFiles() ?: return emptyList()
+        return children.mapNotNull { child ->
+            when {
+                child.isFile -> if (touchNewest) {
+                    FileItem(
+                        file = child,
+                        name = child.name,
+                        path = child.absolutePath,
+                        isDirectory = false,
+                        sizeBytes = child.length(),
+                        lastModified = now,
+                    )
+                } else {
+                    FileItem(child)
+                }
+                else -> null
+            }
+        }
     }
 
     /**
