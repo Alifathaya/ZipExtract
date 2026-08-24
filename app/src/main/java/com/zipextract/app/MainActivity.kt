@@ -146,6 +146,7 @@ class MainActivity : AppCompatActivity() {
                         onCopy = viewModel::copySelected,
                         onCut = viewModel::cutSelected,
                         onPaste = viewModel::paste,
+                        onClearClipboard = viewModel::clearClipboard,
                         onDelete = viewModel::deleteSelected,
                         onCreateFolder = viewModel::createFolder,
                         onRename = viewModel::renameSelected,

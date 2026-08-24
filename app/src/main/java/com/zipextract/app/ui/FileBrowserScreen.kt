@@ -92,7 +92,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -106,6 +106,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -221,6 +222,7 @@ fun FileBrowserScreen(
     onCopy: () -> Unit,
     onCut: () -> Unit,
     onPaste: () -> Unit,
+    onClearClipboard: () -> Unit,
     onDelete: () -> Unit,
     onCreateFolder: (String) -> Unit,
     onRename: (String) -> Unit,
@@ -705,14 +707,29 @@ fun FileBrowserScreen(
             )
         },
         floatingActionButton = {
-            if (state.storageGranted && state.clipboard != null) {
-                FloatingActionButton(onClick = onPaste) {
-                    Icon(Icons.Default.ContentPaste, contentDescription = stringResource(R.string.paste))
+            val clipboard = state.clipboard
+            val canPasteHere = canPasteIntoBrowserView(state)
+            if (state.storageGranted && clipboard != null && canPasteHere) {
+                val pasteLabel = if (clipboard.mode == ClipboardMode.CUT) {
+                    stringResource(R.string.move_here)
+                } else {
+                    stringResource(R.string.paste_here)
                 }
+                ExtendedFloatingActionButton(
+                    onClick = onPaste,
+                    icon = {
+                        Icon(Icons.Default.ContentPaste, contentDescription = pasteLabel)
+                    },
+                    text = { Text(pasteLabel) },
+                )
             }
         },
     ) { padding ->
         val pullState = rememberPullToRefreshState()
+        val canPasteHere = canPasteIntoBrowserView(state)
+        val clipboardPaths = remember(state.clipboard) {
+            state.clipboard?.items?.mapTo(HashSet()) { it.absolutePath }.orEmpty()
+        }
         PullToRefreshBox(
             isRefreshing = state.isSoftRefreshing,
             onRefresh = onRefresh,
@@ -736,6 +753,14 @@ fun FileBrowserScreen(
         ) {
             val showSelectionRail = state.selectionMode && selectedCount > 0
             Column(modifier = Modifier.fillMaxSize()) {
+                state.clipboard?.let { clipboard ->
+                    ClipboardBanner(
+                        clipboard = clipboard,
+                        canPasteHere = canPasteHere,
+                        onPaste = onPaste,
+                        onClear = onClearClipboard,
+                    )
+                }
                 if (state.explorerMode && state.categoryRoot != null) {
                     val fallbackRootLabel = stringResource(R.string.explorer_my_phone)
                     val crumbs = remember(
@@ -907,6 +932,9 @@ fun FileBrowserScreen(
                                     selectionMode = state.selectionMode,
                                     isFavorite = item.path in state.favoritePaths,
                                     showFolder = state.showFavoritesOnly || state.explorerMode,
+                                    onClipboard = item.path in clipboardPaths,
+                                    cutOnClipboard = item.path in clipboardPaths &&
+                                        state.clipboard?.mode == ClipboardMode.CUT,
                                     onClick = {
                                         when {
                                             // Selection must win over extract — otherwise ZIP taps
@@ -954,7 +982,6 @@ fun FileBrowserScreen(
                         canRename = canRename,
                         canFavoriteOrDetails = canFavoriteOrDetails,
                         hasClipboard = state.clipboard != null,
-                        clipboardMode = state.clipboard?.mode,
                         onCopy = onCopy,
                         onCut = onCut,
                         onPaste = onPaste,
@@ -1125,13 +1152,92 @@ fun FileBrowserScreen(
     }
 }
 
+private fun canPasteIntoBrowserView(state: BrowserUiState): Boolean {
+    return !state.libraryMode &&
+        !state.showFavoritesOnly &&
+        !state.showLargestFiles &&
+        !state.showDuplicates &&
+        !state.showCloud
+}
+
+@Composable
+private fun ClipboardBanner(
+    clipboard: com.zipextract.app.data.ClipboardState,
+    canPasteHere: Boolean,
+    onPaste: () -> Unit,
+    onClear: () -> Unit,
+) {
+    val isCut = clipboard.mode == ClipboardMode.CUT
+    val title = if (isCut) {
+        stringResource(R.string.clipboard_banner_cut, clipboard.items.size)
+    } else {
+        stringResource(R.string.clipboard_banner_copy, clipboard.items.size)
+    }
+    val hint = if (canPasteHere) {
+        stringResource(R.string.clipboard_banner_hint)
+    } else {
+        stringResource(R.string.clipboard_banner_hint_blocked)
+    }
+    val pasteLabel = if (isCut) {
+        stringResource(R.string.move_here)
+    } else {
+        stringResource(R.string.paste_here)
+    }
+
+    Surface(
+        tonalElevation = 2.dp,
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.92f),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = if (isCut) Icons.Default.ContentCut else Icons.Default.ContentCopy,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = hint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (canPasteHere) {
+                TextButton(onClick = onPaste) {
+                    Text(pasteLabel)
+                }
+            }
+            IconButton(onClick = onClear) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = stringResource(R.string.cd_clear_clipboard),
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun ActionBar(
     canExtract: Boolean,
     canRename: Boolean,
     canFavoriteOrDetails: Boolean,
     hasClipboard: Boolean,
-    clipboardMode: ClipboardMode?,
     onCopy: () -> Unit,
     onCut: () -> Unit,
     onPaste: () -> Unit,
@@ -1174,11 +1280,7 @@ private fun ActionBar(
             ActionIcon(Icons.Default.ContentCut, stringResource(R.string.cut), onCut)
             ActionIcon(
                 icon = Icons.Default.ContentPaste,
-                label = when (clipboardMode) {
-                    ClipboardMode.COPY -> stringResource(R.string.paste)
-                    ClipboardMode.CUT -> stringResource(R.string.move)
-                    null -> stringResource(R.string.paste)
-                },
+                label = stringResource(R.string.paste),
                 enabled = hasClipboard,
                 onClick = onPaste,
             )
@@ -1899,6 +2001,8 @@ private fun FileRow(
     selectionMode: Boolean,
     isFavorite: Boolean,
     showFolder: Boolean = false,
+    onClipboard: Boolean = false,
+    cutOnClipboard: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onToggleFavorite: () -> Unit,
@@ -1922,6 +2026,7 @@ private fun FileRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .alpha(if (cutOnClipboard) 0.42f else if (onClipboard) 0.72f else 1f)
             .clip(RoundedCornerShape(14.dp))
             .background(container)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)

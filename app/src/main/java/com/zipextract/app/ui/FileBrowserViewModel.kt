@@ -2323,6 +2323,21 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
     fun cutSelected() = putClipboard(ClipboardMode.CUT)
 
+    fun clearClipboard() {
+        _uiState.update { it.copy(clipboard = null) }
+    }
+
+    /** Real folder browser only — not library / favorites / largest / duplicates lists. */
+    private fun canPasteIntoCurrentView(state: BrowserUiState = _uiState.value): Boolean {
+        return !state.showHome &&
+            !state.showExplorerRoots &&
+            !state.libraryMode &&
+            !state.showFavoritesOnly &&
+            !state.showLargestFiles &&
+            !state.showDuplicates &&
+            !state.showCloud
+    }
+
     private fun putClipboard(mode: ClipboardMode) {
         val files = selectedFiles()
         if (files.isEmpty()) {
@@ -2343,20 +2358,40 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun paste() {
-        val clipboard = _uiState.value.clipboard
+        val state = _uiState.value
+        val clipboard = state.clipboard
         if (clipboard == null) {
             emit(str(R.string.clipboard_empty))
             return
         }
-        runJob(str(R.string.progress_pasting), str(R.string.progress_copying)) {
+        if (!canPasteIntoCurrentView(state)) {
+            emit(str(R.string.paste_need_folder))
+            return
+        }
+        val targetDir = state.currentDir
+        if (clipboard.mode == ClipboardMode.CUT) {
+            val targetCanonical = runCatching { targetDir.canonicalFile }.getOrElse { targetDir }
+            val allAlreadyHere = clipboard.items.all { file ->
+                val parent = file.parentFile ?: return@all false
+                runCatching { parent.canonicalFile }.getOrElse { parent } == targetCanonical
+            }
+            if (allAlreadyHere) {
+                emit(str(R.string.paste_same_folder_cut))
+                return
+            }
+        }
+        val moving = clipboard.mode == ClipboardMode.CUT
+        val title = str(R.string.progress_pasting)
+        val busy = if (moving) str(R.string.progress_moving) else str(R.string.progress_copying)
+        runJob(title, busy) {
             val result = FileOperations.paste(
                 localizedContext(),
                 clipboard,
                 _uiState.value.currentDir,
             ) { progress, name ->
-                updateProgress(str(R.string.progress_pasting), name, progress)
+                updateProgress(title, name, progress)
             }
-            if (clipboard.mode == ClipboardMode.CUT && result is OperationResult.Success) {
+            if (moving && result is OperationResult.Success) {
                 _uiState.update { it.copy(clipboard = null) }
             }
             handleResult(result)
