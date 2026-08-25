@@ -91,6 +91,16 @@ function normalizeAppId(raw, { strict = false } = {}) {
   return strict ? null : DEFAULT_APP_ID;
 }
 
+/** Infer product from device id prefix (fn_ = FileNest, bl_ = BRI Link). */
+function appIdFromDeviceId(deviceId, explicitAppId) {
+  const fromBody = normalizeAppId(explicitAppId, { strict: true });
+  if (fromBody) return fromBody;
+  const id = String(deviceId || '').trim().toLowerCase();
+  if (id.startsWith('bl_')) return 'brilink';
+  if (id.startsWith('fn_')) return 'filenest';
+  return DEFAULT_APP_ID;
+}
+
 const insertEvent = db.prepare(
   `INSERT INTO events (at, kind, device_id, detail) VALUES (?, ?, ?, ?)`,
 );
@@ -207,7 +217,7 @@ app.get('/health', (_req, res) => {
 app.post('/v1/license/register', (req, res) => {
   const deviceId = String(req.body?.deviceId || '').trim();
   const appVersion = String(req.body?.appVersion || '').trim() || null;
-  const appId = normalizeAppId(req.body?.appId);
+  const appId = appIdFromDeviceId(deviceId, req.body?.appId);
   if (!deviceId || deviceId.length < 8 || deviceId.length > 128) {
     return res.status(400).json({ error: 'invalid_device_id' });
   }
@@ -255,7 +265,7 @@ app.post('/v1/license/check', (req, res) => {
 app.post('/v1/license/activate', activateLimiter, (req, res) => {
   const deviceId = String(req.body?.deviceId || '').trim();
   const key = String(req.body?.key || '').trim();
-  const appId = normalizeAppId(req.body?.appId);
+  const appId = appIdFromDeviceId(deviceId, req.body?.appId);
   if (!deviceId || key.length !== 12) {
     return res.status(400).json({ error: 'invalid_request' });
   }
