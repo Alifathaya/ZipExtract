@@ -2,6 +2,8 @@ package com.zipextract.app.ui.viewer
 
 import com.zipextract.app.R
 
+import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -41,7 +43,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -49,9 +50,10 @@ import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import coil.size.Size
+import coil.transform.Transformation
 import com.zipextract.app.data.FileActions
 import java.io.File
-import kotlin.math.min
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -191,18 +193,37 @@ fun ImageViewerScreen(
                 modifier = Modifier.fillMaxSize(),
             ) { page ->
                 val pageFile = files[page]
-                val imageRequest = remember(pageFile.absolutePath, pageFile.length(), pageFile.lastModified()) {
-                    ImageRequest.Builder(context)
+                val isCurrent = page == pagerState.currentPage
+                val pageRotation = if (isCurrent) rotationDeg else 0f
+                val pageFlip = if (isCurrent) flipHorizontal else false
+                // Rotate/mirror in the bitmap so ContentScale.Fit uses the new
+                // aspect ratio — keeps 90°/270° full-size instead of shrinking.
+                val imageRequest = remember(
+                    pageFile.absolutePath,
+                    pageFile.length(),
+                    pageFile.lastModified(),
+                    pageRotation,
+                    pageFlip,
+                ) {
+                    val baseKey =
+                        "${pageFile.absolutePath}:${pageFile.length()}:${pageFile.lastModified()}"
+                    val builder = ImageRequest.Builder(context)
                         .data(pageFile)
-                        .memoryCacheKey(
-                            "${pageFile.absolutePath}:${pageFile.length()}:${pageFile.lastModified()}",
-                        )
                         .diskCachePolicy(CachePolicy.DISABLED)
                         .allowHardware(false)
-                        .build()
+                    if (pageRotation != 0f || pageFlip) {
+                        builder
+                            .transformations(
+                                ImageOrientationTransformation(pageRotation, pageFlip),
+                            )
+                            .memoryCacheKey("$baseKey:r${pageRotation.toInt()}:f$pageFlip")
+                    } else {
+                        builder.memoryCacheKey(baseKey)
+                    }
+                    builder.build()
                 }
                 // Only the current page gets interactive zoom; neighbors stay fit.
-                if (page == pagerState.currentPage) {
+                if (isCurrent) {
                     ZoomableBox(
                         zoomState = zoomState,
                         // At 1x, don't steal horizontal swipes from the pager.
@@ -223,9 +244,7 @@ fun ImageViewerScreen(
                                     modifier = Modifier.padding(24.dp),
                                 )
                             },
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .imageOrientation(rotationDeg, flipHorizontal),
+                            modifier = Modifier.fillMaxSize(),
                         )
                     }
                 } else {
@@ -276,25 +295,27 @@ fun ImageViewerScreen(
     }
 }
 
-/** Rotate / mirror for the image viewer (layout-fit aware at 90° / 270°). */
-private fun Modifier.imageOrientation(rotationDeg: Float, flipHorizontal: Boolean): Modifier {
-    return graphicsLayer {
+/**
+ * Bake rotate / mirror into the bitmap so Fit layout uses the true
+ * post-orientation size (no artificial shrink at 90° / 270°).
+ */
+private class ImageOrientationTransformation(
+    private val rotationDeg: Float,
+    private val flipHorizontal: Boolean,
+) : Transformation {
+    override val cacheKey: String =
+        "orient-r${rotationDeg.toInt()}-f$flipHorizontal"
+
+    override suspend fun transform(input: Bitmap, size: Size): Bitmap {
         val normalized = ((rotationDeg % 360f) + 360f) % 360f
-        rotationZ = normalized
-        val flip = if (flipHorizontal) -1f else 1f
-        var sx = flip
-        var sy = 1f
-        // After a quarter turn, visual width/height swap — shrink so it still fits.
-        if (normalized == 90f || normalized == 270f) {
-            val w = size.width
-            val h = size.height
-            if (w > 0f && h > 0f) {
-                val fit = min(w / h, h / w)
-                sx *= fit
-                sy *= fit
-            }
+        if (normalized == 0f && !flipHorizontal) return input
+        val matrix = Matrix()
+        if (flipHorizontal) {
+            matrix.postScale(-1f, 1f, input.width / 2f, input.height / 2f)
         }
-        scaleX = sx
-        scaleY = sy
+        if (normalized != 0f) {
+            matrix.postRotate(normalized)
+        }
+        return Bitmap.createBitmap(input, 0, 0, input.width, input.height, matrix, true)
     }
 }
