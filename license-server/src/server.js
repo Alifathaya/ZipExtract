@@ -77,6 +77,8 @@ function ensureColumn(table, column, ddl) {
 
 ensureColumn('devices', 'app_id', `TEXT NOT NULL DEFAULT '${DEFAULT_APP_ID}'`);
 ensureColumn('keys', 'app_id', `TEXT NOT NULL DEFAULT '${DEFAULT_APP_ID}'`);
+ensureColumn('keys', 'pencairan', `TEXT NOT NULL DEFAULT 'belum'`);
+ensureColumn('keys', 'pencairan_at', `TEXT`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_devices_app ON devices(app_id)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_keys_app ON keys(app_id)`);
 
@@ -356,7 +358,7 @@ app.post('/v1/admin/keys/generate', requireAdmin, (req, res) => {
   const count = Math.min(50, Math.max(1, Number(req.body?.count) || 1));
   const created = nowIso();
   const insert = db.prepare(
-    `INSERT INTO keys (key_code, days, created_at, status, app_id) VALUES (?, ?, ?, 'unused', ?)`,
+    `INSERT INTO keys (key_code, days, created_at, status, app_id, pencairan) VALUES (?, ?, ?, 'unused', ?, 'belum')`,
   );
   const keys = [];
   const tx = db.transaction(() => {
@@ -371,6 +373,7 @@ app.post('/v1/admin/keys/generate', requireAdmin, (req, res) => {
             days,
             unlimited,
             appId,
+            pencairan: 'belum',
             createdAt: created,
           });
           break;
@@ -533,6 +536,43 @@ app.post('/v1/admin/keys/:code/revoke', requireAdmin, (req, res) => {
   if (info.changes === 0) return res.status(404).json({ error: 'not_found' });
   logEvent('admin_revoke_key', null, code);
   return res.json({ ok: true });
+});
+
+/** Mark key payout / pencairan status: belum | sudah */
+app.post('/v1/admin/keys/:code/pencairan', requireAdmin, (req, res) => {
+  const code = String(req.params.code || '').trim();
+  let status = String(req.body?.status || '').trim().toLowerCase();
+  if (status === 'cair' || status === 'paid' || status === 'yes' || status === '1') {
+    status = 'sudah';
+  }
+  if (status === 'no' || status === '0' || status === 'pending') {
+    status = 'belum';
+  }
+  if (status !== 'sudah' && status !== 'belum') {
+    return res.status(400).json({ error: 'invalid_pencairan', allowed: ['belum', 'sudah'] });
+  }
+  const row = db.prepare(`SELECT * FROM keys WHERE key_code = ?`).get(code);
+  if (!row) return res.status(404).json({ error: 'not_found' });
+  const at = status === 'sudah' ? nowIso() : null;
+  db.prepare(
+    `UPDATE keys SET pencairan = ?, pencairan_at = ? WHERE key_code = ?`,
+  ).run(status, at, code);
+  logEvent('admin_pencairan', row.used_by_device || null, `${code}:${status}`);
+  const updated = db.prepare(`SELECT * FROM keys WHERE key_code = ?`).get(code);
+  return res.json({ ok: true, key: updated });
+});
+
+/** Permanently delete unused or used keys (revoked also allowed). */
+app.delete('/v1/admin/keys/:code', requireAdmin, (req, res) => {
+  const code = String(req.params.code || '').trim();
+  const row = db.prepare(`SELECT * FROM keys WHERE key_code = ?`).get(code);
+  if (!row) return res.status(404).json({ error: 'not_found' });
+  if (row.status !== 'unused' && row.status !== 'used' && row.status !== 'revoked') {
+    return res.status(400).json({ error: 'cannot_delete', status: row.status });
+  }
+  db.prepare(`DELETE FROM keys WHERE key_code = ?`).run(code);
+  logEvent('admin_delete_key', row.used_by_device || null, `${code}:${row.status}`);
+  return res.json({ ok: true, deleted: code, wasStatus: row.status });
 });
 
 app.get('/v1/admin/stats', requireAdmin, (req, res) => {

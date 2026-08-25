@@ -97,6 +97,15 @@
     .badge.blocked { background: #78350f; color: var(--warn); }
     .badge.unused { background: #1e3a5f; color: var(--accent); }
     .badge.unlimited { background: #312e81; color: #c4b5fd; }
+    .badge.belum { background: #78350f; color: var(--warn); }
+    .badge.sudah { background: #14532d; color: var(--ok); }
+    .key-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .key-actions button {
+      width: auto;
+      margin: 0;
+      padding: 8px 12px;
+      font-size: 0.8rem;
+    }
     .err { color: var(--bad); margin-top: 8px; font-size: 0.9rem; }
     .ok { color: var(--ok); margin-top: 8px; font-size: 0.9rem; }
     .hidden { display: none; }
@@ -370,14 +379,61 @@
         el.textContent = 'Belum ada key untuk ' + appLabel() + '.';
         return;
       }
-      el.innerHTML = data.keys.slice(0, 30).map((k) => {
+      el.innerHTML = data.keys.slice(0, 50).map((k) => {
         const daysLabel = Number(k.days) === 0 ? 'unlimited' : (k.days + ' hari');
         const badgeExtra = Number(k.days) === 0 ? ' unlimited' : '';
-        return '<div class="item"><div><span class="badge ' + k.status + badgeExtra + '">' + k.status +
-          '</span> · ' + daysLabel + '</div><div class="keybox" style="font-size:0.95rem">' + k.key_code +
-          '</div><div class="muted">' + fmtDate(k.created_at) +
-          (k.used_by_device ? '<br>→ ' + k.used_by_device : '') + '</div></div>';
+        const pencairan = (k.pencairan === 'sudah') ? 'sudah' : 'belum';
+        const pencairanLabel = pencairan === 'sudah' ? 'Sudah cair' : 'Belum cair';
+        const toggleTo = pencairan === 'sudah' ? 'belum' : 'sudah';
+        const toggleLabel = pencairan === 'sudah' ? 'Tandai belum' : 'Tandai cair';
+        return '<div class="item">' +
+          '<div><span class="badge ' + k.status + badgeExtra + '">' + k.status +
+          '</span> · ' + daysLabel +
+          ' · <span class="badge ' + pencairan + '">' + pencairanLabel + '</span></div>' +
+          '<div class="keybox" style="font-size:0.95rem">' + k.key_code + '</div>' +
+          '<div class="muted">' + fmtDate(k.created_at) +
+          (k.used_by_device ? '<br>→ ' + k.used_by_device : '') +
+          (k.pencairan_at ? '<br>Cair: ' + fmtDate(k.pencairan_at) : '') +
+          '</div>' +
+          '<div class="key-actions">' +
+            '<button type="button" class="secondary" data-pencairan="' + k.key_code +
+              '" data-to="' + toggleTo + '">' + toggleLabel + '</button>' +
+            '<button type="button" class="danger" data-delete-key="' + k.key_code +
+              '" data-status="' + k.status + '">Hapus</button>' +
+          '</div>' +
+        '</div>';
       }).join('');
+
+      el.querySelectorAll('[data-pencairan]').forEach((btn) => {
+        btn.onclick = async () => {
+          const code = btn.dataset.pencairan;
+          const status = btn.dataset.to;
+          try {
+            await api('/v1/admin/keys/' + encodeURIComponent(code) + '/pencairan', {
+              method: 'POST',
+              body: JSON.stringify({ status }),
+            });
+            await loadKeys();
+            await refreshAll();
+          } catch (err) {
+            alert(err.message);
+          }
+        };
+      });
+
+      el.querySelectorAll('[data-delete-key]').forEach((btn) => {
+        btn.onclick = async () => {
+          const code = btn.dataset.deleteKey;
+          const st = btn.dataset.status || '';
+          if (!confirm('Hapus key ' + code + ' (' + st + ')? Tidak bisa dibatalkan.')) return;
+          try {
+            await api('/v1/admin/keys/' + encodeURIComponent(code), { method: 'DELETE' });
+            await refreshAll();
+          } catch (err) {
+            alert(err.message);
+          }
+        };
+      });
     }
 
     async function loadDevices() {
