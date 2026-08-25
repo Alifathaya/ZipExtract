@@ -97,9 +97,14 @@
     .badge.blocked { background: #78350f; color: var(--warn); }
     .badge.unused { background: #1e3a5f; color: var(--accent); }
     .badge.unlimited { background: #312e81; color: #c4b5fd; }
-    .badge.belum { background: #78350f; color: var(--warn); }
-    .badge.sudah { background: #14532d; color: var(--ok); }
     .key-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .search-row { margin: 0 0 10px; }
+    .search-row input {
+      margin: 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.9rem;
+    }
+    .search-hint { margin: 6px 0 0; font-size: 0.75rem; color: var(--muted); }
     .key-actions button {
       width: auto;
       margin: 0;
@@ -233,11 +238,19 @@
 
     <div class="card">
       <h2 style="margin:0 0 8px;font-size:1.05rem;">Key terbaru</h2>
+      <div class="search-row">
+        <input id="keySearch" type="search" placeholder="Cari kode key atau ID HP…" autocomplete="off" />
+        <p class="search-hint" id="keySearchHint"></p>
+      </div>
       <div id="keyList" class="muted">Memuat…</div>
     </div>
 
     <div class="card">
       <h2 style="margin:0 0 8px;font-size:1.05rem;">Device</h2>
+      <div class="search-row">
+        <input id="deviceSearch" type="search" placeholder="Cari ID HP / device id…" autocomplete="off" />
+        <p class="search-hint" id="deviceSearchHint"></p>
+      </div>
       <div id="deviceList" class="muted">Memuat…</div>
     </div>
   </section>
@@ -248,10 +261,13 @@
     let token = localStorage.getItem(TOKEN_KEY) || '';
     let currentApp = localStorage.getItem('license_admin_app') || 'filenest';
     if (currentApp !== 'filenest' && currentApp !== 'brilink') currentApp = 'filenest';
+    let cachedKeys = [];
+    let cachedDevices = [];
 
     function $(id) { return document.getElementById(id); }
     function show(el, on) { el.classList.toggle('hidden', !on); }
     function appLabel() { return APP_LABELS[currentApp] || currentApp; }
+    function normQ(s) { return String(s || '').trim().toLowerCase(); }
 
     async function api(path, opts = {}) {
       const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
@@ -372,54 +388,54 @@
       }
     }
 
-    async function loadKeys() {
-      const data = await api('/v1/admin/keys?app=' + encodeURIComponent(currentApp));
+    function filterKeys(keys, q) {
+      if (!q) return keys;
+      return keys.filter((k) => {
+        const code = normQ(k.key_code);
+        const device = normQ(k.used_by_device);
+        return code.includes(q) || device.includes(q);
+      });
+    }
+
+    function filterDevices(devices, q) {
+      if (!q) return devices;
+      return devices.filter((d) => normQ(d.device_id).includes(q));
+    }
+
+    function renderKeys(keys) {
       const el = $('keyList');
-      if (!data.keys.length) {
+      const q = normQ($('keySearch').value);
+      const filtered = filterKeys(keys, q);
+      const hint = $('keySearchHint');
+      if (q) {
+        hint.textContent = 'Hasil: ' + filtered.length + ' dari ' + keys.length;
+      } else {
+        hint.textContent = keys.length ? ('Menampilkan ' + Math.min(50, keys.length) + ' terbaru') : '';
+      }
+      if (!keys.length) {
         el.textContent = 'Belum ada key untuk ' + appLabel() + '.';
         return;
       }
-      el.innerHTML = data.keys.slice(0, 50).map((k) => {
+      if (!filtered.length) {
+        el.textContent = 'Tidak ada key yang cocok dengan “‘ + $('keySearch').value.trim() + '”.';
+        return;
+      }
+      el.innerHTML = filtered.slice(0, 50).map((k) => {
         const daysLabel = Number(k.days) === 0 ? 'unlimited' : (k.days + ' hari');
         const badgeExtra = Number(k.days) === 0 ? ' unlimited' : '';
-        const pencairan = (k.pencairan === 'sudah') ? 'sudah' : 'belum';
-        const pencairanLabel = pencairan === 'sudah' ? 'Sudah cair' : 'Belum cair';
-        const toggleTo = pencairan === 'sudah' ? 'belum' : 'sudah';
-        const toggleLabel = pencairan === 'sudah' ? 'Tandai belum' : 'Tandai cair';
         return '<div class="item">' +
           '<div><span class="badge ' + k.status + badgeExtra + '">' + k.status +
-          '</span> · ' + daysLabel +
-          ' · <span class="badge ' + pencairan + '">' + pencairanLabel + '</span></div>' +
+          '</span> · ' + daysLabel + '</div>' +
           '<div class="keybox" style="font-size:0.95rem">' + k.key_code + '</div>' +
           '<div class="muted">' + fmtDate(k.created_at) +
           (k.used_by_device ? '<br>→ ' + k.used_by_device : '') +
-          (k.pencairan_at ? '<br>Cair: ' + fmtDate(k.pencairan_at) : '') +
           '</div>' +
           '<div class="key-actions">' +
-            '<button type="button" class="secondary" data-pencairan="' + k.key_code +
-              '" data-to="' + toggleTo + '">' + toggleLabel + '</button>' +
             '<button type="button" class="danger" data-delete-key="' + k.key_code +
               '" data-status="' + k.status + '">Hapus</button>' +
           '</div>' +
         '</div>';
       }).join('');
-
-      el.querySelectorAll('[data-pencairan]').forEach((btn) => {
-        btn.onclick = async () => {
-          const code = btn.dataset.pencairan;
-          const status = btn.dataset.to;
-          try {
-            await api('/v1/admin/keys/' + encodeURIComponent(code) + '/pencairan', {
-              method: 'POST',
-              body: JSON.stringify({ status }),
-            });
-            await loadKeys();
-            await refreshAll();
-          } catch (err) {
-            alert(err.message);
-          }
-        };
-      });
 
       el.querySelectorAll('[data-delete-key]').forEach((btn) => {
         btn.onclick = async () => {
@@ -436,14 +452,33 @@
       });
     }
 
-    async function loadDevices() {
-      const data = await api('/v1/admin/devices?app=' + encodeURIComponent(currentApp));
+    async function loadKeys() {
+      const data = await api('/v1/admin/keys?app=' + encodeURIComponent(currentApp));
+      cachedKeys = data.keys || [];
+      renderKeys(cachedKeys);
+    }
+
+    function renderDevices(devices) {
       const el = $('deviceList');
-      if (!data.devices.length) {
+      const q = normQ($('deviceSearch').value);
+      const filtered = filterDevices(devices, q);
+      const hint = $('deviceSearchHint');
+      if (q) {
+        hint.textContent = 'Hasil: ' + filtered.length + ' dari ' + devices.length;
+      } else {
+        hint.textContent = devices.length
+          ? ('Menampilkan ' + Math.min(50, devices.length) + ' terbaru — ketik ID HP untuk cari')
+          : '';
+      }
+      if (!devices.length) {
         el.textContent = 'Belum ada device untuk ' + appLabel() + '.';
         return;
       }
-      el.innerHTML = data.devices.slice(0, 50).map((d, idx) => {
+      if (!filtered.length) {
+        el.textContent = 'Tidak ada device yang cocok dengan “‘ + $('deviceSearch').value.trim() + '”.';
+        return;
+      }
+      el.innerHTML = filtered.slice(0, 50).map((d, idx) => {
         const st = d.status || 'active';
         const unlimited = Boolean(d.unlimited);
         const stillValid = unlimited || new Date(d.expires_at).getTime() > Date.now();
@@ -551,6 +586,50 @@
       });
     }
 
+    async function loadDevices() {
+      const q = normQ($('deviceSearch').value);
+      let url = '/v1/admin/devices?app=' + encodeURIComponent(currentApp);
+      if (q) url += '&q=' + encodeURIComponent(q);
+      const data = await api(url);
+      if (!q) {
+        cachedDevices = data.devices || [];
+        renderDevices(cachedDevices);
+        return;
+      }
+      // Server search: keep full cache; show matches without wiping it
+      const matches = data.devices || [];
+      if (!matches.length) {
+        renderDevices(cachedDevices);
+        return;
+      }
+      const hint = $('deviceSearchHint');
+      const kept = $('deviceSearch').value;
+      $('deviceSearch').value = '';
+      renderDevices(matches);
+      $('deviceSearch').value = kept;
+      hint.textContent = 'Hasil: ' + matches.length;
+    }
+
+    let deviceSearchTimer = null;
+    function onKeySearchInput() {
+      renderKeys(cachedKeys);
+    }
+    function onDeviceSearchInput() {
+      const q = normQ($('deviceSearch').value);
+      if (!q) {
+        if (cachedDevices.length) renderDevices(cachedDevices);
+        else loadDevices().catch((e) => { $('deviceList').textContent = e.message; });
+        return;
+      }
+      // Instant filter from cached full list
+      if (cachedDevices.length) renderDevices(cachedDevices);
+      // Also query server (covers IDs outside the recent 500)
+      clearTimeout(deviceSearchTimer);
+      deviceSearchTimer = setTimeout(() => {
+        loadDevices().catch((e) => { $('deviceList').textContent = e.message; });
+      }, 300);
+    }
+
     function closeAllDeviceMenus() {
       document.querySelectorAll('.menu-pop.open').forEach((p) => p.classList.remove('open'));
       document.querySelectorAll('.menu-btn[aria-expanded="true"]').forEach((b) => {
@@ -565,6 +644,10 @@
         currentApp = btn.dataset.app;
         setActiveTab();
         $('newKeys').innerHTML = '';
+        $('keySearch').value = '';
+        $('deviceSearch').value = '';
+        cachedKeys = [];
+        cachedDevices = [];
         show($('genMsg'), false);
         show($('genErr'), false);
         await refreshAll();
@@ -574,6 +657,9 @@
     $('unlimitedKey').addEventListener('change', () => {
       $('days').disabled = $('unlimitedKey').checked;
     });
+
+    $('keySearch').addEventListener('input', onKeySearchInput);
+    $('deviceSearch').addEventListener('input', onDeviceSearchInput);
 
     $('loginBtn').onclick = login;
     $('password').addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });

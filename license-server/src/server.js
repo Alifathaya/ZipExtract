@@ -400,21 +400,29 @@ app.get('/v1/admin/keys', requireAdmin, (req, res) => {
     return res.status(400).json({ error: 'invalid_app', apps: APP_IDS });
   }
   const status = String(req.query.status || '').trim();
+  const q = String(req.query.q || '').trim().toLowerCase();
   let rows;
   if (status) {
     rows = db
       .prepare(
-        `SELECT * FROM keys WHERE app_id = ? AND status = ? ORDER BY created_at DESC LIMIT 200`,
+        `SELECT * FROM keys WHERE app_id = ? AND status = ? ORDER BY created_at DESC LIMIT 500`,
       )
       .all(appId, status);
   } else {
     rows = db
       .prepare(
-        `SELECT * FROM keys WHERE app_id = ? ORDER BY created_at DESC LIMIT 200`,
+        `SELECT * FROM keys WHERE app_id = ? ORDER BY created_at DESC LIMIT 500`,
       )
       .all(appId);
   }
-  return res.json({ keys: rows, appId });
+  if (q) {
+    rows = rows.filter((k) => {
+      const code = String(k.key_code || '').toLowerCase();
+      const device = String(k.used_by_device || '').toLowerCase();
+      return code.includes(q) || device.includes(q);
+    });
+  }
+  return res.json({ keys: rows, appId, q: q || undefined });
 });
 
 app.get('/v1/admin/devices', requireAdmin, (req, res) => {
@@ -422,14 +430,25 @@ app.get('/v1/admin/devices', requireAdmin, (req, res) => {
   if (!appId) {
     return res.status(400).json({ error: 'invalid_app', apps: APP_IDS });
   }
-  const rows = db
-    .prepare(
-      `SELECT * FROM devices WHERE app_id = ? ORDER BY created_at DESC LIMIT 500`,
-    )
-    .all(appId);
+  const q = String(req.query.q || '').trim().toLowerCase();
+  let rows;
+  if (q) {
+    rows = db
+      .prepare(
+        `SELECT * FROM devices WHERE app_id = ? AND lower(device_id) LIKE ? ORDER BY created_at DESC LIMIT 500`,
+      )
+      .all(appId, `%${q}%`);
+  } else {
+    rows = db
+      .prepare(
+        `SELECT * FROM devices WHERE app_id = ? ORDER BY created_at DESC LIMIT 500`,
+      )
+      .all(appId);
+  }
   return res.json({
     devices: rows.map((r) => ({ ...r, ...devicePayload(r) })),
     appId,
+    q: q || undefined,
   });
 });
 
