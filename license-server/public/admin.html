@@ -4,9 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
-  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
-  <meta http-equiv="Pragma" content="no-cache" />
-  <title>License Admin</title>
+  <title>License Admin — FileNest &amp; BRI-Link</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -80,6 +78,24 @@
       margin: 8px 0;
       border: 1px dashed #475569;
     }
+    .key-row {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+      margin: 8px 0;
+    }
+    .key-row .keybox {
+      flex: 1;
+      margin: 0;
+      font-size: 0.95rem;
+    }
+    .key-delete-btn {
+      width: auto;
+      min-width: 72px;
+      margin-top: 0;
+      padding: 10px 12px;
+      align-self: stretch;
+    }
     .item {
       padding: 10px 0;
       border-bottom: 1px solid #334155;
@@ -99,20 +115,6 @@
     .badge.blocked { background: #78350f; color: var(--warn); }
     .badge.unused { background: #1e3a5f; color: var(--accent); }
     .badge.unlimited { background: #312e81; color: #c4b5fd; }
-    .key-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-    .search-row { margin: 0 0 10px; }
-    .search-row input {
-      margin: 0;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.9rem;
-    }
-    .search-hint { margin: 6px 0 0; font-size: 0.75rem; color: var(--muted); }
-    .key-actions button {
-      width: auto;
-      margin: 0;
-      padding: 8px 12px;
-      font-size: 0.8rem;
-    }
     .err { color: var(--bad); margin-top: 8px; font-size: 0.9rem; }
     .ok { color: var(--ok); margin-top: 8px; font-size: 0.9rem; }
     .hidden { display: none; }
@@ -176,28 +178,25 @@
     .tabs {
       display: flex;
       gap: 8px;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
     }
     .tab {
       flex: 1;
-      margin: 0;
-      padding: 12px 10px;
-      border-radius: 12px;
-      background: #1e293b;
-      color: var(--muted);
-      border: 1px solid #334155;
+      margin-top: 0;
+      padding: 12px 8px;
+      border-radius: 10px;
+      background: #334155;
+      color: var(--text);
       font-weight: 700;
+      font-size: 0.85rem;
     }
-    .tab.active {
-      background: var(--accent);
-      color: #0f172a;
-      border-color: var(--accent);
-    }
+    .tab.active { background: var(--accent); color: #0f172a; }
+    .panel.hidden { display: none; }
   </style>
 </head>
 <body>
   <h1>License Admin</h1>
-  <p class="sub">FileNest &amp; BRI Link — generate key &amp; cek device</p>
+  <p class="sub">FileNest &amp; BRI-Link — key universal untuk semua app</p>
 
   <section id="loginCard" class="card">
     <label for="password">Password admin</label>
@@ -207,69 +206,110 @@
   </section>
 
   <section id="app" class="hidden">
-    <div class="tabs" role="tablist">
-      <button type="button" class="tab active" data-app="filenest" id="tabFilenest">FileNest</button>
-      <button type="button" class="tab" data-app="brilink" id="tabBrilink">BRI Link</button>
-    </div>
-
     <div class="card">
-      <div class="stat"><span>App aktif</span><strong id="statApp">FileNest</strong></div>
       <div class="stat"><span>Device terdaftar</span><strong id="statDevices">—</strong></div>
       <div class="stat"><span>Aktif (belum expired)</span><strong id="statActive">—</strong></div>
       <div class="stat"><span>Key belum dipakai</span><strong id="statKeys">—</strong></div>
+      <div class="stat"><span>FileNest (fn_)</span><strong id="statFilenest">—</strong></div>
+      <div class="stat"><span>BRI-Link (bl_)</span><strong id="statBrilink">—</strong></div>
       <button class="secondary" id="refreshBtn" type="button">Muat ulang</button>
       <button class="secondary" id="logoutBtn" type="button">Keluar</button>
     </div>
 
-    <div class="card">
-      <h2 style="margin:0 0 8px;font-size:1.05rem;">Generate key <span class="muted" id="genAppLabel">(FileNest)</span></h2>
-      <label for="days">Hari per key</label>
-      <input id="days" type="number" min="1" max="3650" value="30" />
-      <label style="margin-top:10px;display:flex;align-items:center;gap:8px;color:var(--text);">
-        <input id="unlimitedKey" type="checkbox" style="width:auto;margin:0;" />
-        Unlimited (seumur hidup)
-      </label>
-      <div class="row">
-        <button id="gen1" type="button">Buat 1 key</button>
-        <button id="gen5" class="secondary" type="button">Buat 5</button>
-      </div>
-      <div id="newKeys"></div>
-      <p id="genMsg" class="ok hidden"></p>
-      <p id="genErr" class="err hidden"></p>
+    <div class="tabs">
+      <button type="button" class="tab active" data-panel-tab="keys">Generate Key</button>
+      <button type="button" class="tab" data-panel-tab="filenest">FileNest</button>
+      <button type="button" class="tab" data-panel-tab="brilink">BRI-Link</button>
     </div>
 
-    <div class="card">
-      <h2 style="margin:0 0 8px;font-size:1.05rem;">Key terbaru</h2>
-      <div class="search-row">
-        <input id="keySearch" type="search" placeholder="Cari kode key atau ID HP…" autocomplete="off" />
-        <p class="search-hint" id="keySearchHint"></p>
+    <div id="panelKeys" class="panel">
+      <div class="card">
+        <h2 style="margin:0 0 8px;font-size:1.05rem;">Generate key</h2>
+        <p class="muted" style="margin:0 0 10px;">Key bisa dipakai di FileNest maupun BRI-Link.</p>
+        <label for="days">Hari per key</label>
+        <input id="days" type="number" min="1" max="3650" value="30" />
+        <label style="margin-top:10px;display:flex;align-items:center;gap:8px;color:var(--text);">
+          <input id="unlimitedKey" type="checkbox" style="width:auto;margin:0;" />
+          Unlimited (seumur hidup)
+        </label>
+        <div class="row">
+          <button id="gen1" type="button">Buat 1 key</button>
+          <button id="gen5" class="secondary" type="button">Buat 5</button>
+        </div>
+        <div id="newKeys"></div>
+        <p id="genMsg" class="ok hidden"></p>
+        <p id="genErr" class="err hidden"></p>
       </div>
-      <div id="keyList" class="muted">Memuat…</div>
+
+      <div class="card">
+        <h2 style="margin:0 0 8px;font-size:1.05rem;">Key terbaru</h2>
+        <div id="keyList" class="muted">Memuat…</div>
+      </div>
     </div>
 
-    <div class="card">
-      <h2 style="margin:0 0 8px;font-size:1.05rem;">Device</h2>
-      <div class="search-row">
-        <input id="deviceSearch" type="search" placeholder="Cari ID HP / device id…" autocomplete="off" />
-        <p class="search-hint" id="deviceSearchHint"></p>
+    <div id="panelFilenest" class="panel hidden">
+      <div class="card">
+        <h2 style="margin:0 0 8px;font-size:1.05rem;">Device FileNest</h2>
+        <p class="muted" style="margin:0 0 10px;">Device ID diawali <code>fn_</code></p>
+        <label for="filenestDeviceSearch">Cari kode / device ID</label>
+        <input id="filenestDeviceSearch" type="search" placeholder="Contoh: A3F9B2C1 atau fn_..." autocomplete="off" />
+        <p id="filenestDeviceSearchHint" class="muted" style="margin:8px 0 0;"></p>
+        <div id="filenestDeviceList" class="muted">Memuat…</div>
       </div>
-      <div id="deviceList" class="muted">Memuat…</div>
+    </div>
+
+    <div id="panelBrilink" class="panel hidden">
+      <div class="card">
+        <h2 style="margin:0 0 8px;font-size:1.05rem;">Device BRI-Link</h2>
+        <p class="muted" style="margin:0 0 10px;">Device ID diawali <code>bl_</code></p>
+        <label for="brilinkDeviceSearch">Cari kode / device ID</label>
+        <input id="brilinkDeviceSearch" type="search" placeholder="Contoh: A3F9B2C1 atau bl_..." autocomplete="off" />
+        <p id="brilinkDeviceSearchHint" class="muted" style="margin:8px 0 0;"></p>
+        <div id="brilinkDeviceList" class="muted">Memuat…</div>
+      </div>
     </div>
   </section>
 
   <script>
-    const TOKEN_KEY = 'filenest_admin_token';
-    const APP_LABELS = { filenest: 'FileNest', brilink: 'BRI Link' };
+    const TOKEN_KEY = 'brilink_admin_token';
     let token = localStorage.getItem(TOKEN_KEY) || '';
-    let currentApp = localStorage.getItem('license_admin_app') || 'filenest';
-    if (currentApp !== 'filenest' && currentApp !== 'brilink') currentApp = 'filenest';
-    let cachedKeys = [];
-    let cachedDevices = [];
+    let allDevices = [];
+    let activePanelTab = 'keys';
+
+    function setActivePanelTab(tab) {
+      activePanelTab = tab;
+      document.querySelectorAll('[data-panel-tab]').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.panelTab === tab);
+      });
+      $('panelKeys').classList.toggle('hidden', tab !== 'keys');
+      $('panelFilenest').classList.toggle('hidden', tab !== 'filenest');
+      $('panelBrilink').classList.toggle('hidden', tab !== 'brilink');
+    }
+
+    function deviceMatchesApp(device, app) {
+      const id = String(device.device_id || '');
+      if (app === 'filenest') return id.startsWith('fn_');
+      if (app === 'brilink') return id.startsWith('bl_');
+      return true;
+    }
+
+    function show(el, on) { el.classList.toggle('hidden', !on); }
+
+    function shortCode(deviceId) {
+      return String(deviceId || '').slice(-8).toUpperCase();
+    }
 
     function $(id) { return document.getElementById(id); }
-    function show(el, on) { el.classList.toggle('hidden', !on); }
-    function appLabel() { return APP_LABELS[currentApp] || currentApp; }
-    function normQ(s) { return String(s || '').trim().toLowerCase(); }
+
+    function deviceMatchesQuery(device, query) {
+      if (!query) return true;
+      const q = query.trim().toLowerCase();
+      if (!q) return true;
+      const id = String(device.device_id || '').toLowerCase();
+      const code = shortCode(device.device_id).toLowerCase();
+      const note = String(device.note || '').toLowerCase();
+      return id.includes(q) || code.includes(q) || note.includes(q);
+    }
 
     async function api(path, opts = {}) {
       const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
@@ -292,21 +332,8 @@
       } catch (_) { return iso; }
     }
 
-    function setActiveTab() {
-      document.querySelectorAll('.tab').forEach((btn) => {
-        btn.classList.toggle('active', btn.dataset.app === currentApp);
-      });
-      $('statApp').textContent = appLabel();
-      $('genAppLabel').textContent = '(' + appLabel() + ')';
-      localStorage.setItem('license_admin_app', currentApp);
-    }
-
     async function login() {
       show($('loginErr'), false);
-      const btn = $('loginBtn');
-      btn.disabled = true;
-      const prev = btn.textContent;
-      btn.textContent = 'Masuk...';
       try {
         const data = await api('/v1/admin/login', {
           method: 'POST',
@@ -314,16 +341,8 @@
         });
         token = data.token;
         localStorage.setItem(TOKEN_KEY, token);
-        // Show panel immediately; data loads in background via bootstrap.
-        show($('loginCard'), false);
-        show($('app'), true);
-        setActiveTab();
-        btn.textContent = prev;
-        btn.disabled = false;
-        await refreshAll();
+        enterApp();
       } catch (e) {
-        btn.textContent = prev;
-        btn.disabled = false;
         $('loginErr').textContent = 'Login gagal: ' + e.message;
         show($('loginErr'), true);
       }
@@ -339,23 +358,19 @@
     async function enterApp() {
       show($('loginCard'), false);
       show($('app'), true);
-      setActiveTab();
       await refreshAll();
     }
 
     async function refreshAll() {
       try {
-        const data = await api(
-          '/v1/admin/bootstrap?app=' + encodeURIComponent(currentApp),
-        );
-        const stats = data.stats || {};
+        const stats = await api('/v1/admin/stats');
         $('statDevices').textContent = stats.devices;
         $('statActive').textContent = stats.active;
         $('statKeys').textContent = stats.unusedKeys;
-        cachedKeys = data.keys || [];
-        cachedDevices = data.devices || [];
-        renderKeys(cachedKeys);
-        renderDevices(cachedDevices);
+        await loadKeys();
+        await loadDevices();
+        $('statFilenest').textContent = allDevices.filter((d) => deviceMatchesApp(d, 'filenest')).length;
+        $('statBrilink').textContent = allDevices.filter((d) => deviceMatchesApp(d, 'brilink')).length;
       } catch (e) {
         if (e.status === 401) logout();
         else alert(e.message);
@@ -368,9 +383,7 @@
       const unlimited = $('unlimitedKey').checked;
       const days = Number($('days').value) || 30;
       try {
-        const body = unlimited
-          ? { unlimited: true, count, appId: currentApp }
-          : { days, count, appId: currentApp };
+        const body = unlimited ? { unlimited: true, count } : { days, count };
         const data = await api('/v1/admin/keys/generate', {
           method: 'POST',
           body: JSON.stringify(body),
@@ -378,9 +391,16 @@
         const box = $('newKeys');
         box.innerHTML = '';
         data.keys.forEach((k) => {
+          const row = document.createElement('div');
+          row.className = 'key-row';
           const div = document.createElement('div');
           div.className = 'keybox';
           div.textContent = k.key;
+          const delBtn = document.createElement('button');
+          delBtn.type = 'button';
+          delBtn.className = 'danger key-delete-btn';
+          delBtn.textContent = 'Hapus';
+          delBtn.onclick = () => deleteKey(k.key, false);
           const btn = document.createElement('button');
           btn.type = 'button';
           btn.className = 'secondary';
@@ -393,12 +413,14 @@
               prompt('Salin key:', k.key);
             }
           };
-          box.appendChild(div);
+          row.appendChild(div);
+          row.appendChild(delBtn);
+          box.appendChild(row);
           box.appendChild(btn);
         });
         $('genMsg').textContent = unlimited
-          ? 'Key unlimited ' + appLabel() + ' dibuat (' + data.keys.length + ')'
-          : 'Key ' + appLabel() + ' dibuat (' + data.keys.length + ' × ' + days + ' hari)';
+          ? 'Key unlimited dibuat (' + data.keys.length + ')'
+          : 'Key dibuat (' + data.keys.length + ' × ' + days + ' hari)';
         show($('genMsg'), true);
         await refreshAll();
       } catch (e) {
@@ -407,97 +429,71 @@
       }
     }
 
-    function filterKeys(keys, q) {
-      if (!q) return keys;
-      return keys.filter((k) => {
-        const code = normQ(k.key_code);
-        const device = normQ(k.used_by_device);
-        return code.includes(q) || device.includes(q);
-      });
-    }
-
-    function filterDevices(devices, q) {
-      if (!q) return devices;
-      return devices.filter((d) => normQ(d.device_id).includes(q));
-    }
-
-    function renderKeys(keys) {
-      const el = $('keyList');
-      const q = normQ($('keySearch').value);
-      const filtered = filterKeys(keys, q);
-      const hint = $('keySearchHint');
-      if (q) {
-        hint.textContent = 'Hasil: ' + filtered.length + ' dari ' + keys.length;
-      } else {
-        hint.textContent = keys.length ? ('Menampilkan ' + Math.min(50, keys.length) + ' terbaru') : '';
+    async function deleteKey(code, confirmUsed) {
+      const msg = confirmUsed
+        ? 'Key ' + code + ' sudah dipakai. Hapus dari daftar? (lisensi device tidak berubah)'
+        : 'Hapus key ' + code + '?';
+      if (!confirm(msg)) return;
+      try {
+        await api('/v1/admin/keys/' + encodeURIComponent(code), { method: 'DELETE' });
+        await refreshAll();
+      } catch (e) {
+        alert('Gagal hapus key: ' + e.message);
       }
-      if (!keys.length) {
-        el.textContent = 'Belum ada key untuk ' + appLabel() + '.';
-        return;
-      }
-      if (!filtered.length) {
-        el.textContent = 'Tidak ada key yang cocok dengan "' + $('keySearch').value.trim() + '".';
-        return;
-      }
-      el.innerHTML = filtered.slice(0, 50).map((k) => {
-        const daysLabel = Number(k.days) === 0 ? 'unlimited' : (k.days + ' hari');
-        const badgeExtra = Number(k.days) === 0 ? ' unlimited' : '';
-        return '<div class="item">' +
-          '<div><span class="badge ' + k.status + badgeExtra + '">' + k.status +
-          '</span> · ' + daysLabel + '</div>' +
-          '<div class="keybox" style="font-size:0.95rem">' + k.key_code + '</div>' +
-          '<div class="muted">' + fmtDate(k.created_at) +
-          (k.used_by_device ? '<br>→ ' + k.used_by_device : '') +
-          '</div>' +
-          '<div class="key-actions">' +
-            '<button type="button" class="danger" data-delete-key="' + k.key_code +
-              '" data-status="' + k.status + '">Hapus</button>' +
-          '</div>' +
-        '</div>';
-      }).join('');
-
-      el.querySelectorAll('[data-delete-key]').forEach((btn) => {
-        btn.onclick = async () => {
-          const code = btn.dataset.deleteKey;
-          const st = btn.dataset.status || '';
-          if (!confirm('Hapus key ' + code + ' (' + st + ')? Tidak bisa dibatalkan.')) return;
-          try {
-            await api('/v1/admin/keys/' + encodeURIComponent(code), { method: 'DELETE' });
-            await refreshAll();
-          } catch (err) {
-            alert(err.message);
-          }
-        };
-      });
     }
 
     async function loadKeys() {
-      const data = await api('/v1/admin/keys?app=' + encodeURIComponent(currentApp));
-      cachedKeys = data.keys || [];
-      renderKeys(cachedKeys);
+      const data = await api('/v1/admin/keys');
+      const el = $('keyList');
+      if (!data.keys.length) {
+        el.textContent = 'Belum ada key.';
+        return;
+      }
+      el.innerHTML = data.keys.slice(0, 50).map((k) => {
+        const daysLabel = Number(k.days) === 0 ? 'unlimited' : (k.days + ' hari');
+        const badgeExtra = Number(k.days) === 0 ? ' unlimited' : '';
+        const used = k.status === 'used';
+        return '<div class="item"><div><span class="badge ' + k.status + badgeExtra + '">' + k.status +
+          '</span> · ' + daysLabel + '</div>' +
+          '<div class="key-row">' +
+            '<div class="keybox">' + k.key_code + '</div>' +
+            '<button type="button" class="danger key-delete-btn" data-delete-key="' + k.key_code + '" data-key-used="' + (used ? '1' : '0') + '">Hapus</button>' +
+          '</div>' +
+          '<div class="muted">' + fmtDate(k.created_at) +
+          (k.used_by_device ? '<br>→ ' + k.used_by_device : '') + '</div></div>';
+      }).join('');
+
+      el.querySelectorAll('[data-delete-key]').forEach((btn) => {
+        btn.onclick = () => deleteKey(btn.dataset.deleteKey, btn.dataset.keyUsed === '1');
+      });
     }
 
-    function renderDevices(devices) {
-      const el = $('deviceList');
-      const q = normQ($('deviceSearch').value);
-      const filtered = filterDevices(devices, q);
-      const hint = $('deviceSearchHint');
-      if (q) {
-        hint.textContent = 'Hasil: ' + filtered.length + ' dari ' + devices.length;
-      } else {
-        hint.textContent = devices.length
-          ? ('Menampilkan ' + Math.min(50, devices.length) + ' terbaru — ketik ID HP untuk cari')
-          : '';
-      }
-      if (!devices.length) {
-        el.textContent = 'Belum ada device untuk ' + appLabel() + '.';
+    async function loadDevices() {
+      const data = await api('/v1/admin/devices');
+      allDevices = data.devices || [];
+      renderDevicesForApp('filenest', $('filenestDeviceSearch').value || '');
+      renderDevicesForApp('brilink', $('brilinkDeviceSearch').value || '');
+    }
+
+    function renderDevicesForApp(app, query) {
+      const listId = app === 'filenest' ? 'filenestDeviceList' : 'brilinkDeviceList';
+      const hintId = app === 'filenest' ? 'filenestDeviceSearchHint' : 'brilinkDeviceSearchHint';
+      const el = $(listId);
+      const hint = $(hintId);
+      const appDevices = allDevices.filter((d) => deviceMatchesApp(d, app));
+      const filtered = appDevices.filter((d) => deviceMatchesQuery(d, query));
+      if (!appDevices.length) {
+        el.textContent = 'Belum ada device ' + (app === 'filenest' ? 'FileNest' : 'BRI-Link') + '.';
+        hint.textContent = '';
         return;
       }
       if (!filtered.length) {
-        el.textContent = 'Tidak ada device yang cocok dengan "' + $('deviceSearch').value.trim() + '".';
+        el.textContent = 'Tidak ada device yang cocok.';
+        hint.textContent = 'Coba kode pendek 8 huruf dari user, atau sebagian device ID.';
         return;
       }
-      el.innerHTML = filtered.slice(0, 50).map((d, idx) => {
+      hint.textContent = filtered.length + ' dari ' + appDevices.length + ' device';
+      el.innerHTML = filtered.slice(0, 80).map((d, idx) => {
         const st = d.status || 'active';
         const unlimited = Boolean(d.unlimited);
         const stillValid = unlimited || new Date(d.expires_at).getTime() > Date.now();
@@ -537,15 +533,18 @@
         const statusBadge = unlimited && st === 'active'
           ? '<span class="badge unlimited">unlimited</span>'
           : '<span class="badge ' + st + '">' + st + '</span>';
+        const code = shortCode(id);
+        const noteLine = d.note ? '<div class="muted">Catatan: ' + d.note + '</div>' : '';
         return '<div class="item">' +
           '<div class="device-row">' +
             '<div class="device-main">' +
-              '<div>' + statusBadge + '</div>' +
+              '<div>' + statusBadge + ' <strong style="letter-spacing:0.06em;">' + code + '</strong></div>' +
               '<div class="mono">' + id + '</div>' +
+              noteLine +
               '<div class="muted">Exp: ' + expLabel + '<br>Last check: ' + fmtDate(d.last_check_at) + '</div>' +
             '</div>' +
-            '<button type="button" class="menu-btn" data-menu="' + idx + '" aria-label="Menu" aria-expanded="false">⋮</button>' +
-            '<div class="menu-pop" data-menu-pop="' + idx + '">' + menuHtml + '</div>' +
+            '<button type="button" class="menu-btn" data-menu="' + app + '-' + idx + '" aria-label="Menu" aria-expanded="false">⋮</button>' +
+            '<div class="menu-pop" data-menu-pop="' + app + '-' + idx + '">' + menuHtml + '</div>' +
           '</div>' +
         '</div>';
       }).join('');
@@ -605,50 +604,6 @@
       });
     }
 
-    async function loadDevices() {
-      const q = normQ($('deviceSearch').value);
-      let url = '/v1/admin/devices?app=' + encodeURIComponent(currentApp);
-      if (q) url += '&q=' + encodeURIComponent(q);
-      const data = await api(url);
-      if (!q) {
-        cachedDevices = data.devices || [];
-        renderDevices(cachedDevices);
-        return;
-      }
-      // Server search: keep full cache; show matches without wiping it
-      const matches = data.devices || [];
-      if (!matches.length) {
-        renderDevices(cachedDevices);
-        return;
-      }
-      const hint = $('deviceSearchHint');
-      const kept = $('deviceSearch').value;
-      $('deviceSearch').value = '';
-      renderDevices(matches);
-      $('deviceSearch').value = kept;
-      hint.textContent = 'Hasil: ' + matches.length;
-    }
-
-    let deviceSearchTimer = null;
-    function onKeySearchInput() {
-      renderKeys(cachedKeys);
-    }
-    function onDeviceSearchInput() {
-      const q = normQ($('deviceSearch').value);
-      if (!q) {
-        if (cachedDevices.length) renderDevices(cachedDevices);
-        else loadDevices().catch((e) => { $('deviceList').textContent = e.message; });
-        return;
-      }
-      // Instant filter from cached full list
-      if (cachedDevices.length) renderDevices(cachedDevices);
-      // Also query server (covers IDs outside the recent 500)
-      clearTimeout(deviceSearchTimer);
-      deviceSearchTimer = setTimeout(() => {
-        loadDevices().catch((e) => { $('deviceList').textContent = e.message; });
-      }, 300);
-    }
-
     function closeAllDeviceMenus() {
       document.querySelectorAll('.menu-pop.open').forEach((p) => p.classList.remove('open'));
       document.querySelectorAll('.menu-btn[aria-expanded="true"]').forEach((b) => {
@@ -658,27 +613,9 @@
 
     document.addEventListener('click', () => closeAllDeviceMenus());
 
-    document.querySelectorAll('.tab').forEach((btn) => {
-      btn.onclick = async () => {
-        currentApp = btn.dataset.app;
-        setActiveTab();
-        $('newKeys').innerHTML = '';
-        $('keySearch').value = '';
-        $('deviceSearch').value = '';
-        cachedKeys = [];
-        cachedDevices = [];
-        show($('genMsg'), false);
-        show($('genErr'), false);
-        await refreshAll();
-      };
-    });
-
     $('unlimitedKey').addEventListener('change', () => {
       $('days').disabled = $('unlimitedKey').checked;
     });
-
-    $('keySearch').addEventListener('input', onKeySearchInput);
-    $('deviceSearch').addEventListener('input', onDeviceSearchInput);
 
     $('loginBtn').onclick = login;
     $('password').addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
@@ -686,6 +623,15 @@
     $('refreshBtn').onclick = refreshAll;
     $('gen1').onclick = () => generate(1);
     $('gen5').onclick = () => generate(5);
+    document.querySelectorAll('[data-panel-tab]').forEach((btn) => {
+      btn.onclick = () => setActivePanelTab(btn.dataset.panelTab);
+    });
+    $('filenestDeviceSearch').addEventListener('input', (e) => {
+      renderDevicesForApp('filenest', e.target.value || '');
+    });
+    $('brilinkDeviceSearch').addEventListener('input', (e) => {
+      renderDevicesForApp('brilink', e.target.value || '');
+    });
 
     if (token) {
       enterApp().catch(() => logout());
