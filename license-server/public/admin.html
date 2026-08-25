@@ -301,6 +301,10 @@
 
     async function login() {
       show($('loginErr'), false);
+      const btn = $('loginBtn');
+      btn.disabled = true;
+      const prev = btn.textContent;
+      btn.textContent = 'Masuk…';
       try {
         const data = await api('/v1/admin/login', {
           method: 'POST',
@@ -308,8 +312,16 @@
         });
         token = data.token;
         localStorage.setItem(TOKEN_KEY, token);
-        enterApp();
+        // Show panel immediately; data loads in background via bootstrap.
+        show($('loginCard'), false);
+        show($('app'), true);
+        setActiveTab();
+        btn.textContent = prev;
+        btn.disabled = false;
+        await refreshAll();
       } catch (e) {
+        btn.textContent = prev;
+        btn.disabled = false;
         $('loginErr').textContent = 'Login gagal: ' + e.message;
         show($('loginErr'), true);
       }
@@ -331,12 +343,17 @@
 
     async function refreshAll() {
       try {
-        const stats = await api('/v1/admin/stats?app=' + encodeURIComponent(currentApp));
+        const data = await api(
+          '/v1/admin/bootstrap?app=' + encodeURIComponent(currentApp),
+        );
+        const stats = data.stats || {};
         $('statDevices').textContent = stats.devices;
         $('statActive').textContent = stats.active;
         $('statKeys').textContent = stats.unusedKeys;
-        await loadKeys();
-        await loadDevices();
+        cachedKeys = data.keys || [];
+        cachedDevices = data.devices || [];
+        renderKeys(cachedKeys);
+        renderDevices(cachedDevices);
       } catch (e) {
         if (e.status === 401) logout();
         else alert(e.message);

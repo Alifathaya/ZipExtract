@@ -28,6 +28,9 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const db = new Database(path.join(DATA_DIR, 'license.sqlite'));
 db.pragma('journal_mode = WAL');
+db.pragma('busy_timeout = 5000');
+db.pragma('synchronous = NORMAL');
+db.pragma('temp_store = MEMORY');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS devices (
@@ -172,13 +175,26 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(cors());
 app.use(express.json({ limit: '32kb' }));
-app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use(
+  express.static(path.join(__dirname, '..', 'public'), {
+    setHeaders(res, filePath) {
+      if (filePath.endsWith('admin.html')) {
+        res.setHeader('Cache-Control', 'no-store');
+      }
+    },
+  }),
+);
 
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 60,
+  max: 120,
   standardHeaders: true,
   legacyHeaders: false,
+  // Admin panel should not share the public API budget (same carrier NAT as phones).
+  skip: (req) => {
+    const url = req.originalUrl || req.url || '';
+    return url.startsWith('/v1/admin');
+  },
 });
 const activateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -210,6 +226,57 @@ function requireAdmin(req, res, next) {
     return res.status(401).json({ error: 'unauthorized' });
   }
   next();
+}
+
+function statsForApp(appId) {
+  const devices = db
+    .prepare(`SELECT COUNT(*) AS c FROM devices WHERE app_id = ?`)
+    .get(appId).c;
+  const active = db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM devices WHERE app_id = ? AND status = 'active' AND expires_at > ?`,
+    )
+    .get(appId, nowIso()).c;
+  const unusedKeys = db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM keys WHERE app_id = ? AND status = 'unused'`,
+    )
+    .get(appId).c;
+  return { devices, active, unusedKeys, trialDays: TRIAL_DAYS, appId, apps: APP_IDS };
+}
+
+function listKeysForApp(appId, q) {
+  let rows = db
+    .prepare(
+      `SELECT * FROM keys WHERE app_id = ? ORDER BY created_at DESC LIMIT 500`,
+    )
+    .all(appId);
+  if (q) {
+    rows = rows.filter((k) => {
+      const code = String(k.key_code || '').toLowerCase();
+      const device = String(k.used_by_device || '').toLowerCase();
+      return code.includes(q) || device.includes(q);
+    });
+  }
+  return rows;
+}
+
+function listDevicesForApp(appId, q) {
+  let rows;
+  if (q) {
+    rows = db
+      .prepare(
+        `SELECT * FROM devices WHERE app_id = ? AND lower(device_id) LIKE ? ORDER BY created_at DESC LIMIT 500`,
+      )
+      .all(appId, `%${q}%`);
+  } else {
+    rows = db
+      .prepare(
+        `SELECT * FROM devices WHERE app_id = ? ORDER BY created_at DESC LIMIT 500`,
+      )
+      .all(appId);
+  }
+  return rows.map((r) => ({ ...r, ...devicePayload(r) }));
 }
 
 app.get('/health', (_req, res) => {
@@ -337,12 +404,14 @@ app.post('/v1/admin/login', adminLoginLimiter, (req, res) => {
   if (password !== ADMIN_PASSWORD) {
     return res.status(401).json({ error: 'bad_password' });
   }
+  const now = nowIso();
+  // Drop expired sessions so token lookups stay cheap.
+  db.prepare(`DELETE FROM admin_tokens WHERE expires_at <= ?`).run(now);
   const token = crypto.randomBytes(32).toString('hex');
-  const created = nowIso();
-  const expires = addDays(created, 7);
+  const expires = addDays(now, 7);
   db.prepare(
     `INSERT INTO admin_tokens (token, created_at, expires_at) VALUES (?, ?, ?)`,
-  ).run(token, created, expires);
+  ).run(token, now, expires);
   return res.json({ token, expiresAt: expires });
 });
 
@@ -401,26 +470,9 @@ app.get('/v1/admin/keys', requireAdmin, (req, res) => {
   }
   const status = String(req.query.status || '').trim();
   const q = String(req.query.q || '').trim().toLowerCase();
-  let rows;
+  let rows = listKeysForApp(appId, q);
   if (status) {
-    rows = db
-      .prepare(
-        `SELECT * FROM keys WHERE app_id = ? AND status = ? ORDER BY created_at DESC LIMIT 500`,
-      )
-      .all(appId, status);
-  } else {
-    rows = db
-      .prepare(
-        `SELECT * FROM keys WHERE app_id = ? ORDER BY created_at DESC LIMIT 500`,
-      )
-      .all(appId);
-  }
-  if (q) {
-    rows = rows.filter((k) => {
-      const code = String(k.key_code || '').toLowerCase();
-      const device = String(k.used_by_device || '').toLowerCase();
-      return code.includes(q) || device.includes(q);
-    });
+    rows = rows.filter((k) => k.status === status);
   }
   return res.json({ keys: rows, appId, q: q || undefined });
 });
@@ -431,24 +483,24 @@ app.get('/v1/admin/devices', requireAdmin, (req, res) => {
     return res.status(400).json({ error: 'invalid_app', apps: APP_IDS });
   }
   const q = String(req.query.q || '').trim().toLowerCase();
-  let rows;
-  if (q) {
-    rows = db
-      .prepare(
-        `SELECT * FROM devices WHERE app_id = ? AND lower(device_id) LIKE ? ORDER BY created_at DESC LIMIT 500`,
-      )
-      .all(appId, `%${q}%`);
-  } else {
-    rows = db
-      .prepare(
-        `SELECT * FROM devices WHERE app_id = ? ORDER BY created_at DESC LIMIT 500`,
-      )
-      .all(appId);
-  }
   return res.json({
-    devices: rows.map((r) => ({ ...r, ...devicePayload(r) })),
+    devices: listDevicesForApp(appId, q),
     appId,
     q: q || undefined,
+  });
+});
+
+/** One round-trip for admin panel open (stats + keys + devices). */
+app.get('/v1/admin/bootstrap', requireAdmin, (req, res) => {
+  const appId = normalizeAppId(req.query.app, { strict: true });
+  if (!appId) {
+    return res.status(400).json({ error: 'invalid_app', apps: APP_IDS });
+  }
+  return res.json({
+    stats: statsForApp(appId),
+    keys: listKeysForApp(appId, ''),
+    devices: listDevicesForApp(appId, ''),
+    appId,
   });
 });
 
@@ -599,20 +651,7 @@ app.get('/v1/admin/stats', requireAdmin, (req, res) => {
   if (!appId) {
     return res.status(400).json({ error: 'invalid_app', apps: APP_IDS });
   }
-  const devices = db
-    .prepare(`SELECT COUNT(*) AS c FROM devices WHERE app_id = ?`)
-    .get(appId).c;
-  const active = db
-    .prepare(
-      `SELECT COUNT(*) AS c FROM devices WHERE app_id = ? AND status = 'active' AND expires_at > ?`,
-    )
-    .get(appId, nowIso()).c;
-  const unusedKeys = db
-    .prepare(
-      `SELECT COUNT(*) AS c FROM keys WHERE app_id = ? AND status = 'unused'`,
-    )
-    .get(appId).c;
-  res.json({ devices, active, unusedKeys, trialDays: TRIAL_DAYS, appId, apps: APP_IDS });
+  res.json(statsForApp(appId));
 });
 
 app.get('/v1/admin/apps', requireAdmin, (_req, res) => {
