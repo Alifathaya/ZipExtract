@@ -6,14 +6,18 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -28,6 +32,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -36,6 +41,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,6 +51,7 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.zipextract.app.data.FileActions
 import java.io.File
+import kotlin.math.min
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -80,14 +87,19 @@ fun ImageViewerScreen(
     val zoomState = rememberZoomState()
     var editing by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    // View-only orientation (not written to disk).
+    var rotationDeg by remember { mutableFloatStateOf(0f) }
+    var flipHorizontal by remember { mutableStateOf(false) }
     val onPageChangedState = rememberUpdatedState(onPageChanged)
 
-    // Reset zoom when the page changes; notify host of the current file.
+    // Reset zoom/orientation when the page changes; notify host of the current file.
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.currentPage }
             .distinctUntilChanged()
             .collect { page ->
                 zoomState.reset()
+                rotationDeg = 0f
+                flipHorizontal = false
                 files.getOrNull(page)?.let { onPageChangedState.value(it) }
             }
     }
@@ -211,7 +223,9 @@ fun ImageViewerScreen(
                                     modifier = Modifier.padding(24.dp),
                                 )
                             },
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .imageOrientation(rotationDeg, flipHorizontal),
                         )
                     }
                 } else {
@@ -223,6 +237,64 @@ fun ImageViewerScreen(
                     )
                 }
             }
+
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 20.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+                        shape = RoundedCornerShape(28.dp),
+                    )
+                    .padding(horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(
+                    onClick = {
+                        rotationDeg = (rotationDeg + 90f) % 360f
+                        zoomState.reset()
+                    },
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.RotateRight,
+                        contentDescription = stringResource(R.string.image_rotate),
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        flipHorizontal = !flipHorizontal
+                        zoomState.reset()
+                    },
+                ) {
+                    Icon(
+                        Icons.Default.Flip,
+                        contentDescription = stringResource(R.string.image_flip),
+                    )
+                }
+            }
         }
+    }
+}
+
+/** Rotate / mirror for the image viewer (layout-fit aware at 90° / 270°). */
+private fun Modifier.imageOrientation(rotationDeg: Float, flipHorizontal: Boolean): Modifier {
+    return graphicsLayer {
+        val normalized = ((rotationDeg % 360f) + 360f) % 360f
+        rotationZ = normalized
+        val flip = if (flipHorizontal) -1f else 1f
+        var sx = flip
+        var sy = 1f
+        // After a quarter turn, visual width/height swap — shrink so it still fits.
+        if (normalized == 90f || normalized == 270f) {
+            val w = size.width
+            val h = size.height
+            if (w > 0f && h > 0f) {
+                val fit = min(w / h, h / w)
+                sx *= fit
+                sy *= fit
+            }
+        }
+        scaleX = sx
+        scaleY = sy
     }
 }

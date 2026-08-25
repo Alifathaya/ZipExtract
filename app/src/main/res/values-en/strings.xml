@@ -320,6 +320,8 @@
     <string name="zoom_reset">Fit to screen</string>
     <string name="image_load_failed">Failed to load image</string>
     <string name="image_share_failed">Failed to share photo</string>
+    <string name="image_rotate">Rotate</string>
+    <string name="image_flip">Mirror</string>
     <string name="image_viewer_hint">Pinch / double-tap zoom · Edit crop &amp; pen</string>
     <string name="image_viewer_hint_swipe">Swipe left/right · %1$d / %2$d</string>
     <string name="video_player_hint_swipe">Swipe left/right · %1$d / %2$d</string>
