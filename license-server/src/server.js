@@ -464,6 +464,22 @@ app.post('/v1/admin/devices/:id/allow', requireAdmin, (req, res) => {
   return res.json(result);
 });
 
+/** Set admin label / keterangan for a device (e.g. "Pak Dwi"). */
+app.post('/v1/admin/devices/:id/note', requireAdmin, (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ error: 'invalid_device_id' });
+  const note = String(req.body?.note ?? '')
+    .trim()
+    .slice(0, 120);
+  const info = db
+    .prepare(`UPDATE devices SET note = ? WHERE device_id = ?`)
+    .run(note || null, id);
+  if (info.changes === 0) return res.status(404).json({ error: 'not_found' });
+  logEvent('admin_note', id, note || '(cleared)');
+  const row = db.prepare(`SELECT * FROM devices WHERE device_id = ?`).get(id);
+  return res.json({ ok: true, device_id: id, note: row.note || null, ...devicePayload(row) });
+});
+
 app.post('/v1/admin/keys/:code/revoke', requireAdmin, (req, res) => {
   const code = req.params.code;
   const info = db

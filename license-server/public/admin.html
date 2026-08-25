@@ -115,6 +115,22 @@
     .badge.blocked { background: #78350f; color: var(--warn); }
     .badge.unused { background: #1e3a5f; color: var(--accent); }
     .badge.unlimited { background: #312e81; color: #c4b5fd; }
+    .device-note {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      background: #1e3a5f;
+      color: var(--accent);
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
+    .device-note.empty {
+      background: transparent;
+      color: var(--muted);
+      border: 1px dashed #475569;
+      font-weight: 500;
+    }
     .err { color: var(--bad); margin-top: 8px; font-size: 0.9rem; }
     .ok { color: var(--ok); margin-top: 8px; font-size: 0.9rem; }
     .hidden { display: none; }
@@ -251,8 +267,8 @@
       <div class="card">
         <h2 style="margin:0 0 8px;font-size:1.05rem;">Device FileNest</h2>
         <p class="muted" style="margin:0 0 10px;">Device ID diawali <code>fn_</code></p>
-        <label for="filenestDeviceSearch">Cari kode / device ID</label>
-        <input id="filenestDeviceSearch" type="search" placeholder="Contoh: A3F9B2C1 atau fn_..." autocomplete="off" />
+        <label for="filenestDeviceSearch">Cari kode / device ID / keterangan</label>
+        <input id="filenestDeviceSearch" type="search" placeholder="Contoh: Pak Dwi, A3F9B2C1, atau fn_..." autocomplete="off" />
         <p id="filenestDeviceSearchHint" class="muted" style="margin:8px 0 0;"></p>
         <div id="filenestDeviceList" class="muted">Memuat…</div>
       </div>
@@ -262,8 +278,8 @@
       <div class="card">
         <h2 style="margin:0 0 8px;font-size:1.05rem;">Device BRI-Link</h2>
         <p class="muted" style="margin:0 0 10px;">Device ID diawali <code>bl_</code></p>
-        <label for="brilinkDeviceSearch">Cari kode / device ID</label>
-        <input id="brilinkDeviceSearch" type="search" placeholder="Contoh: A3F9B2C1 atau bl_..." autocomplete="off" />
+        <label for="brilinkDeviceSearch">Cari kode / device ID / keterangan</label>
+        <input id="brilinkDeviceSearch" type="search" placeholder="Contoh: Pak Dwi, A3F9B2C1, atau bl_..." autocomplete="off" />
         <p id="brilinkDeviceSearchHint" class="muted" style="margin:8px 0 0;"></p>
         <div id="brilinkDeviceList" class="muted">Memuat…</div>
       </div>
@@ -330,6 +346,14 @@
       try {
         return new Date(iso).toLocaleString();
       } catch (_) { return iso; }
+    }
+
+    function escapeHtml(s) {
+      return String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
     }
 
     async function login() {
@@ -499,6 +523,11 @@
         const stillValid = unlimited || new Date(d.expires_at).getTime() > Date.now();
         const id = d.device_id;
         const menuItems = [];
+        menuItems.push({
+          action: 'note',
+          label: d.note ? 'Ubah keterangan' : 'Isi keterangan',
+          id: id,
+        });
         if (st === 'blocked') {
           if (stillValid) {
             menuItems.push({ action: 'unblock', label: 'Unblock', id: id });
@@ -534,13 +563,16 @@
           ? '<span class="badge unlimited">unlimited</span>'
           : '<span class="badge ' + st + '">' + st + '</span>';
         const code = shortCode(id);
-        const noteLine = d.note ? '<div class="muted">Catatan: ' + d.note + '</div>' : '';
+        const noteText = String(d.note || '').trim();
+        const noteLine = noteText
+          ? '<div><span class="device-note">' + escapeHtml(noteText) + '</span></div>'
+          : '<div><span class="device-note empty">Belum ada keterangan</span></div>';
         return '<div class="item">' +
           '<div class="device-row">' +
             '<div class="device-main">' +
               '<div>' + statusBadge + ' <strong style="letter-spacing:0.06em;">' + code + '</strong></div>' +
-              '<div class="mono">' + id + '</div>' +
               noteLine +
+              '<div class="mono">' + id + '</div>' +
               '<div class="muted">Exp: ' + expLabel + '<br>Last check: ' + fmtDate(d.last_check_at) + '</div>' +
             '</div>' +
             '<button type="button" class="menu-btn" data-menu="' + app + '-' + idx + '" aria-label="Menu" aria-expanded="false">⋮</button>' +
@@ -570,7 +602,18 @@
           const action = btn.dataset.action;
           const id = btn.dataset.id;
           try {
-            if (action === 'block') {
+            if (action === 'note') {
+              const current = (allDevices.find((d) => d.device_id === id) || {}).note || '';
+              const next = prompt(
+                'Keterangan device (contoh: Pak Dwi). Kosongkan untuk hapus.',
+                current,
+              );
+              if (next === null) return;
+              await api('/v1/admin/devices/' + encodeURIComponent(id) + '/note', {
+                method: 'POST',
+                body: JSON.stringify({ note: next }),
+              });
+            } else if (action === 'block') {
               await api('/v1/admin/devices/' + encodeURIComponent(id) + '/block', {
                 method: 'POST',
                 body: '{}',
