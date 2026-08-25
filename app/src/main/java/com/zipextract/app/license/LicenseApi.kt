@@ -33,14 +33,17 @@ class LicenseApi(
             "/v1/license/register",
             JSONObject()
                 .put("deviceId", deviceId)
-                .put("appVersion", appVersion),
+                .put("appVersion", appVersion)
+                .put("appId", APP_ID),
         )
     }
 
     fun check(deviceId: String): LicenseServerResponse {
         return post(
             "/v1/license/check",
-            JSONObject().put("deviceId", deviceId),
+            JSONObject()
+                .put("deviceId", deviceId)
+                .put("appId", APP_ID),
         )
     }
 
@@ -49,7 +52,8 @@ class LicenseApi(
             "/v1/license/activate",
             JSONObject()
                 .put("deviceId", deviceId)
-                .put("key", key),
+                .put("key", key)
+                .put("appId", APP_ID),
         )
     }
 
@@ -85,6 +89,9 @@ class LicenseApi(
     }
 
     companion object {
+        /** Product id on the shared license server (separate from BRI Link). */
+        const val APP_ID = "filenest"
+
         fun parseResponse(json: JSONObject, httpError: String? = null): LicenseServerResponse {
             return LicenseServerResponse(
                 status = json.optString("status", "active"),

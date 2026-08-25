@@ -64,6 +64,33 @@ CREATE TABLE IF NOT EXISTS events (
 );
 `);
 
+/** Supported products in the shared license DB / admin UI. */
+const APP_IDS = ['filenest', 'brilink'];
+const DEFAULT_APP_ID = 'filenest';
+
+function ensureColumn(table, column, ddl) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!cols.includes(column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  }
+}
+
+ensureColumn('devices', 'app_id', `TEXT NOT NULL DEFAULT '${DEFAULT_APP_ID}'`);
+ensureColumn('keys', 'app_id', `TEXT NOT NULL DEFAULT '${DEFAULT_APP_ID}'`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_devices_app ON devices(app_id)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_keys_app ON keys(app_id)`);
+
+function normalizeAppId(raw, { strict = false } = {}) {
+  let id = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+  if (id === 'bri' || id === 'brilink' || id === 'brilinks') id = 'brilink';
+  if (id === 'filenest' || id === 'zipextract') id = 'filenest';
+  if (APP_IDS.includes(id)) return id;
+  return strict ? null : DEFAULT_APP_ID;
+}
+
 const insertEvent = db.prepare(
   `INSERT INTO events (at, kind, device_id, detail) VALUES (?, ?, ?, ?)`,
 );
@@ -180,6 +207,7 @@ app.get('/health', (_req, res) => {
 app.post('/v1/license/register', (req, res) => {
   const deviceId = String(req.body?.deviceId || '').trim();
   const appVersion = String(req.body?.appVersion || '').trim() || null;
+  const appId = normalizeAppId(req.body?.appId);
   if (!deviceId || deviceId.length < 8 || deviceId.length > 128) {
     return res.status(400).json({ error: 'invalid_device_id' });
   }
@@ -191,17 +219,17 @@ app.post('/v1/license/register', (req, res) => {
     db.prepare(
       `UPDATE devices SET last_check_at = ?, app_version = COALESCE(?, app_version) WHERE device_id = ?`,
     ).run(nowIso(), appVersion, deviceId);
-    logEvent('register_existing', deviceId, appVersion);
+    logEvent('register_existing', deviceId, `${existing.app_id || appId}:${appVersion || ''}`);
     return res.json(devicePayload(existing));
   }
 
   const created = nowIso();
   const expires = addDays(created, TRIAL_DAYS);
   db.prepare(
-    `INSERT INTO devices (device_id, created_at, expires_at, last_check_at, status, app_version)
-     VALUES (?, ?, ?, ?, 'active', ?)`,
-  ).run(deviceId, created, expires, created, appVersion);
-  logEvent('register_new', deviceId, `trial_${TRIAL_DAYS}d`);
+    `INSERT INTO devices (device_id, created_at, expires_at, last_check_at, status, app_version, app_id)
+     VALUES (?, ?, ?, ?, 'active', ?, ?)`,
+  ).run(deviceId, created, expires, created, appVersion, appId);
+  logEvent('register_new', deviceId, `${appId}:trial_${TRIAL_DAYS}d`);
   const row = db.prepare(`SELECT * FROM devices WHERE device_id = ?`).get(deviceId);
   return res.json(devicePayload(row));
 });
@@ -227,6 +255,7 @@ app.post('/v1/license/check', (req, res) => {
 app.post('/v1/license/activate', activateLimiter, (req, res) => {
   const deviceId = String(req.body?.deviceId || '').trim();
   const key = String(req.body?.key || '').trim();
+  const appId = normalizeAppId(req.body?.appId);
   if (!deviceId || key.length !== 12) {
     return res.status(400).json({ error: 'invalid_request' });
   }
@@ -240,6 +269,11 @@ app.post('/v1/license/activate', activateLimiter, (req, res) => {
     logEvent('activate_fail', deviceId, 'key_used');
     return res.status(400).json({ error: 'key_already_used' });
   }
+  const keyApp = normalizeAppId(keyRow.app_id);
+  if (keyApp !== appId) {
+    logEvent('activate_fail', deviceId, `wrong_app:${keyApp}`);
+    return res.status(400).json({ error: 'key_wrong_app' });
+  }
 
   let device = db.prepare(`SELECT * FROM devices WHERE device_id = ?`).get(deviceId);
   const now = nowIso();
@@ -247,12 +281,16 @@ app.post('/v1/license/activate', activateLimiter, (req, res) => {
   if (!device) {
     const expires = unlimitedKey ? UNLIMITED_EXPIRES : addDays(now, keyRow.days);
     db.prepare(
-      `INSERT INTO devices (device_id, created_at, expires_at, last_check_at, status)
-       VALUES (?, ?, ?, ?, 'active')`,
-    ).run(deviceId, now, expires, now);
+      `INSERT INTO devices (device_id, created_at, expires_at, last_check_at, status, app_id)
+       VALUES (?, ?, ?, ?, 'active', ?)`,
+    ).run(deviceId, now, expires, now, appId);
   } else {
     if (device.status === 'blocked') {
       return res.status(403).json({ error: 'device_blocked' });
+    }
+    const deviceApp = normalizeAppId(device.app_id);
+    if (deviceApp !== appId) {
+      return res.status(400).json({ error: 'device_wrong_app' });
     }
     let expires;
     if (unlimitedKey) {
@@ -266,8 +304,8 @@ app.post('/v1/license/activate', activateLimiter, (req, res) => {
       expires = addDays(base, keyRow.days);
     }
     db.prepare(
-      `UPDATE devices SET expires_at = ?, last_check_at = ?, status = 'active' WHERE device_id = ?`,
-    ).run(expires, now, deviceId);
+      `UPDATE devices SET expires_at = ?, last_check_at = ?, status = 'active', app_id = ? WHERE device_id = ?`,
+    ).run(expires, now, appId, deviceId);
   }
 
   db.prepare(
@@ -275,7 +313,7 @@ app.post('/v1/license/activate', activateLimiter, (req, res) => {
   ).run(now, deviceId, key);
 
   device = db.prepare(`SELECT * FROM devices WHERE device_id = ?`).get(deviceId);
-  logEvent('activate_ok', deviceId, unlimitedKey ? 'unlimited' : key);
+  logEvent('activate_ok', deviceId, unlimitedKey ? `${appId}:unlimited` : `${appId}:${key}`);
   return res.json({
     ...devicePayload(device),
     daysAdded: unlimitedKey ? null : keyRow.days,
@@ -297,6 +335,10 @@ app.post('/v1/admin/login', adminLoginLimiter, (req, res) => {
 });
 
 app.post('/v1/admin/keys/generate', requireAdmin, (req, res) => {
+  const appId = normalizeAppId(req.body?.appId, { strict: true });
+  if (!appId) {
+    return res.status(400).json({ error: 'invalid_app', apps: APP_IDS });
+  }
   const unlimited = Boolean(req.body?.unlimited) || Number(req.body?.days) === 0;
   const days = unlimited
     ? UNLIMITED_KEY_DAYS
@@ -304,7 +346,7 @@ app.post('/v1/admin/keys/generate', requireAdmin, (req, res) => {
   const count = Math.min(50, Math.max(1, Number(req.body?.count) || 1));
   const created = nowIso();
   const insert = db.prepare(
-    `INSERT INTO keys (key_code, days, created_at, status) VALUES (?, ?, ?, 'unused')`,
+    `INSERT INTO keys (key_code, days, created_at, status, app_id) VALUES (?, ?, ?, 'unused', ?)`,
   );
   const keys = [];
   const tx = db.transaction(() => {
@@ -313,11 +355,12 @@ app.post('/v1/admin/keys/generate', requireAdmin, (req, res) => {
       for (let attempt = 0; attempt < 20; attempt++) {
         code = generateKeyCode();
         try {
-          insert.run(code, days, created);
+          insert.run(code, days, created, appId);
           keys.push({
             key: code,
             days,
             unlimited,
+            appId,
             createdAt: created,
           });
           break;
@@ -331,34 +374,49 @@ app.post('/v1/admin/keys/generate', requireAdmin, (req, res) => {
   logEvent(
     'admin_generate',
     null,
-    unlimited ? `${keys.length}x_unlimited` : `${keys.length}x${days}d`,
+    unlimited
+      ? `${appId}:${keys.length}x_unlimited`
+      : `${appId}:${keys.length}x${days}d`,
   );
-  return res.json({ keys });
+  return res.json({ keys, appId });
 });
 
 app.get('/v1/admin/keys', requireAdmin, (req, res) => {
+  const appId = normalizeAppId(req.query.app, { strict: true });
+  if (!appId) {
+    return res.status(400).json({ error: 'invalid_app', apps: APP_IDS });
+  }
   const status = String(req.query.status || '').trim();
   let rows;
   if (status) {
     rows = db
       .prepare(
-        `SELECT * FROM keys WHERE status = ? ORDER BY created_at DESC LIMIT 200`,
+        `SELECT * FROM keys WHERE app_id = ? AND status = ? ORDER BY created_at DESC LIMIT 200`,
       )
-      .all(status);
+      .all(appId, status);
   } else {
     rows = db
-      .prepare(`SELECT * FROM keys ORDER BY created_at DESC LIMIT 200`)
-      .all();
+      .prepare(
+        `SELECT * FROM keys WHERE app_id = ? ORDER BY created_at DESC LIMIT 200`,
+      )
+      .all(appId);
   }
-  return res.json({ keys: rows });
+  return res.json({ keys: rows, appId });
 });
 
-app.get('/v1/admin/devices', requireAdmin, (_req, res) => {
+app.get('/v1/admin/devices', requireAdmin, (req, res) => {
+  const appId = normalizeAppId(req.query.app, { strict: true });
+  if (!appId) {
+    return res.status(400).json({ error: 'invalid_app', apps: APP_IDS });
+  }
   const rows = db
-    .prepare(`SELECT * FROM devices ORDER BY created_at DESC LIMIT 500`)
-    .all();
+    .prepare(
+      `SELECT * FROM devices WHERE app_id = ? ORDER BY created_at DESC LIMIT 500`,
+    )
+    .all(appId);
   return res.json({
     devices: rows.map((r) => ({ ...r, ...devicePayload(r) })),
+    appId,
   });
 });
 
@@ -467,17 +525,34 @@ app.post('/v1/admin/keys/:code/revoke', requireAdmin, (req, res) => {
   return res.json({ ok: true });
 });
 
-app.get('/v1/admin/stats', requireAdmin, (_req, res) => {
-  const devices = db.prepare(`SELECT COUNT(*) AS c FROM devices`).get().c;
+app.get('/v1/admin/stats', requireAdmin, (req, res) => {
+  const appId = normalizeAppId(req.query.app, { strict: true });
+  if (!appId) {
+    return res.status(400).json({ error: 'invalid_app', apps: APP_IDS });
+  }
+  const devices = db
+    .prepare(`SELECT COUNT(*) AS c FROM devices WHERE app_id = ?`)
+    .get(appId).c;
   const active = db
     .prepare(
-      `SELECT COUNT(*) AS c FROM devices WHERE status = 'active' AND expires_at > ?`,
+      `SELECT COUNT(*) AS c FROM devices WHERE app_id = ? AND status = 'active' AND expires_at > ?`,
     )
-    .get(nowIso()).c;
+    .get(appId, nowIso()).c;
   const unusedKeys = db
-    .prepare(`SELECT COUNT(*) AS c FROM keys WHERE status = 'unused'`)
-    .get().c;
-  res.json({ devices, active, unusedKeys, trialDays: TRIAL_DAYS });
+    .prepare(
+      `SELECT COUNT(*) AS c FROM keys WHERE app_id = ? AND status = 'unused'`,
+    )
+    .get(appId).c;
+  res.json({ devices, active, unusedKeys, trialDays: TRIAL_DAYS, appId, apps: APP_IDS });
+});
+
+app.get('/v1/admin/apps', requireAdmin, (_req, res) => {
+  res.json({
+    apps: [
+      { id: 'filenest', label: 'FileNest' },
+      { id: 'brilink', label: 'BRI Link' },
+    ],
+  });
 });
 
 app.get('/', (_req, res) => {

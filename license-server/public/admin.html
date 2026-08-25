@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
-  <title>FileNest License Admin</title>
+  <title>License Admin</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -157,11 +157,31 @@
       color: var(--bad);
     }
     .menu-pop button.danger:hover { background: #7f1d1d33; }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .tab {
+      flex: 1;
+      margin: 0;
+      padding: 12px 10px;
+      border-radius: 12px;
+      background: #1e293b;
+      color: var(--muted);
+      border: 1px solid #334155;
+      font-weight: 700;
+    }
+    .tab.active {
+      background: var(--accent);
+      color: #0f172a;
+      border-color: var(--accent);
+    }
   </style>
 </head>
 <body>
-  <h1>FileNest License</h1>
-  <p class="sub">Admin panel — generate key &amp; cek device</p>
+  <h1>License Admin</h1>
+  <p class="sub">FileNest &amp; BRI Link — generate key &amp; cek device</p>
 
   <section id="loginCard" class="card">
     <label for="password">Password admin</label>
@@ -171,7 +191,13 @@
   </section>
 
   <section id="app" class="hidden">
+    <div class="tabs" role="tablist">
+      <button type="button" class="tab active" data-app="filenest" id="tabFilenest">FileNest</button>
+      <button type="button" class="tab" data-app="brilink" id="tabBrilink">BRI Link</button>
+    </div>
+
     <div class="card">
+      <div class="stat"><span>App aktif</span><strong id="statApp">FileNest</strong></div>
       <div class="stat"><span>Device terdaftar</span><strong id="statDevices">—</strong></div>
       <div class="stat"><span>Aktif (belum expired)</span><strong id="statActive">—</strong></div>
       <div class="stat"><span>Key belum dipakai</span><strong id="statKeys">—</strong></div>
@@ -180,7 +206,7 @@
     </div>
 
     <div class="card">
-      <h2 style="margin:0 0 8px;font-size:1.05rem;">Generate key</h2>
+      <h2 style="margin:0 0 8px;font-size:1.05rem;">Generate key <span class="muted" id="genAppLabel">(FileNest)</span></h2>
       <label for="days">Hari per key</label>
       <input id="days" type="number" min="1" max="3650" value="30" />
       <label style="margin-top:10px;display:flex;align-items:center;gap:8px;color:var(--text);">
@@ -209,10 +235,14 @@
 
   <script>
     const TOKEN_KEY = 'filenest_admin_token';
+    const APP_LABELS = { filenest: 'FileNest', brilink: 'BRI Link' };
     let token = localStorage.getItem(TOKEN_KEY) || '';
+    let currentApp = localStorage.getItem('license_admin_app') || 'filenest';
+    if (currentApp !== 'filenest' && currentApp !== 'brilink') currentApp = 'filenest';
 
     function $(id) { return document.getElementById(id); }
     function show(el, on) { el.classList.toggle('hidden', !on); }
+    function appLabel() { return APP_LABELS[currentApp] || currentApp; }
 
     async function api(path, opts = {}) {
       const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
@@ -233,6 +263,15 @@
       try {
         return new Date(iso).toLocaleString();
       } catch (_) { return iso; }
+    }
+
+    function setActiveTab() {
+      document.querySelectorAll('.tab').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.app === currentApp);
+      });
+      $('statApp').textContent = appLabel();
+      $('genAppLabel').textContent = '(' + appLabel() + ')';
+      localStorage.setItem('license_admin_app', currentApp);
     }
 
     async function login() {
@@ -261,12 +300,13 @@
     async function enterApp() {
       show($('loginCard'), false);
       show($('app'), true);
+      setActiveTab();
       await refreshAll();
     }
 
     async function refreshAll() {
       try {
-        const stats = await api('/v1/admin/stats');
+        const stats = await api('/v1/admin/stats?app=' + encodeURIComponent(currentApp));
         $('statDevices').textContent = stats.devices;
         $('statActive').textContent = stats.active;
         $('statKeys').textContent = stats.unusedKeys;
@@ -284,7 +324,9 @@
       const unlimited = $('unlimitedKey').checked;
       const days = Number($('days').value) || 30;
       try {
-        const body = unlimited ? { unlimited: true, count } : { days, count };
+        const body = unlimited
+          ? { unlimited: true, count, appId: currentApp }
+          : { days, count, appId: currentApp };
         const data = await api('/v1/admin/keys/generate', {
           method: 'POST',
           body: JSON.stringify(body),
@@ -311,8 +353,8 @@
           box.appendChild(btn);
         });
         $('genMsg').textContent = unlimited
-          ? 'Key unlimited dibuat (' + data.keys.length + ')'
-          : 'Key dibuat (' + data.keys.length + ' × ' + days + ' hari)';
+          ? 'Key unlimited ' + appLabel() + ' dibuat (' + data.keys.length + ')'
+          : 'Key ' + appLabel() + ' dibuat (' + data.keys.length + ' × ' + days + ' hari)';
         show($('genMsg'), true);
         await refreshAll();
       } catch (e) {
@@ -322,10 +364,10 @@
     }
 
     async function loadKeys() {
-      const data = await api('/v1/admin/keys');
+      const data = await api('/v1/admin/keys?app=' + encodeURIComponent(currentApp));
       const el = $('keyList');
       if (!data.keys.length) {
-        el.textContent = 'Belum ada key.';
+        el.textContent = 'Belum ada key untuk ' + appLabel() + '.';
         return;
       }
       el.innerHTML = data.keys.slice(0, 30).map((k) => {
@@ -339,10 +381,10 @@
     }
 
     async function loadDevices() {
-      const data = await api('/v1/admin/devices');
+      const data = await api('/v1/admin/devices?app=' + encodeURIComponent(currentApp));
       const el = $('deviceList');
       if (!data.devices.length) {
-        el.textContent = 'Belum ada device.';
+        el.textContent = 'Belum ada device untuk ' + appLabel() + '.';
         return;
       }
       el.innerHTML = data.devices.slice(0, 50).map((d, idx) => {
@@ -461,6 +503,17 @@
     }
 
     document.addEventListener('click', () => closeAllDeviceMenus());
+
+    document.querySelectorAll('.tab').forEach((btn) => {
+      btn.onclick = async () => {
+        currentApp = btn.dataset.app;
+        setActiveTab();
+        $('newKeys').innerHTML = '';
+        show($('genMsg'), false);
+        show($('genErr'), false);
+        await refreshAll();
+      };
+    });
 
     $('unlimitedKey').addEventListener('change', () => {
       $('days').disabled = $('unlimitedKey').checked;
