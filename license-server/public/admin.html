@@ -4,6 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
   <title>License Admin</title>
   <style>
     :root {
@@ -304,7 +306,7 @@
       const btn = $('loginBtn');
       btn.disabled = true;
       const prev = btn.textContent;
-      btn.textContent = 'Masuk…';
+      btn.textContent = 'Masuk...';
       try {
         const data = await api('/v1/admin/login', {
           method: 'POST',
@@ -434,7 +436,7 @@
         return;
       }
       if (!filtered.length) {
-        el.textContent = 'Tidak ada key yang cocok dengan “‘ + $('keySearch').value.trim() + '”.';
+        el.textContent = 'Tidak ada key yang cocok dengan "' + $('keySearch').value.trim() + '".';
         return;
       }
       el.innerHTML = filtered.slice(0, 50).map((k) => {
@@ -492,7 +494,7 @@
         return;
       }
       if (!filtered.length) {
-        el.textContent = 'Tidak ada device yang cocok dengan “‘ + $('deviceSearch').value.trim() + '”.';
+        el.textContent = 'Tidak ada device yang cocok dengan "' + $('deviceSearch').value.trim() + '".';
         return;
       }
       el.innerHTML = filtered.slice(0, 50).map((d, idx) => {
