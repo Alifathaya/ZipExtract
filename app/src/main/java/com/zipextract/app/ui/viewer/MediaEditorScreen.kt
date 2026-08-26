@@ -90,9 +90,13 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.zipextract.app.data.BitmapEditor
 import com.zipextract.app.data.FileActions
+import com.zipextract.app.data.SharePasswordExporter
 import com.zipextract.app.data.StrokeData
 import com.zipextract.app.data.StrokePoint
 import com.zipextract.app.data.TextOverlayData
+import com.zipextract.app.ui.ShareChoiceDialog
+import com.zipextract.app.ui.ShareGateDialog
+import com.zipextract.app.ui.SharePasswordPromptDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -192,6 +196,7 @@ fun MediaEditorScreen(
     var draftText by remember { mutableStateOf("") }
     var textSizePx by remember { mutableFloatStateOf(42f) }
     var lastCanvasWidth by remember { mutableFloatStateOf(1f) }
+    var shareGate by remember { mutableStateOf<ShareGateDialog?>(null) }
 
     LaunchedEffect(sourceFile, sourceBitmap) {
         loading = true
@@ -293,7 +298,7 @@ fun MediaEditorScreen(
     }
 
     /** Share the current edits via a cache file only — never writes to Pictures. */
-    fun shareEdited() {
+    fun shareEditedNormal() {
         if (tool == EditorTool.TEXT) commitDraftText()
         val bitmap = exportBitmap() ?: return
         busy = true
@@ -304,6 +309,28 @@ fun MediaEditorScreen(
             busy = false
             if (shared == null || !FileActions.shareFile(context, shared)) {
                 Toast.makeText(context, context.getString(R.string.edit_share_failed), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun shareEditedWithPassword(password: String) {
+        if (tool == EditorTool.TEXT) commitDraftText()
+        val bitmap = exportBitmap() ?: return
+        busy = true
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    val cache = BitmapEditor.writeToCacheForShare(context, bitmap, title)
+                        ?: error("cache failed")
+                    val locked = SharePasswordExporter.exportLocked(context, cache, password)
+                    withContext(Dispatchers.Main) {
+                        FileActions.shareFile(context, locked)
+                    }
+                }.getOrDefault(false)
+            }
+            busy = false
+            if (!ok) {
+                Toast.makeText(context, context.getString(R.string.share_password_failed), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -329,6 +356,26 @@ fun MediaEditorScreen(
             }
             draftText.isNotBlank() -> draftText = ""
         }
+    }
+
+    when (shareGate) {
+        ShareGateDialog.Choice -> ShareChoiceDialog(
+            onDismiss = { shareGate = null },
+            onShareNormal = {
+                shareGate = null
+                shareEditedNormal()
+            },
+            onShareWithPassword = { shareGate = ShareGateDialog.Password },
+        )
+        ShareGateDialog.Password -> SharePasswordPromptDialog(
+            usesPdfPassword = false,
+            onDismiss = { shareGate = null },
+            onConfirm = { password ->
+                shareGate = null
+                shareEditedWithPassword(password)
+            },
+        )
+        null -> Unit
     }
 
     Scaffold(
@@ -359,7 +406,7 @@ fun MediaEditorScreen(
                         Icon(Icons.Default.Save, contentDescription = stringResource(R.string.save))
                     }
                     IconButton(
-                        onClick = { shareEdited() },
+                        onClick = { shareGate = ShareGateDialog.Choice },
                         enabled = working != null && !busy,
                     ) {
                         Icon(Icons.Default.Share, contentDescription = stringResource(R.string.share))

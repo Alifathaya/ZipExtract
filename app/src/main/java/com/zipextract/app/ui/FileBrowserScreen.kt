@@ -1071,36 +1071,15 @@ fun FileBrowserScreen(
                 TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.cancel)) }
             },
         )
-        DialogType.SHARE_CHOICE -> AlertDialog(
-            onDismissRequest = { dialog = null },
-            title = { Text(stringResource(R.string.share_choice_title)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(
-                        onClick = {
-                            dialog = null
-                            onShareSelected()
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(stringResource(R.string.share_normal))
-                    }
-                    TextButton(
-                        onClick = { dialog = DialogType.SHARE_PASSWORD },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(stringResource(R.string.share_with_password))
-                    }
-                }
+        DialogType.SHARE_CHOICE -> ShareChoiceDialog(
+            onDismiss = { dialog = null },
+            onShareNormal = {
+                dialog = null
+                onShareSelected()
             },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { dialog = null }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            },
+            onShareWithPassword = { dialog = DialogType.SHARE_PASSWORD },
         )
-        DialogType.SHARE_PASSWORD -> SharePasswordDialog(
+        DialogType.SHARE_PASSWORD -> SharePasswordPromptDialog(
             usesPdfPassword = selectionUsesPdfPassword(),
             onDismiss = { dialog = null },
             onConfirm = { password ->
@@ -2416,66 +2395,6 @@ private fun TextInputDialog(
         confirmButton = {
             TextButton(onClick = onConfirm, enabled = value.isNotBlank()) {
                 Text(confirmLabel)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-        },
-    )
-}
-
-@Composable
-private fun SharePasswordDialog(
-    usesPdfPassword: Boolean,
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
-) {
-    var password by remember { mutableStateOf("") }
-    var visible by remember { mutableStateOf(false) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.share_password_title)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = stringResource(
-                        if (usesPdfPassword) {
-                            R.string.share_password_hint_pdf
-                        } else {
-                            R.string.share_password_hint_zip
-                        },
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text(stringResource(R.string.share_password_field)) },
-                    singleLine = true,
-                    visualTransformation = if (visible) {
-                        VisualTransformation.None
-                    } else {
-                        PasswordVisualTransformation()
-                    },
-                    trailingIcon = {
-                        IconButton(onClick = { visible = !visible }) {
-                            Icon(
-                                if (visible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                contentDescription = null,
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(password) },
-                enabled = password.isNotBlank(),
-            ) {
-                Text(stringResource(R.string.share_password_confirm))
             }
         },
         dismissButton = {

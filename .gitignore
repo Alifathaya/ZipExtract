@@ -11,3 +11,8 @@ app/build
 *.apk
 *.ap_
 *.aab
+<<<<<<< HEAD
+scripts/.vps-agent-bootstrap-token
+.kotlin/
+=======
+>>>>>>> origin/main

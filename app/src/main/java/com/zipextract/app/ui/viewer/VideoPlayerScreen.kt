@@ -27,8 +27,12 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -47,8 +51,15 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.zipextract.app.R
 import com.zipextract.app.data.FileActions
+import com.zipextract.app.data.SharePasswordExporter
+import com.zipextract.app.ui.ShareChoiceDialog
+import com.zipextract.app.ui.ShareGateDialog
+import com.zipextract.app.ui.SharePasswordPromptDialog
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,6 +92,9 @@ fun VideoPlayerScreen(
     )
     val currentFile = files.getOrElse(pagerState.currentPage) { file }
     val onPageChangedState = rememberUpdatedState(onPageChanged)
+    val scope = rememberCoroutineScope()
+    var shareGate by remember { mutableStateOf<ShareGateDialog?>(null) }
+    var sharing by remember { mutableStateOf(false) }
 
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.currentPage }
@@ -88,6 +102,50 @@ fun VideoPlayerScreen(
             .collect { page ->
                 files.getOrNull(page)?.let { onPageChangedState.value(it) }
             }
+    }
+
+    when (shareGate) {
+        ShareGateDialog.Choice -> ShareChoiceDialog(
+            onDismiss = { shareGate = null },
+            onShareNormal = {
+                shareGate = null
+                if (!FileActions.shareFile(context, currentFile)) {
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.video_share_failed),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            },
+            onShareWithPassword = { shareGate = ShareGateDialog.Password },
+        )
+        ShareGateDialog.Password -> SharePasswordPromptDialog(
+            usesPdfPassword = false,
+            onDismiss = { shareGate = null },
+            onConfirm = { password ->
+                shareGate = null
+                sharing = true
+                scope.launch {
+                    val ok = withContext(Dispatchers.IO) {
+                        runCatching {
+                            val locked = SharePasswordExporter.exportLocked(context, currentFile, password)
+                            withContext(Dispatchers.Main) {
+                                FileActions.shareFile(context, locked)
+                            }
+                        }.getOrDefault(false)
+                    }
+                    sharing = false
+                    if (!ok) {
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.share_password_failed),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
+            },
+        )
+        null -> Unit
     }
 
     Scaffold(
@@ -128,15 +186,8 @@ fun VideoPlayerScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = {
-                            if (!FileActions.shareFile(context, currentFile)) {
-                                Toast.makeText(
-                                    context,
-                                    context.getString(R.string.video_share_failed),
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                            }
-                        },
+                        onClick = { shareGate = ShareGateDialog.Choice },
+                        enabled = !sharing,
                     ) {
                         Icon(
                             Icons.Default.Share,
