@@ -37,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -47,14 +48,21 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.drawable.toBitmap
 import coil.compose.SubcomposeAsyncImage
+import coil.imageLoader
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import coil.request.SuccessResult
 import coil.size.Size
 import coil.transform.Transformation
 import com.zipextract.app.data.FileActions
 import java.io.File
+import java.io.FileOutputStream
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,6 +76,7 @@ fun ImageViewerScreen(
 ) {
     BackHandler(onBack = onClose)
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val files = remember(playlist, file) {
         playlist.ifEmpty { listOf(file) }
             .distinctBy { it.absolutePath }
@@ -89,7 +98,8 @@ fun ImageViewerScreen(
     val zoomState = rememberZoomState()
     var editing by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
-    // View-only orientation (not written to disk).
+    var sharing by remember { mutableStateOf(false) }
+    // View-only orientation (not written to disk until share/export).
     var rotationDeg by remember { mutableFloatStateOf(0f) }
     var flipHorizontal by remember { mutableStateOf(false) }
     val onPageChangedState = rememberUpdatedState(onPageChanged)
@@ -104,6 +114,30 @@ fun ImageViewerScreen(
                 flipHorizontal = false
                 files.getOrNull(page)?.let { onPageChangedState.value(it) }
             }
+    }
+
+    fun shareCurrentView() {
+        if (sharing) return
+        val source = currentFile
+        val rotation = rotationDeg
+        val flip = flipHorizontal
+        // No transform → share the original file as before.
+        if (rotation == 0f && !flip) {
+            if (!FileActions.shareFile(context, source)) {
+                Toast.makeText(context, context.getString(R.string.image_share_failed), Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+        sharing = true
+        scope.launch {
+            val shared = withContext(Dispatchers.IO) {
+                exportOrientedImageForShare(context, source, rotation, flip)
+            }
+            sharing = false
+            if (shared == null || !FileActions.shareFile(context, shared)) {
+                Toast.makeText(context, context.getString(R.string.image_share_failed), Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     if (editing) {
@@ -159,11 +193,8 @@ fun ImageViewerScreen(
                         Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.edit))
                     }
                     IconButton(
-                        onClick = {
-                            if (!FileActions.shareFile(context, currentFile)) {
-                                Toast.makeText(context, context.getString(R.string.image_share_failed), Toast.LENGTH_SHORT).show()
-                            }
-                        },
+                        onClick = { shareCurrentView() },
+                        enabled = !sharing,
                     ) {
                         Icon(Icons.Default.Share, contentDescription = stringResource(R.string.share))
                     }
@@ -291,8 +322,55 @@ fun ImageViewerScreen(
                     )
                 }
             }
+
+            if (sharing) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.35f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.onPrimary)
+                }
+            }
         }
     }
+}
+
+/**
+ * Bake the on-screen rotate/mirror into a cache JPEG so Share sends the
+ * last viewed state instead of the untouched original file.
+ */
+private suspend fun exportOrientedImageForShare(
+    context: android.content.Context,
+    source: File,
+    rotationDeg: Float,
+    flipHorizontal: Boolean,
+): File? {
+    return runCatching {
+        val request = ImageRequest.Builder(context)
+            .data(source)
+            .allowHardware(false)
+            .diskCachePolicy(CachePolicy.DISABLED)
+            .transformations(ImageOrientationTransformation(rotationDeg, flipHorizontal))
+            .build()
+        val result = context.imageLoader.execute(request)
+        val drawable = (result as? SuccessResult)?.drawable ?: return null
+        val bitmap = drawable.toBitmap()
+        val safeBase = source.nameWithoutExtension
+            .replace(Regex("[^A-Za-z0-9._-]"), "_")
+            .ifBlank { "photo" }
+        val outName =
+            "${safeBase}_r${rotationDeg.toInt()}_f${if (flipHorizontal) 1 else 0}.jpg"
+        val outDir = File(context.cacheDir, "share-oriented").apply { mkdirs() }
+        val outFile = File(outDir, outName)
+        FileOutputStream(outFile).use { stream ->
+            if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 92, stream)) {
+                error("compress failed")
+            }
+        }
+        outFile
+    }.getOrNull()
 }
 
 /**
