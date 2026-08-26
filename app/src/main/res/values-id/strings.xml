@@ -453,6 +453,15 @@
     <string name="license_expired">Lisensi perangkat ini sudah berakhir. Masukkan key untuk memperpanjang.</string>
     <string name="license_expired_on">Berakhir: %1$s</string>
     <string name="license_blocked">Perangkat diblokir. Hubungi admin.</string>
+    <string name="license_blocked_with_wa">Perangkat diblokir. Hubungi admin WA: %1$s</string>
+    <string name="license_admin_wa_number">628129500421</string>
+    <string name="license_admin_wa_display">+62 812-9500-421</string>
+    <string name="license_phone_code_label">Kode HP Anda</string>
+    <string name="license_copy_code">Salin kode</string>
+    <string name="license_contact_admin">Hubungi admin</string>
+    <string name="license_code_copied">Kode disalin</string>
+    <string name="license_wa_prefill">Halo admin, saya butuh aktivasi.\nKode HP: %1$s\nDevice: %2$s</string>
+    <string name="license_wa_open_failed">Tidak bisa membuka WhatsApp</string>
     <string name="license_need_online">Perlu koneksi internet untuk verifikasi lisensi.</string>
     <string name="license_key_hint">Key 12 karakter</string>
     <string name="license_activate">Aktivasi key</string>

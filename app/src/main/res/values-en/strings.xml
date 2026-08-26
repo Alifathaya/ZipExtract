@@ -453,6 +453,15 @@
     <string name="license_expired">This device\'s license has ended. Enter a key to extend.</string>
     <string name="license_expired_on">Ended: %1$s</string>
     <string name="license_blocked">This device is blocked. Contact the admin.</string>
+    <string name="license_blocked_with_wa">Device blocked. Contact admin WA: %1$s</string>
+    <string name="license_admin_wa_number">628129500421</string>
+    <string name="license_admin_wa_display">+62 812-9500-421</string>
+    <string name="license_phone_code_label">Your phone code</string>
+    <string name="license_copy_code">Copy code</string>
+    <string name="license_contact_admin">Contact admin</string>
+    <string name="license_code_copied">Code copied</string>
+    <string name="license_wa_prefill">Hi admin, I need activation.\nPhone code: %1$s\nDevice: %2$s</string>
+    <string name="license_wa_open_failed">Could not open WhatsApp</string>
     <string name="license_need_online">Internet is required to verify the license.</string>
     <string name="license_key_hint">12-character key</string>
     <string name="license_activate">Activate key</string>

@@ -162,7 +162,7 @@ class LicenseRepository private constructor(
                         gate = LicenseGateStatus.Locked,
                         expiresAtEpochMs = store.expiresAtEpochMs.takeIf { it > 0 },
                         deviceId = id,
-                        message = app.getString(com.zipextract.app.R.string.license_blocked),
+                        message = blockedMessage(),
                     )
                     return
                 }
@@ -206,7 +206,7 @@ class LicenseRepository private constructor(
                     gate = LicenseGateStatus.Locked,
                     expiresAtEpochMs = store.expiresAtEpochMs.takeIf { it > 0 },
                     deviceId = id,
-                    message = app.getString(com.zipextract.app.R.string.license_blocked),
+                    message = blockedMessage(),
                     unlimited = unlimited,
                 )
             }
@@ -268,7 +268,7 @@ class LicenseRepository private constructor(
                 gate = LicenseGateStatus.Locked,
                 expiresAtEpochMs = store.expiresAtEpochMs.takeIf { it > 0 },
                 deviceId = id,
-                message = app.getString(com.zipextract.app.R.string.license_blocked),
+                message = blockedMessage(),
                 unlimited = store.unlimited,
             )
         }
@@ -323,11 +323,18 @@ class LicenseRepository private constructor(
         )
     }
 
+    private fun blockedMessage(): String {
+        return app.getString(
+            com.zipextract.app.R.string.license_blocked_with_wa,
+            app.getString(com.zipextract.app.R.string.license_admin_wa_display),
+        )
+    }
+
     private fun mapError(code: String): String {
         return when (code) {
             "invalid_key" -> app.getString(com.zipextract.app.R.string.license_key_invalid)
             "key_already_used" -> app.getString(com.zipextract.app.R.string.license_key_used)
-            "device_blocked" -> app.getString(com.zipextract.app.R.string.license_blocked)
+            "device_blocked" -> blockedMessage()
             else -> app.getString(com.zipextract.app.R.string.license_activate_failed, code)
         }
     }
