@@ -342,6 +342,7 @@
     <string name="edit_crop_applied">Crop diterapkan</string>
     <string name="edit_saved">Disimpan: %1$s</string>
     <string name="edit_save_failed">Gagal menyimpan hasil edit</string>
+    <string name="edit_share_failed">Gagal membagikan hasil edit</string>
     <string name="edit_load_failed">Gagal memuat media untuk diedit</string>
     <string name="edit_crop_hint">Geser 8 titik besar, atau geser area tengah untuk memindahkan crop</string>
     <string name="share_file_title">Bagikan %1$s</string>

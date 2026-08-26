@@ -226,7 +226,7 @@ fun MediaEditorScreen(
         Toast.makeText(context, context.getString(R.string.edit_crop_applied), Toast.LENGTH_SHORT).show()
     }
 
-    fun saveAndMaybeShare(share: Boolean) {
+    fun saveEdited() {
         if (tool == EditorTool.TEXT) commitDraftText()
         val bitmap = exportBitmap() ?: return
         busy = true
@@ -240,7 +240,22 @@ fun MediaEditorScreen(
                 return@launch
             }
             Toast.makeText(context, context.getString(R.string.edit_saved, saved.name), Toast.LENGTH_SHORT).show()
-            if (share) FileActions.shareFile(context, saved)
+        }
+    }
+
+    /** Share the current edits via a cache file only — never writes to Pictures. */
+    fun shareEdited() {
+        if (tool == EditorTool.TEXT) commitDraftText()
+        val bitmap = exportBitmap() ?: return
+        busy = true
+        scope.launch {
+            val shared = withContext(Dispatchers.IO) {
+                BitmapEditor.writeToCacheForShare(context, bitmap, title)
+            }
+            busy = false
+            if (shared == null || !FileActions.shareFile(context, shared)) {
+                Toast.makeText(context, context.getString(R.string.edit_share_failed), Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -289,13 +304,13 @@ fun MediaEditorScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = { saveAndMaybeShare(share = false) },
+                        onClick = { saveEdited() },
                         enabled = working != null && !busy,
                     ) {
                         Icon(Icons.Default.Save, contentDescription = stringResource(R.string.save))
                     }
                     IconButton(
-                        onClick = { saveAndMaybeShare(share = true) },
+                        onClick = { shareEdited() },
                         enabled = working != null && !busy,
                     ) {
                         Icon(Icons.Default.Share, contentDescription = stringResource(R.string.share))

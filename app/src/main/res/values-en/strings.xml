@@ -342,6 +342,7 @@
     <string name="edit_crop_applied">Crop applied</string>
     <string name="edit_saved">Saved: %1$s</string>
     <string name="edit_save_failed">Failed to save edits</string>
+    <string name="edit_share_failed">Failed to share edits</string>
     <string name="edit_load_failed">Failed to load media for editing</string>
     <string name="edit_crop_hint">Drag the 8 large handles, or drag the center to move the crop</string>
     <string name="share_file_title">Share %1$s</string>

@@ -93,12 +93,33 @@ object BitmapEditor {
         return withText
     }
 
-    fun saveToPictures(context: Context, bitmap: Bitmap, baseName: String): File? {
+    private fun editedFileName(baseName: String): String {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val safeBase = baseName.substringBeforeLast('.')
             .replace(Regex("[^A-Za-z0-9._-]"), "_")
             .ifBlank { "edited" }
-        val fileName = "${safeBase}_edit_$stamp.jpg"
+        return "${safeBase}_edit_$stamp.jpg"
+    }
+
+    /**
+     * Cache-only JPEG for Share / FileProvider. Does **not** write to Pictures.
+     */
+    fun writeToCacheForShare(context: Context, bitmap: Bitmap, baseName: String): File? {
+        val fileName = editedFileName(baseName)
+        return runCatching {
+            val dir = File(context.cacheDir, "share-edit").apply { mkdirs() }
+            val cache = File(dir, fileName)
+            FileOutputStream(cache).use { out ->
+                if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)) {
+                    error("Gagal compress bitmap")
+                }
+            }
+            cache
+        }.getOrNull()
+    }
+
+    fun saveToPictures(context: Context, bitmap: Bitmap, baseName: String): File? {
+        val fileName = editedFileName(baseName)
 
         return runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
