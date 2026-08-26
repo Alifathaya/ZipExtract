@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -102,13 +104,60 @@ private enum class EditorTool { NONE, CROP, PEN, TEXT }
 
 private data class PenColor(val color: Color, val argb: Int)
 
+/** Basic palette for pen + text (all primary / common colors). */
 private val penColors = listOf(
-    PenColor(Color(0xFFE11D48), 0xFFE11D48.toInt()),
-    PenColor(Color(0xFF2563EB), 0xFF2563EB.toInt()),
-    PenColor(Color(0xFF111827), 0xFF111827.toInt()),
-    PenColor(Color(0xFFF59E0B), 0xFFF59E0B.toInt()),
-    PenColor(Color(0xFFFFFFFF), 0xFFFFFFFF.toInt()),
+    PenColor(Color(0xFFE11D48), 0xFFE11D48.toInt()), // red
+    PenColor(Color(0xFFF97316), 0xFFF97316.toInt()), // orange
+    PenColor(Color(0xFFFACC15), 0xFFFACC15.toInt()), // yellow
+    PenColor(Color(0xFF22C55E), 0xFF22C55E.toInt()), // green
+    PenColor(Color(0xFF14B8A6), 0xFF14B8A6.toInt()), // teal
+    PenColor(Color(0xFF06B6D4), 0xFF06B6D4.toInt()), // cyan
+    PenColor(Color(0xFF2563EB), 0xFF2563EB.toInt()), // blue
+    PenColor(Color(0xFF4F46E5), 0xFF4F46E5.toInt()), // indigo
+    PenColor(Color(0xFF7C3AED), 0xFF7C3AED.toInt()), // purple
+    PenColor(Color(0xFFEC4899), 0xFFEC4899.toInt()), // pink
+    PenColor(Color(0xFFA16207), 0xFFA16207.toInt()), // brown
+    PenColor(Color(0xFF6B7280), 0xFF6B7280.toInt()), // gray
+    PenColor(Color(0xFF111827), 0xFF111827.toInt()), // black
+    PenColor(Color(0xFFFFFFFF), 0xFFFFFFFF.toInt()), // white
 )
+
+@Composable
+private fun EditorColorSwatches(
+    selected: PenColor,
+    onSelect: (PenColor) -> Unit,
+) {
+    val scroll = rememberScrollState()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(scroll),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        penColors.forEach { option ->
+            val selectedNow = selected.argb == option.argb
+            val isWhite = option.argb == 0xFFFFFFFF.toInt()
+            val borderColor = when {
+                isWhite -> Color.Gray
+                selectedNow -> Color.White
+                else -> Color.Transparent
+            }
+            Box(
+                modifier = Modifier
+                    .size(if (selectedNow) 30.dp else 24.dp)
+                    .clip(CircleShape)
+                    .background(option.color)
+                    .border(
+                        width = if (selectedNow || isWhite) 2.dp else 0.dp,
+                        color = borderColor,
+                        shape = CircleShape,
+                    )
+                    .clickable { onSelect(option) },
+            )
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -381,25 +430,15 @@ fun MediaEditorScreen(
 
                     if (tool == EditorTool.PEN) {
                         Spacer(modifier = Modifier.height(8.dp))
+                        EditorColorSwatches(
+                            selected = selectedPen,
+                            onSelect = { selectedPen = it },
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            penColors.take(4).forEach { option ->
-                                Box(
-                                    modifier = Modifier
-                                        .size(if (selectedPen == option) 30.dp else 24.dp)
-                                        .clip(CircleShape)
-                                        .background(option.color)
-                                        .border(
-                                            width = if (selectedPen == option) 2.dp else 0.dp,
-                                            color = Color.White,
-                                            shape = CircleShape,
-                                        )
-                                        .clickable { selectedPen = option },
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(4.dp))
                             TextButton(onClick = { strokeWidth = 5f }) { Text(stringResource(R.string.edit_stroke_thin)) }
                             TextButton(onClick = { strokeWidth = 8f }) { Text(stringResource(R.string.edit_stroke_medium)) }
                             TextButton(onClick = { strokeWidth = 14f }) { Text(stringResource(R.string.edit_stroke_thick)) }
@@ -429,31 +468,16 @@ fun MediaEditorScreen(
                             placeholder = { Text(stringResource(R.string.edit_text_placeholder)) },
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            penColors.forEach { option ->
-                                Box(
-                                    modifier = Modifier
-                                        .size(if (selectedPen == option) 30.dp else 24.dp)
-                                        .clip(CircleShape)
-                                        .background(option.color)
-                                        .border(
-                                            width = if (selectedPen == option) 2.dp else 1.dp,
-                                            color = if (option.color == Color.White) Color.Gray else Color.White,
-                                            shape = CircleShape,
-                                        )
-                                        .clickable {
-                                            selectedPen = option
-                                            val idx = selectedTextIndex
-                                            if (idx in textOverlays.indices) {
-                                                textOverlays[idx] = textOverlays[idx].copy(colorArgb = option.argb)
-                                            }
-                                        },
-                                )
-                            }
-                        }
+                        EditorColorSwatches(
+                            selected = selectedPen,
+                            onSelect = { option ->
+                                selectedPen = option
+                                val idx = selectedTextIndex
+                                if (idx in textOverlays.indices) {
+                                    textOverlays[idx] = textOverlays[idx].copy(colorArgb = option.argb)
+                                }
+                            },
+                        )
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
