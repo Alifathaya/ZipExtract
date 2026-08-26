@@ -2,23 +2,25 @@ package com.zipextract.app.ui.viewer
 
 import com.zipextract.app.R
 
+import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.ZoomIn
-import androidx.compose.material.icons.filled.ZoomOut
-import androidx.compose.material.icons.filled.ZoomOutMap
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,8 +34,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -44,12 +48,21 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.drawable.toBitmap
 import coil.compose.SubcomposeAsyncImage
+import coil.imageLoader
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import coil.request.SuccessResult
+import coil.size.Size
+import coil.transform.Transformation
 import com.zipextract.app.data.FileActions
 import java.io.File
+import java.io.FileOutputStream
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,6 +76,7 @@ fun ImageViewerScreen(
 ) {
     BackHandler(onBack = onClose)
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val files = remember(playlist, file) {
         playlist.ifEmpty { listOf(file) }
             .distinctBy { it.absolutePath }
@@ -84,16 +98,46 @@ fun ImageViewerScreen(
     val zoomState = rememberZoomState()
     var editing by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var sharing by remember { mutableStateOf(false) }
+    // View-only orientation (not written to disk until share/export).
+    var rotationDeg by remember { mutableFloatStateOf(0f) }
+    var flipHorizontal by remember { mutableStateOf(false) }
     val onPageChangedState = rememberUpdatedState(onPageChanged)
 
-    // Reset zoom when the page changes; notify host of the current file.
+    // Reset zoom/orientation when the page changes; notify host of the current file.
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.currentPage }
             .distinctUntilChanged()
             .collect { page ->
                 zoomState.reset()
+                rotationDeg = 0f
+                flipHorizontal = false
                 files.getOrNull(page)?.let { onPageChangedState.value(it) }
             }
+    }
+
+    fun shareCurrentView() {
+        if (sharing) return
+        val source = currentFile
+        val rotation = rotationDeg
+        val flip = flipHorizontal
+        // No transform → share the original file as before.
+        if (rotation == 0f && !flip) {
+            if (!FileActions.shareFile(context, source)) {
+                Toast.makeText(context, context.getString(R.string.image_share_failed), Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+        sharing = true
+        scope.launch {
+            val shared = withContext(Dispatchers.IO) {
+                exportOrientedImageForShare(context, source, rotation, flip)
+            }
+            sharing = false
+            if (shared == null || !FileActions.shareFile(context, shared)) {
+                Toast.makeText(context, context.getString(R.string.image_share_failed), Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     if (editing) {
@@ -132,26 +176,12 @@ fun ImageViewerScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            text = currentFile.name,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text = if (files.size > 1) {
-                                stringResource(
-                                    R.string.image_viewer_hint_swipe,
-                                    pagerState.currentPage + 1,
-                                    files.size,
-                                )
-                            } else {
-                                stringResource(R.string.image_viewer_hint)
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    Text(
+                        text = currentFile.name,
+                        style = MaterialTheme.typography.labelLarge,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 },
                 navigationIcon = {
                     IconButton(onClick = onClose) {
@@ -163,11 +193,8 @@ fun ImageViewerScreen(
                         Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.edit))
                     }
                     IconButton(
-                        onClick = {
-                            if (!FileActions.shareFile(context, currentFile)) {
-                                Toast.makeText(context, context.getString(R.string.image_share_failed), Toast.LENGTH_SHORT).show()
-                            }
-                        },
+                        onClick = { shareCurrentView() },
+                        enabled = !sharing,
                     ) {
                         Icon(Icons.Default.Share, contentDescription = stringResource(R.string.share))
                     }
@@ -177,21 +204,6 @@ fun ImageViewerScreen(
                             contentDescription = stringResource(R.string.delete),
                             tint = MaterialTheme.colorScheme.error,
                         )
-                    }
-                    IconButton(
-                        onClick = { zoomState.zoomOut() },
-                        enabled = zoomState.isZoomed,
-                    ) {
-                        Icon(Icons.Default.ZoomOut, contentDescription = stringResource(R.string.zoom_out))
-                    }
-                    IconButton(onClick = { zoomState.zoomIn() }) {
-                        Icon(Icons.Default.ZoomIn, contentDescription = stringResource(R.string.zoom_in))
-                    }
-                    IconButton(
-                        onClick = { zoomState.reset() },
-                        enabled = zoomState.isZoomed,
-                    ) {
-                        Icon(Icons.Default.ZoomOutMap, contentDescription = stringResource(R.string.zoom_reset))
                     }
                 },
             )
@@ -212,18 +224,37 @@ fun ImageViewerScreen(
                 modifier = Modifier.fillMaxSize(),
             ) { page ->
                 val pageFile = files[page]
-                val imageRequest = remember(pageFile.absolutePath, pageFile.length(), pageFile.lastModified()) {
-                    ImageRequest.Builder(context)
+                val isCurrent = page == pagerState.currentPage
+                val pageRotation = if (isCurrent) rotationDeg else 0f
+                val pageFlip = if (isCurrent) flipHorizontal else false
+                // Rotate/mirror in the bitmap so ContentScale.Fit uses the new
+                // aspect ratio — keeps 90°/270° full-size instead of shrinking.
+                val imageRequest = remember(
+                    pageFile.absolutePath,
+                    pageFile.length(),
+                    pageFile.lastModified(),
+                    pageRotation,
+                    pageFlip,
+                ) {
+                    val baseKey =
+                        "${pageFile.absolutePath}:${pageFile.length()}:${pageFile.lastModified()}"
+                    val builder = ImageRequest.Builder(context)
                         .data(pageFile)
-                        .memoryCacheKey(
-                            "${pageFile.absolutePath}:${pageFile.length()}:${pageFile.lastModified()}",
-                        )
                         .diskCachePolicy(CachePolicy.DISABLED)
                         .allowHardware(false)
-                        .build()
+                    if (pageRotation != 0f || pageFlip) {
+                        builder
+                            .transformations(
+                                ImageOrientationTransformation(pageRotation, pageFlip),
+                            )
+                            .memoryCacheKey("$baseKey:r${pageRotation.toInt()}:f$pageFlip")
+                    } else {
+                        builder.memoryCacheKey(baseKey)
+                    }
+                    builder.build()
                 }
                 // Only the current page gets interactive zoom; neighbors stay fit.
-                if (page == pagerState.currentPage) {
+                if (isCurrent) {
                     ZoomableBox(
                         zoomState = zoomState,
                         // At 1x, don't steal horizontal swipes from the pager.
@@ -256,6 +287,113 @@ fun ImageViewerScreen(
                     )
                 }
             }
+
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 20.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+                        shape = RoundedCornerShape(28.dp),
+                    )
+                    .padding(horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(
+                    onClick = {
+                        rotationDeg = (rotationDeg + 90f) % 360f
+                        zoomState.reset()
+                    },
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.RotateRight,
+                        contentDescription = stringResource(R.string.image_rotate),
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        flipHorizontal = !flipHorizontal
+                        zoomState.reset()
+                    },
+                ) {
+                    Icon(
+                        Icons.Default.Flip,
+                        contentDescription = stringResource(R.string.image_flip),
+                    )
+                }
+            }
+
+            if (sharing) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.35f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.onPrimary)
+                }
+            }
         }
+    }
+}
+
+/**
+ * Bake the on-screen rotate/mirror into a cache JPEG so Share sends the
+ * last viewed state instead of the untouched original file.
+ */
+private suspend fun exportOrientedImageForShare(
+    context: android.content.Context,
+    source: File,
+    rotationDeg: Float,
+    flipHorizontal: Boolean,
+): File? {
+    return runCatching {
+        val request = ImageRequest.Builder(context)
+            .data(source)
+            .allowHardware(false)
+            .diskCachePolicy(CachePolicy.DISABLED)
+            .transformations(ImageOrientationTransformation(rotationDeg, flipHorizontal))
+            .build()
+        val result = context.imageLoader.execute(request)
+        val drawable = (result as? SuccessResult)?.drawable ?: return null
+        val bitmap = drawable.toBitmap()
+        val safeBase = source.nameWithoutExtension
+            .replace(Regex("[^A-Za-z0-9._-]"), "_")
+            .ifBlank { "photo" }
+        val outName =
+            "${safeBase}_r${rotationDeg.toInt()}_f${if (flipHorizontal) 1 else 0}.jpg"
+        val outDir = File(context.cacheDir, "share-oriented").apply { mkdirs() }
+        val outFile = File(outDir, outName)
+        FileOutputStream(outFile).use { stream ->
+            if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 92, stream)) {
+                error("compress failed")
+            }
+        }
+        outFile
+    }.getOrNull()
+}
+
+/**
+ * Bake rotate / mirror into the bitmap so Fit layout uses the true
+ * post-orientation size (no artificial shrink at 90° / 270°).
+ */
+private class ImageOrientationTransformation(
+    private val rotationDeg: Float,
+    private val flipHorizontal: Boolean,
+) : Transformation {
+    override val cacheKey: String =
+        "orient-r${rotationDeg.toInt()}-f$flipHorizontal"
+
+    override suspend fun transform(input: Bitmap, size: Size): Bitmap {
+        val normalized = ((rotationDeg % 360f) + 360f) % 360f
+        if (normalized == 0f && !flipHorizontal) return input
+        val matrix = Matrix()
+        if (flipHorizontal) {
+            matrix.postScale(-1f, 1f, input.width / 2f, input.height / 2f)
+        }
+        if (normalized != 0f) {
+            matrix.postRotate(normalized)
+        }
+        return Bitmap.createBitmap(input, 0, 0, input.width, input.height, matrix, true)
     }
 }

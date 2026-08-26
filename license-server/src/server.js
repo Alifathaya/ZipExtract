@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * FileNest license server — API + admin UI.
+ * BRI-Link license server — API + admin UI.
  *
  * Env:
  *   PORT              default 8787
@@ -63,6 +63,13 @@ CREATE TABLE IF NOT EXISTS events (
   detail TEXT
 );
 `);
+
+try {
+  db.exec(`ALTER TABLE keys ADD COLUMN app TEXT NOT NULL DEFAULT 'any'`);
+} catch (_) {
+  /* column already exists */
+}
+db.prepare(`UPDATE keys SET app = 'any' WHERE app IS NOT NULL AND app != 'any'`).run();
 
 const insertEvent = db.prepare(
   `INSERT INTO events (at, kind, device_id, detail) VALUES (?, ?, ?, ?)`,
@@ -304,7 +311,7 @@ app.post('/v1/admin/keys/generate', requireAdmin, (req, res) => {
   const count = Math.min(50, Math.max(1, Number(req.body?.count) || 1));
   const created = nowIso();
   const insert = db.prepare(
-    `INSERT INTO keys (key_code, days, created_at, status) VALUES (?, ?, ?, 'unused')`,
+    `INSERT INTO keys (key_code, days, created_at, status, app) VALUES (?, ?, ?, 'unused', 'any')`,
   );
   const keys = [];
   const tx = db.transaction(() => {
@@ -355,7 +362,9 @@ app.get('/v1/admin/keys', requireAdmin, (req, res) => {
 
 app.get('/v1/admin/devices', requireAdmin, (_req, res) => {
   const rows = db
-    .prepare(`SELECT * FROM devices ORDER BY created_at DESC LIMIT 500`)
+    .prepare(
+      `SELECT * FROM devices ORDER BY COALESCE(last_check_at, created_at) DESC LIMIT 500`,
+    )
     .all();
   return res.json({
     devices: rows.map((r) => ({ ...r, ...devicePayload(r) })),
@@ -455,6 +464,22 @@ app.post('/v1/admin/devices/:id/allow', requireAdmin, (req, res) => {
   return res.json(result);
 });
 
+/** Set admin label / keterangan for a device (e.g. "Pak Dwi"). */
+app.post('/v1/admin/devices/:id/note', requireAdmin, (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ error: 'invalid_device_id' });
+  const note = String(req.body?.note ?? '')
+    .trim()
+    .slice(0, 120);
+  const info = db
+    .prepare(`UPDATE devices SET note = ? WHERE device_id = ?`)
+    .run(note || null, id);
+  if (info.changes === 0) return res.status(404).json({ error: 'not_found' });
+  logEvent('admin_note', id, note || '(cleared)');
+  const row = db.prepare(`SELECT * FROM devices WHERE device_id = ?`).get(id);
+  return res.json({ ok: true, device_id: id, note: row.note || null, ...devicePayload(row) });
+});
+
 app.post('/v1/admin/keys/:code/revoke', requireAdmin, (req, res) => {
   const code = req.params.code;
   const info = db
@@ -464,6 +489,17 @@ app.post('/v1/admin/keys/:code/revoke', requireAdmin, (req, res) => {
     .run(code);
   if (info.changes === 0) return res.status(404).json({ error: 'not_found' });
   logEvent('admin_revoke_key', null, code);
+  return res.json({ ok: true });
+});
+
+app.delete('/v1/admin/keys/:code', requireAdmin, (req, res) => {
+  const code = String(req.params.code || '').trim();
+  if (!code || code.length !== 12) {
+    return res.status(400).json({ error: 'invalid_key' });
+  }
+  const info = db.prepare(`DELETE FROM keys WHERE key_code = ?`).run(code);
+  if (info.changes === 0) return res.status(404).json({ error: 'not_found' });
+  logEvent('admin_delete_key', null, code);
   return res.json({ ok: true });
 });
 
@@ -578,7 +614,7 @@ wss.on('connection', (ws, req) => {
 
 server.listen(PORT, () => {
   // eslint-disable-next-line no-console
-  console.log(`FileNest license server on :${PORT} (ws /v1/license/ws)`);
+  console.log(`BRI-Link license server on :${PORT} (ws /v1/license/ws)`);
   if (ADMIN_PASSWORD === 'changeme') {
     // eslint-disable-next-line no-console
     console.warn('WARNING: ADMIN_PASSWORD is default "changeme" — change it.');

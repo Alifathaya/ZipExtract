@@ -53,12 +53,73 @@ object BitmapEditor {
         return output
     }
 
-    fun saveToPictures(context: Context, bitmap: Bitmap, baseName: String): File? {
+    fun drawTextOverlays(
+        source: Bitmap,
+        overlays: List<TextOverlayData>,
+    ): Bitmap {
+        if (overlays.isEmpty()) return source
+        val output = source.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(output)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            textAlign = Paint.Align.CENTER
+        }
+        overlays.forEach { overlay ->
+            val text = overlay.text.trim()
+            if (text.isEmpty()) return@forEach
+            val scale = source.width / overlay.canvasWidth.coerceAtLeast(1f)
+            paint.color = overlay.colorArgb
+            paint.textSize = overlay.sizePx * scale
+            val lines = text.split('\n')
+            val lineHeight = paint.fontSpacing
+            val totalHeight = lineHeight * lines.size
+            val startY = overlay.y * source.height - totalHeight / 2f + lineHeight / 2f
+            val cx = overlay.x * source.width
+            lines.forEachIndexed { index, line ->
+                canvas.drawText(line, cx, startY + index * lineHeight, paint)
+            }
+        }
+        return output
+    }
+
+    fun applyEdits(
+        source: Bitmap,
+        strokes: List<StrokeData>,
+        textOverlays: List<TextOverlayData>,
+    ): Bitmap {
+        val withInk = drawStrokes(source, strokes)
+        val withText = drawTextOverlays(withInk, textOverlays)
+        if (withInk !== source && withInk !== withText) withInk.recycle()
+        return withText
+    }
+
+    private fun editedFileName(baseName: String): String {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val safeBase = baseName.substringBeforeLast('.')
             .replace(Regex("[^A-Za-z0-9._-]"), "_")
             .ifBlank { "edited" }
-        val fileName = "${safeBase}_edit_$stamp.jpg"
+        return "${safeBase}_edit_$stamp.jpg"
+    }
+
+    /**
+     * Cache-only JPEG for Share / FileProvider. Does **not** write to Pictures.
+     */
+    fun writeToCacheForShare(context: Context, bitmap: Bitmap, baseName: String): File? {
+        val fileName = editedFileName(baseName)
+        return runCatching {
+            val dir = File(context.cacheDir, "share-edit").apply { mkdirs() }
+            val cache = File(dir, fileName)
+            FileOutputStream(cache).use { out ->
+                if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)) {
+                    error("Gagal compress bitmap")
+                }
+            }
+            cache
+        }.getOrNull()
+    }
+
+    fun saveToPictures(context: Context, bitmap: Bitmap, baseName: String): File? {
+        val fileName = editedFileName(baseName)
 
         return runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -124,5 +185,15 @@ data class StrokeData(
     val points: List<StrokePoint>,
     val colorArgb: Int,
     val widthPx: Float,
+    val canvasWidth: Float,
+)
+
+/** Normalized (0–1) center position of a text overlay on the image. */
+data class TextOverlayData(
+    val text: String,
+    val x: Float,
+    val y: Float,
+    val colorArgb: Int,
+    val sizePx: Float,
     val canvasWidth: Float,
 )

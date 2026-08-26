@@ -40,6 +40,7 @@ import com.zipextract.app.data.StorageInfo
 import com.zipextract.app.data.StorageKind
 import com.zipextract.app.data.ThemeMode
 import com.zipextract.app.data.ArchiveManager
+import com.zipextract.app.data.PdfPasswordHelper
 import com.zipextract.app.data.ZipManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -348,6 +349,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                         recentFiles = state.recentFiles.ifEmpty { cachedPhotos },
                     )
                 }
+                // Cache may still list deleted photos — prune and top up soon.
+                pruneMissingImagesAndRefill()
             } else {
                 _uiState.update { it.copy(homeLoading = false) }
             }
@@ -789,10 +792,12 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
 
         // Warm memory cache: paint the list immediately (no empty "Memuat…" flash).
+        // Never call File.exists() here — scanning thousands of paths on the UI thread
+        // made Categories / Images / Videos feel frozen after the 2.4.78 prune work.
         val warmLibrary = if (!forceRefresh) mediaLibraryCache else null
         if (warmLibrary != null && category != FileCategory.APPS) {
-            val base = warmLibrary.forCategory(category)
             val usesMediaAlbums = category == FileCategory.IMAGES || category == FileCategory.VIDEOS
+            val base = warmLibrary.forCategory(category)
             val mediaAlbums = if (usesMediaAlbums) MediaAlbum.buildChips(base) else emptyList()
             val mediaAlbumId = MediaAlbum.ALL
             val filtered = when (category) {
@@ -828,12 +833,12 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             }
             libraryJob?.cancel()
             libraryJob = viewModelScope.launch {
-                // Photos: catch up immediately so a shot taken seconds ago is visible.
-                val wait = if (category == FileCategory.IMAGES || category == FileCategory.VIDEOS) {
-                    40L
-                } else {
-                    280L
+                if (usesMediaAlbums) {
+                    // Prune deleted media off the UI thread after first paint.
+                    pruneMissingImagesAndRefill()
                 }
+                // Photos: catch up immediately so a shot taken seconds ago is visible.
+                val wait = if (usesMediaAlbums) 40L else 280L
                 delay(wait)
                 if (_uiState.value.activeCategory == category && _uiState.value.libraryMode) {
                     catchUpMediaStoreChanges()
@@ -1434,6 +1439,11 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
         if (!canOpen) {
             emit(str(R.string.file_not_found))
+            when (content) {
+                is ViewerContent.Image -> reportMissingImage(content.file.absolutePath)
+                is ViewerContent.Video -> reportMissingImage(content.file.absolutePath)
+                else -> Unit
+            }
             return
         }
         val state = _uiState.value
@@ -1897,11 +1907,19 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     updateProgressThrottled(str(R.string.progress_extract_zip), name, progress)
                 }
 
+                // Open the folder immediately (shallow listing). Deep walks / MediaStore
+                // merge used to dominate wall-clock after the archive was already written.
+                showExtractedFolder(destination, emptyList())
+
+                // Auto-open / install primary extracted content (APK, PDF, media, …)
+                // without waiting for another tap.
+                withContext(Dispatchers.Main) {
+                    autoOpenAfterExtract(destination)
+                }
+
                 var deletedOriginal = false
                 if (deleteOriginal) {
-                    // Only pay GC/delay cost when we must delete the source archive.
-                    runCatching { System.gc() }
-                    kotlinx.coroutines.delay(80)
+                    // No System.gc() / sleep — those added hundreds of ms for no benefit.
                     deletedOriginal = FileOperations.deleteOriginalArchive(
                         context = localizedContext(),
                         localFile = zip,
@@ -1909,8 +1927,6 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                         displayName = displayName,
                     )
                     if (!deletedOriginal) {
-                        kotlinx.coroutines.delay(200)
-                        runCatching { System.gc() }
                         deletedOriginal = FileOperations.deleteOriginalArchive(
                             context = localizedContext(),
                             localFile = zip,
@@ -1939,26 +1955,23 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                     }
                 }
 
-                // Show results after delete so a SAME_FOLDER listing cannot re-pin the ZIP.
-                val extractedItems = collectExtractedItems(destination, touchNewest = true)
-                // Don't block extract completion on a cold MediaLibrary disk load.
-                mediaLibraryCache = FileOperations.mergeIncremental(
-                    mediaLibraryCache ?: MediaLibrary(),
-                    extractedItems,
-                )
-                showExtractedFolder(destination, extractedItems)
-
-                // Media scan in the background so the gallery/Downloads index catches up
-                // without blocking the user from browsing extracted files.
-                if (extractedItems.isNotEmpty()) {
-                    MediaScannerConnection.scanFile(
-                        appContext,
-                        (extractedItems.map { it.path } + destination.absolutePath).toTypedArray(),
-                        null,
-                        null,
+                // Media library + scan off the critical path so the user can browse now.
+                viewModelScope.launch(Dispatchers.IO) {
+                    val extractedItems = collectExtractedItemsShallow(destination, touchNewest = true)
+                    mediaLibraryCache = FileOperations.mergeIncremental(
+                        mediaLibraryCache ?: MediaLibrary(),
+                        extractedItems,
                     )
-                } else {
-                    scanExtractedFiles(destination)
+                    if (extractedItems.isNotEmpty()) {
+                        MediaScannerConnection.scanFile(
+                            appContext,
+                            (extractedItems.map { it.path } + destination.absolutePath).toTypedArray(),
+                            null,
+                            null,
+                        )
+                    } else {
+                        scanExtractedFiles(destination)
+                    }
                 }
 
                 val baseMsg = if (written > 0) {
@@ -2057,51 +2070,142 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    private fun collectExtractedItems(root: File, touchNewest: Boolean): List<FileItem> {
+    /**
+     * Top-level-only listing for post-extract MediaStore merge — avoids a full tree walk
+     * that could take longer than the extract itself on large archives / SD cards.
+     */
+    private fun collectExtractedItemsShallow(root: File, touchNewest: Boolean): List<FileItem> {
         val now = System.currentTimeMillis()
-        val items = mutableListOf<FileItem>()
-        fun walk(dir: File, depth: Int) {
-            if (depth > 8) return
-            val children = dir.listFiles() ?: return
-            children.forEach { child ->
-                when {
-                    child.isDirectory -> walk(child, depth + 1)
-                    child.isFile -> {
-                        // Prefer in-memory timestamp for "newest first" pin — touching
-                        // every file on disk (especially exFAT/SD) is very slow.
-                        items += if (touchNewest) {
-                            FileItem(
-                                file = child,
-                                name = child.name,
-                                path = child.absolutePath,
-                                isDirectory = false,
-                                sizeBytes = child.length(),
-                                lastModified = now,
-                            )
-                        } else {
-                            FileItem(child)
-                        }
-                    }
+        if (root.isFile) {
+            return listOf(
+                if (touchNewest) {
+                    FileItem(
+                        file = root,
+                        name = root.name,
+                        path = root.absolutePath,
+                        isDirectory = false,
+                        sizeBytes = root.length(),
+                        lastModified = now,
+                    )
+                } else {
+                    FileItem(root)
+                },
+            )
+        }
+        if (!root.isDirectory) return emptyList()
+        val children = root.listFiles() ?: return emptyList()
+        return children.mapNotNull { child ->
+            when {
+                child.isFile -> if (touchNewest) {
+                    FileItem(
+                        file = child,
+                        name = child.name,
+                        path = child.absolutePath,
+                        isDirectory = false,
+                        sizeBytes = child.length(),
+                        lastModified = now,
+                    )
+                } else {
+                    FileItem(child)
+                }
+                else -> null
+            }
+        }
+    }
+
+    /**
+     * After extract: automatically install/open the primary content so the user does not
+     * need a second tap. Priority: APK → PDF → uniform media set → single other file.
+     */
+    private fun autoOpenAfterExtract(destination: File) {
+        val files = listExtractedFilesForAutoOpen(destination)
+        if (files.isEmpty()) return
+        val items = files.map { FileItem(it) }
+
+        items.filter { it.isApk }.maxByOrNull { it.sizeBytes }?.let { apk ->
+            installApkFile(apk.file)
+            return
+        }
+
+        items.firstOrNull { it.isPdf }?.let { pdf ->
+            openViewer(ViewerContent.Pdf(pdf.file))
+            return
+        }
+
+        val images = items.filter { it.isImage }
+        if (images.isNotEmpty() && images.size == items.size) {
+            val list = images.map { it.file }
+            openViewer(ViewerContent.Image(file = list.first(), playlist = list, index = 0))
+            return
+        }
+
+        val videos = items.filter { it.isVideo }
+        if (videos.isNotEmpty() && videos.size == items.size) {
+            val list = videos.map { it.file }
+            openViewer(ViewerContent.Video(file = list.first(), playlist = list, index = 0))
+            return
+        }
+
+        val audios = items.filter { it.isAudio }
+        if (audios.isNotEmpty() && audios.size == items.size) {
+            val list = audios.map { it.file }
+            openViewer(ViewerContent.Video(file = list.first(), playlist = list, index = 0))
+            return
+        }
+
+        if (items.size != 1) return
+        val item = items.first()
+        when {
+            item.isArchive || (item.isApp && !item.isApk) -> openExtractDialog(item.file)
+            item.isDocument || item.isAudio || item.isVideo || item.isImage -> {
+                // Documents (non-PDF) and any leftover single media → system / in-app open.
+                if (item.isImage) {
+                    openViewer(ViewerContent.Image(item.file))
+                } else if (item.isVideo || item.isAudio) {
+                    openViewer(ViewerContent.Video(item.file))
+                } else {
+                    FileActions.openWith(appContext, item.file)
                 }
             }
+            else -> FileActions.openWith(appContext, item.file)
         }
-        if (root.isFile) {
-            items += if (touchNewest) {
-                FileItem(
-                    file = root,
-                    name = root.name,
-                    path = root.absolutePath,
-                    isDirectory = false,
-                    sizeBytes = root.length(),
-                    lastModified = now,
-                )
-            } else {
-                FileItem(root)
+    }
+
+    /** Shallow file list for auto-open (unwraps a single root folder ZIP layout). */
+    private fun listExtractedFilesForAutoOpen(root: File, maxFiles: Int = 48): List<File> {
+        if (root.isFile) return listOf(root)
+        if (!root.isDirectory) return emptyList()
+
+        fun listFilesShallow(dir: File): List<File> {
+            return dir.listFiles()
+                ?.asSequence()
+                ?.filter { !it.name.startsWith(".") }
+                ?.filter { it.isFile }
+                ?.sortedBy { it.name.lowercase() }
+                ?.take(maxFiles)
+                ?.toList()
+                .orEmpty()
+        }
+
+        val topFiles = listFilesShallow(root)
+        if (topFiles.isNotEmpty()) return topFiles
+
+        val topDirs = root.listFiles()
+            ?.filter { it.isDirectory && !it.name.startsWith(".") }
+            .orEmpty()
+        // Common ZIP layout: one wrapper folder containing the real payload.
+        if (topDirs.size == 1) {
+            val nested = listFilesShallow(topDirs.first())
+            if (nested.isNotEmpty()) return nested
+            // One more level for e.g. archive/name/app.apk
+            val deeperDirs = topDirs.first().listFiles()
+                ?.filter { it.isDirectory && !it.name.startsWith(".") }
+                .orEmpty()
+            if (deeperDirs.size == 1) {
+                return listFilesShallow(deeperDirs.first())
             }
-        } else {
-            walk(root, 0)
         }
-        return items.sortedByDescending { it.lastModified }
+        return emptyList()
     }
 
     /**
@@ -2323,6 +2427,13 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
     fun cutSelected() = putClipboard(ClipboardMode.CUT)
 
+    fun clearClipboard() {
+        _uiState.update { it.copy(clipboard = null) }
+    }
+
+    fun resolvePasteTarget(state: BrowserUiState = _uiState.value): File? =
+        state.resolvePasteTargetDir()
+
     private fun putClipboard(mode: ClipboardMode) {
         val files = selectedFiles()
         if (files.isEmpty()) {
@@ -2343,23 +2454,67 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun paste() {
-        val clipboard = _uiState.value.clipboard
+        val state = _uiState.value
+        val clipboard = state.clipboard
         if (clipboard == null) {
             emit(str(R.string.clipboard_empty))
             return
         }
-        runJob(str(R.string.progress_pasting), str(R.string.progress_copying)) {
+        val targetDir = state.resolvePasteTargetDir()
+        if (targetDir == null) {
+            emit(
+                if (state.needsAlbumPickForPaste()) {
+                    str(R.string.paste_pick_album)
+                } else {
+                    str(R.string.paste_need_folder)
+                },
+            )
+            return
+        }
+        if (clipboard.mode == ClipboardMode.CUT) {
+            val targetCanonical = runCatching { targetDir.canonicalFile }.getOrElse { targetDir }
+            val allAlreadyHere = clipboard.items.all { file ->
+                val parent = file.parentFile ?: return@all false
+                runCatching { parent.canonicalFile }.getOrElse { parent } == targetCanonical
+            }
+            if (allAlreadyHere) {
+                emit(str(R.string.paste_same_folder_cut))
+                return
+            }
+        }
+        val moving = clipboard.mode == ClipboardMode.CUT
+        val title = str(R.string.progress_pasting)
+        val busy = if (moving) str(R.string.progress_moving) else str(R.string.progress_copying)
+        val sourcePaths = clipboard.items.mapTo(LinkedHashSet()) { file ->
+            runCatching { file.canonicalPath }.getOrDefault(file.absolutePath)
+        }
+        // Hide Tempel/Pindah immediately on tap (copy and cut).
+        _uiState.update { it.copy(clipboard = null) }
+        // No full refreshAfter — patch the visible list locally when paste finishes.
+        runJob(title, busy, refreshAfter = false) {
             val result = FileOperations.paste(
                 localizedContext(),
                 clipboard,
-                _uiState.value.currentDir,
+                targetDir,
             ) { progress, name ->
-                updateProgress(str(R.string.progress_pasting), name, progress)
+                updateProgressThrottled(title, name, progress)
             }
-            if (clipboard.mode == ClipboardMode.CUT && result is OperationResult.Success) {
-                _uiState.update { it.copy(clipboard = null) }
+            when (result) {
+                is OperationResult.Success -> {
+                    val added = result.files.map { FileItem(it) }
+                    withContext(Dispatchers.Main) {
+                        if (moving) applyLocalRemovals(sourcePaths)
+                        mediaLibraryCache = FileOperations.mergeIncremental(
+                            mediaLibraryCache ?: MediaLibrary(),
+                            added,
+                        )
+                        applyLocalPasteAdditions(targetDir, added)
+                    }
+                    mediaLibraryCache?.let(::scheduleIncrementalCacheSave)
+                    emit(result.message)
+                }
+                is OperationResult.Error -> emit(result.message)
             }
-            handleResult(result)
         }
     }
 
@@ -2404,15 +2559,25 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
      */
     private fun applyLocalRemovals(removedPaths: Set<String>) {
         if (removedPaths.isEmpty()) return
-        fun gone(path: String): Boolean {
-            val canonical = runCatching { File(path).canonicalPath }.getOrDefault(path)
-            return path in removedPaths || canonical in removedPaths ||
-                removedPaths.any { removed ->
-                    path == removed ||
-                        canonical == removed ||
-                        path.startsWith(removed + File.separator) ||
-                        canonical.startsWith(removed + File.separator)
+        // Exact path set first; only fall back to prefix checks for folder deletes.
+        val exact = HashSet<String>(removedPaths.size * 2)
+        val folderPrefixes = ArrayList<String>(2)
+        removedPaths.forEach { path ->
+            exact.add(path)
+            runCatching { File(path).canonicalPath }.getOrNull()?.let(exact::add)
+            val asFile = File(path)
+            if (asFile.isDirectory || path.endsWith(File.separator)) {
+                val prefix = path.trimEnd(File.separatorChar) + File.separator
+                folderPrefixes += prefix
+                runCatching { asFile.canonicalPath }.getOrNull()?.let {
+                    folderPrefixes += it.trimEnd(File.separatorChar) + File.separator
                 }
+            }
+        }
+        fun gone(path: String): Boolean {
+            if (path in exact) return true
+            if (folderPrefixes.isEmpty()) return false
+            return folderPrefixes.any { path.startsWith(it) }
         }
         mediaLibraryCache = mediaLibraryCache?.let { library ->
             MediaLibrary(
@@ -2427,9 +2592,14 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             )
         }
         val patchedLibrary = mediaLibraryCache
+        var savedRecent: List<FileItem> = emptyList()
         _uiState.update { state ->
             val nextItems = state.items.filterNot { gone(it.path) }
-            val nextRecent = state.recentFiles.filterNot { gone(it.path) }
+            // Keep recent strip full: drop deleted, then top up from remaining images.
+            // Avoid File.exists() here — pool may be thousands of entries on the UI thread.
+            val keptRecent = state.recentFiles.filterNot { gone(it.path) }
+            val nextRecent = refillRecentPhotos(keptRecent, patchedLibrary?.images.orEmpty(), verifyExists = false)
+            savedRecent = nextRecent
             val nextCategories = if (patchedLibrary != null) {
                 FileOperations.getCategorySummaries(patchedLibrary, appContext)
             } else {
@@ -2441,6 +2611,177 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
                 categorySummaries = nextCategories,
                 selectedPaths = emptySet(),
                 selectionMode = false,
+                progress = null,
+            )
+        }
+        if (savedRecent.isNotEmpty() || patchedLibrary != null) {
+            prefs.saveRecentPhotoPaths(savedRecent.map { it.path })
+        }
+    }
+
+    /** Fill up to 12 recent photos from [pool], preferring [preferred] order first. */
+    private fun refillRecentPhotos(
+        preferred: List<FileItem>,
+        pool: List<FileItem>,
+        verifyExists: Boolean = true,
+    ): List<FileItem> {
+        val existingPreferred = if (verifyExists) {
+            preferred.filter { it.file.exists() && it.file.isFile }
+        } else {
+            preferred
+        }
+        if (existingPreferred.size >= 12) return existingPreferred.take(12)
+        val seen = existingPreferred.mapTo(HashSet(16)) { it.path }
+        val extras = pool.asSequence()
+            .filter { item ->
+                item.path !in seen && (!verifyExists || (item.file.exists() && item.file.isFile))
+            }
+            .onEach { seen.add(it.path) }
+            .take(12 - existingPreferred.size)
+            .toList()
+        return existingPreferred + extras
+    }
+
+    /**
+     * Drop image paths that no longer exist and refill recent / Images tab
+     * with the newest remaining photos (avoids long gray "missing" placeholders).
+     */
+    fun reportMissingImage(path: String) {
+        if (path.isBlank()) return
+        reportMissingImages(listOf(path))
+    }
+
+    private val pendingMissingPaths = LinkedHashSet<String>()
+    private var missingFlushJob: Job? = null
+
+    fun reportMissingImages(paths: Collection<String>) {
+        val cleaned = paths.map { it.trim() }.filter { it.isNotEmpty() }
+        if (cleaned.isEmpty()) return
+        synchronized(pendingMissingPaths) {
+            pendingMissingPaths.addAll(cleaned)
+        }
+        // Coalesce Coil / grid reports so one IO pass handles a burst of failures.
+        missingFlushJob?.cancel()
+        missingFlushJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(120)
+            val batch = synchronized(pendingMissingPaths) {
+                val copy = pendingMissingPaths.toList()
+                pendingMissingPaths.clear()
+                copy
+            }
+            if (batch.isEmpty()) return@launch
+            val confirmed = batch.filter { path ->
+                val file = File(path)
+                !file.exists() || !file.isFile
+            }.toSet()
+            if (confirmed.isEmpty()) return@launch
+            withContext(Dispatchers.Main) {
+                applyLocalRemovals(confirmed)
+            }
+        }
+    }
+
+    private var pruneJob: Job? = null
+
+    private fun pruneMissingImagesAndRefill(priorityPaths: Set<String> = emptySet()) {
+        pruneJob?.cancel()
+        pruneJob = viewModelScope.launch(Dispatchers.IO) {
+            val library = mediaLibraryCache
+                ?: MediaLibraryCache.load(appContext, allowStale = true)
+                ?: return@launch
+            fun keepExisting(list: List<FileItem>): List<FileItem> =
+                list.filter { item ->
+                    if (item.path in priorityPaths) return@filter false
+                    item.file.exists() && item.file.isFile
+                }
+
+            // Only touch images/videos — other categories don't need exists() sweeps.
+            val prunedImages = keepExisting(library.images)
+            val prunedVideos = keepExisting(library.videos)
+            val imagesChanged = prunedImages.size != library.images.size
+            val videosChanged = prunedVideos.size != library.videos.size
+            val nextLibrary = if (imagesChanged || videosChanged) {
+                library.copy(images = prunedImages, videos = prunedVideos)
+                    .also { mediaLibraryCache = it }
+            } else {
+                library.also { if (mediaLibraryCache == null) mediaLibraryCache = it }
+            }
+            val recent = refillRecentPhotos(
+                preferred = _uiState.value.recentFiles,
+                pool = nextLibrary.images,
+                verifyExists = true,
+            )
+            val categories = if (imagesChanged || videosChanged) {
+                FileOperations.getCategorySummaries(nextLibrary, appContext)
+            } else {
+                null
+            }
+            val active = _uiState.value.activeCategory
+            val albumId = _uiState.value.mediaAlbumId
+            val nextImageItems = if (active == FileCategory.IMAGES) {
+                sortLibraryFiles(MediaAlbum.filter(nextLibrary.images, albumId))
+            } else {
+                null
+            }
+            val nextVideoItems = if (active == FileCategory.VIDEOS) {
+                sortLibraryFiles(MediaAlbum.filter(nextLibrary.videos, albumId))
+            } else {
+                null
+            }
+            withContext(Dispatchers.Main) {
+                _uiState.update { state ->
+                    state.copy(
+                        recentFiles = recent,
+                        items = when {
+                            nextImageItems != null &&
+                                state.libraryMode &&
+                                state.activeCategory == FileCategory.IMAGES -> nextImageItems
+                            nextVideoItems != null &&
+                                state.libraryMode &&
+                                state.activeCategory == FileCategory.VIDEOS -> nextVideoItems
+                            else -> state.items
+                        },
+                        categorySummaries = categories ?: state.categorySummaries,
+                    )
+                }
+            }
+            prefs.saveRecentPhotoPaths(recent.map { it.path })
+            if (categories != null) {
+                persistHomeSnapshot(
+                    library = nextLibrary,
+                    categories = categories,
+                    recentFiles = recent,
+                    storage = _uiState.value.storageInfo ?: FileOperations.getStorageInfo(),
+                )
+            }
+        }
+    }
+
+    /**
+     * Pin just-pasted files at the top of the destination folder list without a full rescan.
+     */
+    private fun applyLocalPasteAdditions(destinationDir: File, added: List<FileItem>) {
+        if (added.isEmpty()) return
+        val dest = runCatching { destinationDir.canonicalFile }.getOrDefault(destinationDir)
+        _uiState.update { state ->
+            val current = runCatching { state.currentDir.canonicalFile }.getOrDefault(state.currentDir)
+            if (!FileOperations.samePath(current, dest)) {
+                return@update state.copy(progress = null)
+            }
+            val addedPaths = added.mapTo(HashSet(added.size)) { it.path }
+            val pinned = added.sortedByDescending { it.lastModified }
+            val rest = state.items.filter { it.path !in addedPaths }
+            val library = mediaLibraryCache
+            state.copy(
+                items = pinned + rest,
+                recentFiles = (added.filter { it.file.isFile } + state.recentFiles)
+                    .distinctBy { it.path }
+                    .take(12),
+                categorySummaries = if (library != null) {
+                    FileOperations.getCategorySummaries(library, appContext)
+                } else {
+                    state.categorySummaries
+                },
                 progress = null,
             )
         }
@@ -2621,6 +2962,80 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
         if (!FileActions.shareFiles(context, files)) {
             emit(str(R.string.share_failed))
+        }
+    }
+
+    /** True when selection is only PDF files — password share uses PDF encryption. */
+    fun selectionUsesPdfPassword(): Boolean {
+        val files = selectedFiles()
+        return files.isNotEmpty() && files.all { it.isFile && FileItem(it).isPdf }
+    }
+
+    /**
+     * Share with password:
+     * - PDF only → encrypt each PDF (native PDF password)
+     * - anything else → one encrypted ZIP
+     */
+    fun shareSelectedWithPassword(context: Context, password: String) {
+        val pass = password.trim()
+        if (pass.isEmpty()) {
+            emit(str(R.string.share_password_required))
+            return
+        }
+        if (selectedInstalledApps().isNotEmpty()) {
+            emit(str(R.string.share_password_apps_unsupported))
+            return
+        }
+        val files = selectedFiles()
+        if (files.isEmpty()) {
+            emit(str(R.string.select_one_share))
+            return
+        }
+        val usePdf = selectionUsesPdfPassword()
+        val title = str(R.string.share_password_preparing)
+        runJob(title, if (usePdf) str(R.string.progress_pdf_encrypt) else str(R.string.progress_creating_zip), refreshAfter = false) {
+            try {
+                val toShare = if (usePdf) {
+                    val total = files.size.coerceAtLeast(1)
+                    files.mapIndexed { index, file ->
+                        updateProgress(title, file.name, (index + 1f) / total)
+                        PdfPasswordHelper.encryptToCache(localizedContext(), file, pass)
+                    }
+                } else {
+                    val zipDir = File(appContext.cacheDir, "share_zip").also { it.mkdirs() }
+                    val base = when {
+                        files.size == 1 -> {
+                            val n = files.first().name
+                            if (n.contains('.')) n.substringBeforeLast('.') else n
+                        }
+                        else -> "shared-${files.size}"
+                    }.ifBlank { "shared" }
+                    val destination = FileOperations.uniqueName(File(zipDir, "$base.zip"))
+                    ZipManager.createZip(
+                        localizedContext(),
+                        files,
+                        destination,
+                        password = pass,
+                    ) { progress, name ->
+                        updateProgress(title, name, progress)
+                    }
+                    listOf(destination)
+                }
+                val shared = withContext(Dispatchers.Main) {
+                    FileActions.shareFiles(context, toShare)
+                }
+                if (!shared) {
+                    emit(str(R.string.share_failed))
+                    return@runJob
+                }
+                _uiState.update { it.copy(selectionMode = false, selectedPaths = emptySet()) }
+                emit(
+                    if (usePdf) str(R.string.share_password_done_pdf, toShare.size)
+                    else str(R.string.share_password_done_zip, toShare.first().name),
+                )
+            } catch (e: Exception) {
+                emit(e.message?.takeIf { it.isNotBlank() } ?: str(R.string.share_password_failed))
+            }
         }
     }
 

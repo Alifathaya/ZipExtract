@@ -67,6 +67,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -93,6 +94,8 @@ import com.zipextract.app.data.FileCategory
 import com.zipextract.app.data.FileItem
 import com.zipextract.app.data.StorageInfo
 import com.zipextract.app.data.StorageKind
+import com.zipextract.app.data.StorageVolumeActions
+import androidx.compose.ui.platform.LocalContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -120,6 +123,7 @@ fun HomeDashboardScreen(
     onOpenLanguage: () -> Unit,
     onOpenFile: (FileItem) -> Unit,
     onViewAllPhotos: () -> Unit,
+    onMissingPhotos: (List<String>) -> Unit = {},
 ) {
     val isSearching = searchQuery.trim().length >= 2
 
@@ -265,6 +269,7 @@ fun HomeDashboardScreen(
                     loading = isLoading,
                     onOpenPhoto = onOpenFile,
                     onViewAll = onViewAllPhotos,
+                    onMissingPhotos = onMissingPhotos,
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
@@ -406,8 +411,10 @@ private fun RecentPhotosSection(
     loading: Boolean,
     onOpenPhoto: (FileItem) -> Unit,
     onViewAll: () -> Unit,
+    onMissingPhotos: (List<String>) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // Small list (≤12): show as-is. Background prune tops up deleted slots.
     val samplePhotos = photos.take(6)
 
     Column(modifier = modifier) {
@@ -480,6 +487,7 @@ private fun RecentPhotosSection(
                                 photo = photo,
                                 onClick = { onOpenPhoto(photo) },
                                 size = thumbSize,
+                                onLoadFailed = { onMissingPhotos(listOf(it)) },
                             )
                         }
                     }
@@ -494,6 +502,7 @@ private fun PhotoThumbnail(
     photo: FileItem,
     onClick: () -> Unit,
     size: Dp = 108.dp,
+    onLoadFailed: (String) -> Unit = {},
 ) {
     Surface(
         modifier = Modifier
@@ -519,6 +528,7 @@ private fun PhotoThumbnail(
                 }
             },
             error = {
+                LaunchedEffect(photo.path) { onLoadFailed(photo.path) }
                 PhotoPlaceholderTile(modifier = Modifier.fillMaxSize())
             },
             success = {
@@ -666,6 +676,7 @@ private fun StorageSection(
                     compact = true,
                     clickable = volume.canBrowse,
                     onClick = { onOpenVolume(volume) },
+                    showManageActions = StorageVolumeActions.supportsManageActions(volume),
                     modifier = Modifier.width(220.dp),
                 )
             }
@@ -683,6 +694,7 @@ private fun StorageSection(
                 compact = compact,
                 clickable = volume.canBrowse,
                 onClick = { onOpenVolume(volume) },
+                showManageActions = StorageVolumeActions.supportsManageActions(volume),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -710,7 +722,9 @@ private fun StorageVolumeCard(
     clickable: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    showManageActions: Boolean = false,
 ) {
+    val context = LocalContext.current
     val usedBytes = if (totalBytes != null && freeBytes != null) {
         (totalBytes - freeBytes).coerceAtLeast(0L)
     } else {
@@ -807,6 +821,44 @@ private fun StorageVolumeCard(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                 )
+            }
+
+            if (showManageActions) {
+                Spacer(modifier = Modifier.height(if (compact) 4.dp else 6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    TextButton(
+                        onClick = {
+                            StorageVolumeActions.openSystemStorageSettings(
+                                context,
+                                StorageVolumeActions.Purpose.EJECT,
+                            )
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.storage_eject_safe),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                    TextButton(
+                        onClick = {
+                            StorageVolumeActions.openSystemStorageSettings(
+                                context,
+                                StorageVolumeActions.Purpose.FORMAT,
+                            )
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.storage_format),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
             }
         }
     }

@@ -12,12 +12,17 @@ import android.provider.Settings
 import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
 import com.zipextract.app.R
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.io.File
+import java.io.FileInputStream
 import java.util.Locale
 
 object FileActions {
 
     private const val APK_MIME = "application/vnd.android.package-archive"
+    /** Large staging buffer — DEFAULT_BUFFER_SIZE (8KB) makes big APKs feel sluggish. */
+    private const val APK_COPY_BUFFER = 1024 * 1024
 
     sealed class InstallApkResult {
         data object Started : InstallApkResult()
@@ -101,8 +106,8 @@ object FileActions {
     }
 
     /**
-     * Install a plain `.apk` via the system [PackageInstaller] session API
-     * (shows the confirmation UI). Falls back to ACTION_VIEW if needed.
+     * Install a plain `.apk`. Prefers a direct FileProvider VIEW (no full re-copy) so the
+     * system installer UI appears quickly; falls back to [PackageInstaller] session staging.
      *
      * Safe to call from a background thread (staging / session I/O).
      */
@@ -128,20 +133,21 @@ object FileActions {
             return InstallApkResult.NeedInstallPermission
         }
 
-        val sessionResult = runCatching { installViaPackageInstaller(appContext, file) }
-        if (sessionResult.isSuccess) {
+        // Fast path: open installer on the existing file (no multi‑MB session copy first).
+        val viewResult = runCatching { installViaViewIntent(appContext, file) }
+        if (viewResult.isSuccess) {
             return InstallApkResult.Started
         }
 
-        val viewResult = runCatching { installViaViewIntent(appContext, file) }
-        if (viewResult.isSuccess) {
+        val sessionResult = runCatching { installViaPackageInstaller(appContext, file) }
+        if (sessionResult.isSuccess) {
             return InstallApkResult.Started
         }
 
         val sessionErr = sessionResult.exceptionOrNull()?.message
         val viewErr = viewResult.exceptionOrNull()?.message
         return InstallApkResult.Failed(
-            listOfNotNull(sessionErr, viewErr).firstOrNull()
+            listOfNotNull(viewErr, sessionErr).firstOrNull()
                 ?: context.getString(R.string.apk_open_installer_failed),
         )
     }
@@ -161,9 +167,9 @@ object FileActions {
         val sessionId = installer.createSession(params)
         val session = installer.openSession(sessionId)
         try {
-            file.inputStream().use { input ->
+            val buffer = ByteArray(APK_COPY_BUFFER)
+            BufferedInputStream(FileInputStream(file), APK_COPY_BUFFER).use { input ->
                 session.openWrite("base.apk", 0, file.length()).use { out ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                     while (true) {
                         val read = input.read(buffer)
                         if (read < 0) break
@@ -196,7 +202,8 @@ object FileActions {
     }
 
     private fun installViaViewIntent(context: Context, file: File) {
-        val staged = stageApkForInstall(context, file)
+        // Prefer the on-disk file directly (FileProvider covers external + app dirs).
+        val staged = resolveApkForInstall(context, file)
         val uri = uriFor(context, staged)
         grantInstallUriPermission(context, uri)
 
@@ -241,16 +248,27 @@ object FileActions {
         context.startActivity(install)
     }
 
-    /** Copy APK into app cache so FileProvider + installer grants are reliable. */
-    private fun stageApkForInstall(context: Context, file: File): File {
+    /**
+     * Use the original APK path when FileProvider can serve it; only copy into cache
+     * when the path is not exposable (avoids a second multi‑MB write).
+     */
+    private fun resolveApkForInstall(context: Context, file: File): File {
+        if (runCatching { uriFor(context, file) }.isSuccess) return file
         val dir = File(context.cacheDir, "apk-install").apply { mkdirs() }
         val target = File(dir, file.name.ifBlank { "app.apk" })
         if (target.absolutePath == file.absolutePath) return file
         if (target.exists() && target.length() == file.length() && target.lastModified() >= file.lastModified()) {
             return target
         }
-        file.inputStream().use { input ->
-            target.outputStream().use { output -> input.copyTo(output) }
+        val buffer = ByteArray(APK_COPY_BUFFER)
+        BufferedInputStream(FileInputStream(file), APK_COPY_BUFFER).use { input ->
+            BufferedOutputStream(target.outputStream(), APK_COPY_BUFFER).use { output ->
+                while (true) {
+                    val n = input.read(buffer)
+                    if (n < 0) break
+                    output.write(buffer, 0, n)
+                }
+            }
         }
         return target
     }

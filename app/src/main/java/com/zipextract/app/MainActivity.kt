@@ -146,6 +146,7 @@ class MainActivity : AppCompatActivity() {
                         onCopy = viewModel::copySelected,
                         onCut = viewModel::cutSelected,
                         onPaste = viewModel::paste,
+                        onClearClipboard = viewModel::clearClipboard,
                         onDelete = viewModel::deleteSelected,
                         onCreateFolder = viewModel::createFolder,
                         onRename = viewModel::renameSelected,
@@ -160,6 +161,7 @@ class MainActivity : AppCompatActivity() {
                         onSearchQueryChange = viewModel::updateSearchQuery,
                         onClearSearch = viewModel::clearSearch,
                         onOpenFileAnywhere = viewModel::openFileFromAnywhere,
+                        onMissingImages = viewModel::reportMissingImages,
                         onSetFileFilter = viewModel::setFileFilter,
                         onToggleSort = viewModel::toggleSort,
                         onRequestPermission = { requestStorageAccess() },
@@ -182,6 +184,10 @@ class MainActivity : AppCompatActivity() {
                         onDismissExtractResult = viewModel::dismissExtractResult,
                         onOpenExtractResultFolder = viewModel::openExtractResultFolder,
                         onShareSelected = { viewModel.shareSelected(context) },
+                        onShareSelectedWithPassword = { password ->
+                            viewModel.shareSelectedWithPassword(context, password)
+                        },
+                        selectionUsesPdfPassword = viewModel::selectionUsesPdfPassword,
                         onOpenWithSelected = { viewModel.openWithSelected(context) },
                         onToggleFavoriteSelected = viewModel::toggleFavoriteSelected,
                         onShowSelectedDetails = viewModel::showSelectedDetails,

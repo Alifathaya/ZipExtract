@@ -31,15 +31,27 @@ jobs:
       - name: Build signed debug APK
         run: ./gradlew assembleDebug --stacktrace
 
+      - name: Name APK with version
+        id: apk
+        run: |
+          VERSION=$(grep -m1 'versionName' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+          SRC=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          DEST="app/build/outputs/apk/debug/FileNest-${VERSION}-debug.apk"
+          mv "$SRC" "$DEST"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "apk=$DEST" >> "$GITHUB_OUTPUT"
+          echo "Renamed to $DEST"
+
       - name: Verify APK signature fingerprint
         run: |
-          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          APK="${{ steps.apk.outputs.apk }}"
           echo "APK=$APK"
           keytool -printcert -jarfile "$APK" | sed -n 's/.*SHA1: //p; s/.*SHA256: //p'
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FileNest-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: FileNest-${{ steps.apk.outputs.version }}-debug
+          path: ${{ steps.apk.outputs.apk }}
           if-no-files-found: error
+          retention-days: 30

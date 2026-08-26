@@ -46,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,6 +56,7 @@ import com.zipextract.app.data.DeviceStorageVolume
 import com.zipextract.app.data.FileItem
 import com.zipextract.app.data.FileOperations
 import com.zipextract.app.data.StorageKind
+import com.zipextract.app.data.StorageVolumeActions
 import java.io.File
 
 data class ExplorerBreadcrumb(
@@ -187,6 +189,7 @@ private fun ExplorerVolumeCard(
     volume: DeviceStorageVolume,
     onClick: () -> Unit,
 ) {
+    val context = LocalContext.current
     val title = when {
         volume.isPrimary -> stringResource(R.string.explorer_my_phone)
         volume.label.isNotBlank() -> volume.label
@@ -208,6 +211,7 @@ private fun ExplorerVolumeCard(
     }
     val used = volume.usedBytes
     val total = volume.totalBytes
+    val showManage = StorageVolumeActions.supportsManageActions(volume)
 
     Card(
         modifier = Modifier
@@ -219,63 +223,99 @@ private fun ExplorerVolumeCard(
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
-            Spacer(modifier = Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (total > 0L) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    LinearProgressIndicator(
-                        progress = { volume.usedFraction },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(6.dp)),
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = stringResource(
-                            R.string.storage_used_of,
-                            FileItem.formatBytes(used),
-                            FileItem.formatBytes(total),
-                        ),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
                     )
                 }
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (total > 0L) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LinearProgressIndicator(
+                            progress = { volume.usedFraction },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(6.dp)),
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = stringResource(
+                                R.string.storage_used_of,
+                                FileItem.formatBytes(used),
+                                FileItem.formatBytes(total),
+                            ),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (showManage) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    TextButton(
+                        onClick = {
+                            StorageVolumeActions.openSystemStorageSettings(
+                                context,
+                                StorageVolumeActions.Purpose.EJECT,
+                            )
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.storage_eject_safe),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                    TextButton(
+                        onClick = {
+                            StorageVolumeActions.openSystemStorageSettings(
+                                context,
+                                StorageVolumeActions.Purpose.FORMAT,
+                            )
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.storage_format),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
         }
     }
 }

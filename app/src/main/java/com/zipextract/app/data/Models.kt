@@ -140,7 +140,11 @@ data class ClipboardState(
 )
 
 sealed class OperationResult {
-    data class Success(val message: String) : OperationResult()
+    data class Success(
+        val message: String,
+        /** Paths written by paste/copy/move — empty for other operations. */
+        val files: List<File> = emptyList(),
+    ) : OperationResult()
     data class Error(val message: String) : OperationResult()
 }
 

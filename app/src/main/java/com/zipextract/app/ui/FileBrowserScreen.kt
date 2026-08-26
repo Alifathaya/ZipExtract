@@ -51,7 +51,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DataUsage
 import androidx.compose.material.icons.filled.ContentCut
-import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
@@ -83,7 +82,10 @@ import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Unarchive
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -92,11 +94,11 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -106,6 +108,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -113,6 +116,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -123,6 +128,7 @@ import com.zipextract.app.R
 import com.zipextract.app.data.AppLanguage
 import com.zipextract.app.data.AppSubFilter
 import com.zipextract.app.data.ClipboardMode
+import com.zipextract.app.data.ClipboardState
 import com.zipextract.app.data.DuplicateGroup
 import com.zipextract.app.data.FileFilter
 import com.zipextract.app.data.FileCategory
@@ -156,6 +162,8 @@ private enum class DialogType {
     CREATE_ZIP,
     DELETE_CONFIRM,
     UNINSTALL_CONFIRM,
+    SHARE_CHOICE,
+    SHARE_PASSWORD,
 }
 
 private enum class TimeBucket(@StringRes val labelRes: Int) {
@@ -221,6 +229,7 @@ fun FileBrowserScreen(
     onCopy: () -> Unit,
     onCut: () -> Unit,
     onPaste: () -> Unit,
+    onClearClipboard: () -> Unit,
     onDelete: () -> Unit,
     onCreateFolder: (String) -> Unit,
     onRename: (String) -> Unit,
@@ -235,6 +244,7 @@ fun FileBrowserScreen(
     onSearchQueryChange: (String) -> Unit,
     onClearSearch: () -> Unit,
     onOpenFileAnywhere: (FileItem) -> Unit,
+    onMissingImages: (Collection<String>) -> Unit = {},
     onSetFileFilter: (FileFilter) -> Unit,
     onToggleSort: () -> Unit,
     onRequestPermission: () -> Unit,
@@ -249,6 +259,8 @@ fun FileBrowserScreen(
     onDismissExtractResult: () -> Unit,
     onOpenExtractResultFolder: () -> Unit,
     onShareSelected: () -> Unit,
+    onShareSelectedWithPassword: (String) -> Unit,
+    selectionUsesPdfPassword: () -> Boolean,
     onOpenWithSelected: () -> Unit,
     onToggleFavoriteSelected: () -> Unit,
     onShowSelectedDetails: () -> Unit,
@@ -463,6 +475,7 @@ fun FileBrowserScreen(
             onOpenLanguage = { showLanguagePicker = true },
             onOpenFile = onOpenFileAnywhere,
             onViewAllPhotos = { onOpenCategory(FileCategory.IMAGES) },
+            onMissingPhotos = { onMissingImages(it) },
         )
         return
     }
@@ -704,15 +717,12 @@ fun FileBrowserScreen(
                 ),
             )
         },
-        floatingActionButton = {
-            if (state.storageGranted && state.clipboard != null) {
-                FloatingActionButton(onClick = onPaste) {
-                    Icon(Icons.Default.ContentPaste, contentDescription = stringResource(R.string.paste))
-                }
-            }
-        },
     ) { padding ->
         val pullState = rememberPullToRefreshState()
+        val canPasteHere = state.canPasteHere()
+        val clipboardPaths = remember(state.clipboard) {
+            state.clipboard?.items?.mapTo(HashSet()) { it.absolutePath }.orEmpty()
+        }
         PullToRefreshBox(
             isRefreshing = state.isSoftRefreshing,
             onRefresh = onRefresh,
@@ -736,6 +746,15 @@ fun FileBrowserScreen(
         ) {
             val showSelectionRail = state.selectionMode && selectedCount > 0
             Column(modifier = Modifier.fillMaxSize()) {
+                state.clipboard?.let { clipboard ->
+                    ClipboardBanner(
+                        clipboard = clipboard,
+                        canPasteHere = canPasteHere,
+                        needsAlbumPick = state.needsAlbumPickForPaste(),
+                        onPaste = onPaste,
+                        onClear = onClearClipboard,
+                    )
+                }
                 if (state.explorerMode && state.categoryRoot != null) {
                     val fallbackRootLabel = stringResource(R.string.explorer_my_phone)
                     val crumbs = remember(
@@ -833,6 +852,7 @@ fun FileBrowserScreen(
                             onOpenItem = onOpenItem,
                             onToggleSelect = onToggleSelect,
                             onToggleFavorite = onToggleFavoritePath,
+                            onMissingImages = onMissingImages,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -907,6 +927,9 @@ fun FileBrowserScreen(
                                     selectionMode = state.selectionMode,
                                     isFavorite = item.path in state.favoritePaths,
                                     showFolder = state.showFavoritesOnly || state.explorerMode,
+                                    onClipboard = item.path in clipboardPaths,
+                                    cutOnClipboard = item.path in clipboardPaths &&
+                                        state.clipboard?.mode == ClipboardMode.CUT,
                                     onClick = {
                                         when {
                                             // Selection must win over extract — otherwise ZIP taps
@@ -953,11 +976,8 @@ fun FileBrowserScreen(
                         canExtract = canExtract,
                         canRename = canRename,
                         canFavoriteOrDetails = canFavoriteOrDetails,
-                        hasClipboard = state.clipboard != null,
-                        clipboardMode = state.clipboard?.mode,
                         onCopy = onCopy,
                         onCut = onCut,
-                        onPaste = onPaste,
                         onDelete = { dialog = DialogType.DELETE_CONFIRM },
                         onRename = {
                             inputText = singleSelected?.name.orEmpty()
@@ -975,7 +995,7 @@ fun FileBrowserScreen(
                         onExtract = {
                             singleSelected?.let { onOpenExtract(it) }
                         },
-                        onShare = onShareSelected,
+                        onShare = { dialog = DialogType.SHARE_CHOICE },
                         onOpenWith = onOpenWithSelected,
                         onFavorite = onToggleFavoriteSelected,
                         onDetails = onShowSelectedDetails,
@@ -1049,6 +1069,43 @@ fun FileBrowserScreen(
             },
             dismissButton = {
                 TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+        DialogType.SHARE_CHOICE -> AlertDialog(
+            onDismissRequest = { dialog = null },
+            title = { Text(stringResource(R.string.share_choice_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(
+                        onClick = {
+                            dialog = null
+                            onShareSelected()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.share_normal))
+                    }
+                    TextButton(
+                        onClick = { dialog = DialogType.SHARE_PASSWORD },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.share_with_password))
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { dialog = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+        DialogType.SHARE_PASSWORD -> SharePasswordDialog(
+            usesPdfPassword = selectionUsesPdfPassword(),
+            onDismiss = { dialog = null },
+            onConfirm = { password ->
+                dialog = null
+                onShareSelectedWithPassword(password)
             },
         )
         null -> Unit
@@ -1126,15 +1183,98 @@ fun FileBrowserScreen(
 }
 
 @Composable
+private fun ClipboardBanner(
+    clipboard: ClipboardState,
+    canPasteHere: Boolean,
+    needsAlbumPick: Boolean,
+    onPaste: () -> Unit,
+    onClear: () -> Unit,
+) {
+    val isCut = clipboard.mode == ClipboardMode.CUT
+    val title = if (isCut) {
+        stringResource(R.string.clipboard_banner_cut, clipboard.items.size)
+    } else {
+        stringResource(R.string.clipboard_banner_copy, clipboard.items.size)
+    }
+    val hint = when {
+        canPasteHere -> stringResource(R.string.clipboard_banner_hint_folder)
+        needsAlbumPick -> stringResource(R.string.clipboard_banner_hint_blocked)
+        else -> stringResource(R.string.clipboard_banner_hint)
+    }
+    val pasteLabel = if (isCut) {
+        stringResource(R.string.move_here)
+    } else {
+        stringResource(R.string.paste_here)
+    }
+
+    Surface(
+        tonalElevation = 3.dp,
+        shadowElevation = 4.dp,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = if (isCut) Icons.Default.ContentCut else Icons.Default.ContentCopy,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = hint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (canPasteHere) {
+                    Button(
+                        onClick = onPaste,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(pasteLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                OutlinedButton(
+                    onClick = onClear,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ActionBar(
     canExtract: Boolean,
     canRename: Boolean,
     canFavoriteOrDetails: Boolean,
-    hasClipboard: Boolean,
-    clipboardMode: ClipboardMode?,
     onCopy: () -> Unit,
     onCut: () -> Unit,
-    onPaste: () -> Unit,
     onDelete: () -> Unit,
     onRename: () -> Unit,
     onZip: () -> Unit,
@@ -1172,16 +1312,6 @@ private fun ActionBar(
             ActionIcon(Icons.Default.OpenInNew, stringResource(R.string.open), onOpenWith)
             ActionIcon(Icons.Default.ContentCopy, stringResource(R.string.copy), onCopy)
             ActionIcon(Icons.Default.ContentCut, stringResource(R.string.cut), onCut)
-            ActionIcon(
-                icon = Icons.Default.ContentPaste,
-                label = when (clipboardMode) {
-                    ClipboardMode.COPY -> stringResource(R.string.paste)
-                    ClipboardMode.CUT -> stringResource(R.string.move)
-                    null -> stringResource(R.string.paste)
-                },
-                enabled = hasClipboard,
-                onClick = onPaste,
-            )
             ActionIcon(Icons.Default.FolderZip, stringResource(R.string.zip_action), onZip)
             ActionIcon(Icons.Default.Unarchive, stringResource(R.string.extract), onExtract, enabled = canExtract)
             ActionIcon(Icons.Default.DriveFileRenameOutline, stringResource(R.string.rename), onRename, enabled = canRename)
@@ -1664,8 +1794,12 @@ private fun ImageGalleryGrid(
     onOpenItem: (FileItem) -> Unit,
     onToggleSelect: (FileItem) -> Unit,
     onToggleFavorite: (String) -> Unit,
+    onMissingImages: (Collection<String>) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // Trust the ViewModel list for first paint — never File.exists() thousands of
+    // paths during composition (that froze Categories / Images after 2.4.78).
+    // Missing files are pruned in the background / via Coil load failures.
     if (items.isEmpty()) {
         EmptyPane(message = stringResource(R.string.no_photos_in_album))
         return
@@ -1697,6 +1831,7 @@ private fun ImageGalleryGrid(
                     },
                     onLongClick = { onToggleSelect(item) },
                     onToggleFavorite = { onToggleFavorite(item.path) },
+                    onLoadFailed = { onMissingImages(listOf(it)) },
                 )
             }
         }
@@ -1713,6 +1848,7 @@ private fun ImageThumbnailCell(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onLoadFailed: (String) -> Unit = {},
 ) {
     Box(
         modifier = Modifier
@@ -1737,6 +1873,7 @@ private fun ImageThumbnailCell(
                 }
             },
             error = {
+                LaunchedEffect(item.path) { onLoadFailed(item.path) }
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
@@ -1899,6 +2036,8 @@ private fun FileRow(
     selectionMode: Boolean,
     isFavorite: Boolean,
     showFolder: Boolean = false,
+    onClipboard: Boolean = false,
+    cutOnClipboard: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onToggleFavorite: () -> Unit,
@@ -1922,6 +2061,7 @@ private fun FileRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .alpha(if (cutOnClipboard) 0.42f else if (onClipboard) 0.72f else 1f)
             .clip(RoundedCornerShape(14.dp))
             .background(container)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
@@ -2276,6 +2416,66 @@ private fun TextInputDialog(
         confirmButton = {
             TextButton(onClick = onConfirm, enabled = value.isNotBlank()) {
                 Text(confirmLabel)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
+}
+
+@Composable
+private fun SharePasswordDialog(
+    usesPdfPassword: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var password by remember { mutableStateOf("") }
+    var visible by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.share_password_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = stringResource(
+                        if (usesPdfPassword) {
+                            R.string.share_password_hint_pdf
+                        } else {
+                            R.string.share_password_hint_zip
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text(stringResource(R.string.share_password_field)) },
+                    singleLine = true,
+                    visualTransformation = if (visible) {
+                        VisualTransformation.None
+                    } else {
+                        PasswordVisualTransformation()
+                    },
+                    trailingIcon = {
+                        IconButton(onClick = { visible = !visible }) {
+                            Icon(
+                                if (visible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = null,
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(password) },
+                enabled = password.isNotBlank(),
+            ) {
+                Text(stringResource(R.string.share_password_confirm))
             }
         },
         dismissButton = {
