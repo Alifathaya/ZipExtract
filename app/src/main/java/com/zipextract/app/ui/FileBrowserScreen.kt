@@ -1797,21 +1797,14 @@ private fun ImageGalleryGrid(
     onMissingImages: (Collection<String>) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    // Skip deleted files in the grid; refill is handled by onMissingImages / ViewModel prune.
-    val visibleItems = remember(items) {
-        items.filter { it.file.exists() && it.file.isFile }
-    }
-    LaunchedEffect(items) {
-        val missing = items
-            .filter { !it.file.exists() || !it.file.isFile }
-            .map { it.path }
-        if (missing.isNotEmpty()) onMissingImages(missing)
-    }
-    if (visibleItems.isEmpty()) {
+    // Trust the ViewModel list for first paint — never File.exists() thousands of
+    // paths during composition (that froze Categories / Images after 2.4.78).
+    // Missing files are pruned in the background / via Coil load failures.
+    if (items.isEmpty()) {
         EmptyPane(message = stringResource(R.string.no_photos_in_album))
         return
     }
-    val sections = remember(visibleItems) { groupByTime(visibleItems) }
+    val sections = remember(items) { groupByTime(items) }
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),

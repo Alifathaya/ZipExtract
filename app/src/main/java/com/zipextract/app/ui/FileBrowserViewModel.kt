@@ -792,21 +792,12 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         }
 
         // Warm memory cache: paint the list immediately (no empty "Memuat…" flash).
+        // Never call File.exists() here — scanning thousands of paths on the UI thread
+        // made Categories / Images / Videos feel frozen after the 2.4.78 prune work.
         val warmLibrary = if (!forceRefresh) mediaLibraryCache else null
         if (warmLibrary != null && category != FileCategory.APPS) {
             val usesMediaAlbums = category == FileCategory.IMAGES || category == FileCategory.VIDEOS
-            val rawBase = warmLibrary.forCategory(category)
-            // Drop deleted files immediately so the grid doesn't show gray placeholders.
-            val base = if (usesMediaAlbums) {
-                rawBase.filter { it.file.exists() && it.file.isFile }
-            } else {
-                rawBase
-            }
-            if (usesMediaAlbums && base.size < rawBase.size) {
-                pruneMissingImagesAndRefill(
-                    priorityPaths = rawBase.map { it.path }.toSet() - base.map { it.path }.toSet(),
-                )
-            }
+            val base = warmLibrary.forCategory(category)
             val mediaAlbums = if (usesMediaAlbums) MediaAlbum.buildChips(base) else emptyList()
             val mediaAlbumId = MediaAlbum.ALL
             val filtered = when (category) {
@@ -842,12 +833,12 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
             }
             libraryJob?.cancel()
             libraryJob = viewModelScope.launch {
-                // Photos: catch up immediately so a shot taken seconds ago is visible.
-                val wait = if (category == FileCategory.IMAGES || category == FileCategory.VIDEOS) {
-                    40L
-                } else {
-                    280L
+                if (usesMediaAlbums) {
+                    // Prune deleted media off the UI thread after first paint.
+                    pruneMissingImagesAndRefill()
                 }
+                // Photos: catch up immediately so a shot taken seconds ago is visible.
+                val wait = if (usesMediaAlbums) 40L else 280L
                 delay(wait)
                 if (_uiState.value.activeCategory == category && _uiState.value.libraryMode) {
                     catchUpMediaStoreChanges()
@@ -2568,15 +2559,25 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
      */
     private fun applyLocalRemovals(removedPaths: Set<String>) {
         if (removedPaths.isEmpty()) return
-        fun gone(path: String): Boolean {
-            val canonical = runCatching { File(path).canonicalPath }.getOrDefault(path)
-            return path in removedPaths || canonical in removedPaths ||
-                removedPaths.any { removed ->
-                    path == removed ||
-                        canonical == removed ||
-                        path.startsWith(removed + File.separator) ||
-                        canonical.startsWith(removed + File.separator)
+        // Exact path set first; only fall back to prefix checks for folder deletes.
+        val exact = HashSet<String>(removedPaths.size * 2)
+        val folderPrefixes = ArrayList<String>(2)
+        removedPaths.forEach { path ->
+            exact.add(path)
+            runCatching { File(path).canonicalPath }.getOrNull()?.let(exact::add)
+            val asFile = File(path)
+            if (asFile.isDirectory || path.endsWith(File.separator)) {
+                val prefix = path.trimEnd(File.separatorChar) + File.separator
+                folderPrefixes += prefix
+                runCatching { asFile.canonicalPath }.getOrNull()?.let {
+                    folderPrefixes += it.trimEnd(File.separatorChar) + File.separator
                 }
+            }
+        }
+        fun gone(path: String): Boolean {
+            if (path in exact) return true
+            if (folderPrefixes.isEmpty()) return false
+            return folderPrefixes.any { path.startsWith(it) }
         }
         mediaLibraryCache = mediaLibraryCache?.let { library ->
             MediaLibrary(
@@ -2595,8 +2596,9 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update { state ->
             val nextItems = state.items.filterNot { gone(it.path) }
             // Keep recent strip full: drop deleted, then top up from remaining images.
+            // Avoid File.exists() here — pool may be thousands of entries on the UI thread.
             val keptRecent = state.recentFiles.filterNot { gone(it.path) }
-            val nextRecent = refillRecentPhotos(keptRecent, patchedLibrary?.images.orEmpty())
+            val nextRecent = refillRecentPhotos(keptRecent, patchedLibrary?.images.orEmpty(), verifyExists = false)
             savedRecent = nextRecent
             val nextCategories = if (patchedLibrary != null) {
                 FileOperations.getCategorySummaries(patchedLibrary, appContext)
@@ -2621,12 +2623,19 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     private fun refillRecentPhotos(
         preferred: List<FileItem>,
         pool: List<FileItem>,
+        verifyExists: Boolean = true,
     ): List<FileItem> {
-        val existingPreferred = preferred.filter { it.file.exists() && it.file.isFile }
+        val existingPreferred = if (verifyExists) {
+            preferred.filter { it.file.exists() && it.file.isFile }
+        } else {
+            preferred
+        }
         if (existingPreferred.size >= 12) return existingPreferred.take(12)
         val seen = existingPreferred.mapTo(HashSet(16)) { it.path }
         val extras = pool.asSequence()
-            .filter { it.file.exists() && it.file.isFile && it.path !in seen }
+            .filter { item ->
+                item.path !in seen && (!verifyExists || (item.file.exists() && item.file.isFile))
+            }
             .onEach { seen.add(it.path) }
             .take(12 - existingPreferred.size)
             .toList()
@@ -2642,57 +2651,102 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         reportMissingImages(listOf(path))
     }
 
+    private val pendingMissingPaths = LinkedHashSet<String>()
+    private var missingFlushJob: Job? = null
+
     fun reportMissingImages(paths: Collection<String>) {
-        val cleaned = paths.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        val cleaned = paths.map { it.trim() }.filter { it.isNotEmpty() }
         if (cleaned.isEmpty()) return
-        // Instant: drop ghosts and top up recent/list from remaining known photos.
-        applyLocalRemovals(cleaned)
+        synchronized(pendingMissingPaths) {
+            pendingMissingPaths.addAll(cleaned)
+        }
+        // Coalesce Coil / grid reports so one IO pass handles a burst of failures.
+        missingFlushJob?.cancel()
+        missingFlushJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(120)
+            val batch = synchronized(pendingMissingPaths) {
+                val copy = pendingMissingPaths.toList()
+                pendingMissingPaths.clear()
+                copy
+            }
+            if (batch.isEmpty()) return@launch
+            val confirmed = batch.filter { path ->
+                val file = File(path)
+                !file.exists() || !file.isFile
+            }.toSet()
+            if (confirmed.isEmpty()) return@launch
+            withContext(Dispatchers.Main) {
+                applyLocalRemovals(confirmed)
+            }
+        }
     }
 
+    private var pruneJob: Job? = null
+
     private fun pruneMissingImagesAndRefill(priorityPaths: Set<String> = emptySet()) {
-        viewModelScope.launch(Dispatchers.IO) {
+        pruneJob?.cancel()
+        pruneJob = viewModelScope.launch(Dispatchers.IO) {
             val library = mediaLibraryCache
                 ?: MediaLibraryCache.load(appContext, allowStale = true)
                 ?: return@launch
             fun keepExisting(list: List<FileItem>): List<FileItem> =
                 list.filter { item ->
-                    val canonical = runCatching { item.file.canonicalPath }.getOrDefault(item.path)
-                    if (item.path in priorityPaths || canonical in priorityPaths) {
-                        return@filter false
-                    }
+                    if (item.path in priorityPaths) return@filter false
                     item.file.exists() && item.file.isFile
                 }
 
+            // Only touch images/videos — other categories don't need exists() sweeps.
             val prunedImages = keepExisting(library.images)
+            val prunedVideos = keepExisting(library.videos)
             val imagesChanged = prunedImages.size != library.images.size
-            val nextLibrary = if (imagesChanged) {
-                library.copy(images = prunedImages).also { mediaLibraryCache = it }
+            val videosChanged = prunedVideos.size != library.videos.size
+            val nextLibrary = if (imagesChanged || videosChanged) {
+                library.copy(images = prunedImages, videos = prunedVideos)
+                    .also { mediaLibraryCache = it }
             } else {
                 library.also { if (mediaLibraryCache == null) mediaLibraryCache = it }
             }
-            val recent = refillRecentPhotos(_uiState.value.recentFiles, nextLibrary.images)
-            val categories = FileOperations.getCategorySummaries(nextLibrary, appContext)
+            val recent = refillRecentPhotos(
+                preferred = _uiState.value.recentFiles,
+                pool = nextLibrary.images,
+                verifyExists = true,
+            )
+            val categories = if (imagesChanged || videosChanged) {
+                FileOperations.getCategorySummaries(nextLibrary, appContext)
+            } else {
+                null
+            }
+            val active = _uiState.value.activeCategory
+            val albumId = _uiState.value.mediaAlbumId
+            val nextImageItems = if (active == FileCategory.IMAGES) {
+                sortLibraryFiles(MediaAlbum.filter(nextLibrary.images, albumId))
+            } else {
+                null
+            }
+            val nextVideoItems = if (active == FileCategory.VIDEOS) {
+                sortLibraryFiles(MediaAlbum.filter(nextLibrary.videos, albumId))
+            } else {
+                null
+            }
             withContext(Dispatchers.Main) {
                 _uiState.update { state ->
-                    val nextItems =
-                        if (state.libraryMode && state.activeCategory == FileCategory.IMAGES) {
-                            sortLibraryFiles(
-                                MediaAlbum.filter(nextLibrary.images, state.mediaAlbumId),
-                            )
-                        } else {
-                            state.items.filter { item ->
-                                !item.isImage || (item.file.exists() && item.file.isFile)
-                            }
-                        }
                     state.copy(
                         recentFiles = recent,
-                        items = nextItems,
-                        categorySummaries = if (imagesChanged) categories else state.categorySummaries,
+                        items = when {
+                            nextImageItems != null &&
+                                state.libraryMode &&
+                                state.activeCategory == FileCategory.IMAGES -> nextImageItems
+                            nextVideoItems != null &&
+                                state.libraryMode &&
+                                state.activeCategory == FileCategory.VIDEOS -> nextVideoItems
+                            else -> state.items
+                        },
+                        categorySummaries = categories ?: state.categorySummaries,
                     )
                 }
             }
             prefs.saveRecentPhotoPaths(recent.map { it.path })
-            if (imagesChanged) {
+            if (categories != null) {
                 persistHomeSnapshot(
                     library = nextLibrary,
                     categories = categories,

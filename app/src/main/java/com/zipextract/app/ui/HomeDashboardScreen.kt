@@ -414,16 +414,8 @@ private fun RecentPhotosSection(
     onMissingPhotos: (List<String>) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    // Hide deleted files immediately; ask ViewModel to top up with newer photos.
-    val samplePhotos = remember(photos) {
-        photos.filter { it.file.exists() && it.file.isFile }.take(6)
-    }
-    LaunchedEffect(photos) {
-        val missing = photos
-            .filter { !it.file.exists() || !it.file.isFile }
-            .map { it.path }
-        if (missing.isNotEmpty()) onMissingPhotos(missing)
-    }
+    // Small list (≤12): show as-is. Background prune tops up deleted slots.
+    val samplePhotos = photos.take(6)
 
     Column(modifier = modifier) {
         Row(
