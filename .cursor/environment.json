@@ -1,0 +1,5 @@
+{
+  "name": "FileNest / ZipExtract + Helsinki VPS",
+  "install": "bash scripts/install-cloud-agent.sh",
+  "start": "bash scripts/start-cloud-agent.sh"
+}
