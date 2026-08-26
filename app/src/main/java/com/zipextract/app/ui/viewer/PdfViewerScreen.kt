@@ -80,6 +80,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.zipextract.app.data.FileActions
 import com.zipextract.app.data.PdfPasswordHelper
+import com.zipextract.app.data.SharePasswordExporter
+import com.zipextract.app.ui.ShareChoiceDialog
+import com.zipextract.app.ui.ShareGateDialog
+import com.zipextract.app.ui.SharePasswordPromptDialog
 import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -125,6 +129,8 @@ fun PdfViewerScreen(
     val openKey = sourceUri?.toString() ?: file.absolutePath
 
     var confirmDelete by remember { mutableStateOf(false) }
+    var shareGate by remember { mutableStateOf<ShareGateDialog?>(null) }
+    var sharing by remember { mutableStateOf(false) }
     var editBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var editTitle by remember { mutableStateOf("") }
     var preparingEdit by remember { mutableStateOf(false) }
@@ -400,6 +406,46 @@ fun PdfViewerScreen(
         )
     }
 
+    when (shareGate) {
+        ShareGateDialog.Choice -> ShareChoiceDialog(
+            onDismiss = { shareGate = null },
+            onShareNormal = {
+                shareGate = null
+                if (!FileActions.shareFile(context, file)) {
+                    Toast.makeText(context, context.getString(R.string.pdf_share_failed), Toast.LENGTH_SHORT).show()
+                }
+            },
+            onShareWithPassword = { shareGate = ShareGateDialog.Password },
+        )
+        ShareGateDialog.Password -> SharePasswordPromptDialog(
+            usesPdfPassword = true,
+            onDismiss = { shareGate = null },
+            onConfirm = { password ->
+                shareGate = null
+                sharing = true
+                scope.launch {
+                    val ok = withContext(Dispatchers.IO) {
+                        runCatching {
+                            val locked = SharePasswordExporter.exportLocked(context, file, password)
+                            withContext(Dispatchers.Main) {
+                                FileActions.shareFile(context, locked)
+                            }
+                        }.getOrDefault(false)
+                    }
+                    sharing = false
+                    if (!ok) {
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.share_password_failed),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
+            },
+        )
+        null -> Unit
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -424,11 +470,8 @@ fun PdfViewerScreen(
                         Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.pdf_edit_page))
                     }
                     IconButton(
-                        onClick = {
-                            if (!FileActions.shareFile(context, file)) {
-                                Toast.makeText(context, context.getString(R.string.pdf_share_failed), Toast.LENGTH_SHORT).show()
-                            }
-                        },
+                        onClick = { shareGate = ShareGateDialog.Choice },
+                        enabled = !sharing,
                     ) {
                         Icon(Icons.Default.Share, contentDescription = stringResource(R.string.share))
                     }

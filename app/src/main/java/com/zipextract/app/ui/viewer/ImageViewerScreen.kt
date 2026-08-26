@@ -57,6 +57,10 @@ import coil.request.SuccessResult
 import coil.size.Size
 import coil.transform.Transformation
 import com.zipextract.app.data.FileActions
+import com.zipextract.app.data.SharePasswordExporter
+import com.zipextract.app.ui.ShareChoiceDialog
+import com.zipextract.app.ui.ShareGateDialog
+import com.zipextract.app.ui.SharePasswordPromptDialog
 import java.io.File
 import java.io.FileOutputStream
 import kotlinx.coroutines.Dispatchers
@@ -99,6 +103,7 @@ fun ImageViewerScreen(
     var editing by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var sharing by remember { mutableStateOf(false) }
+    var shareGate by remember { mutableStateOf<ShareGateDialog?>(null) }
     // View-only orientation (not written to disk until share/export).
     var rotationDeg by remember { mutableFloatStateOf(0f) }
     var flipHorizontal by remember { mutableStateOf(false) }
@@ -116,28 +121,70 @@ fun ImageViewerScreen(
             }
     }
 
-    fun shareCurrentView() {
-        if (sharing) return
+    suspend fun resolveShareSourceFile(): File? {
         val source = currentFile
         val rotation = rotationDeg
         val flip = flipHorizontal
-        // No transform → share the original file as before.
-        if (rotation == 0f && !flip) {
-            if (!FileActions.shareFile(context, source)) {
-                Toast.makeText(context, context.getString(R.string.image_share_failed), Toast.LENGTH_SHORT).show()
-            }
-            return
+        if (rotation == 0f && !flip) return source
+        return withContext(Dispatchers.IO) {
+            exportOrientedImageForShare(context, source, rotation, flip)
         }
+    }
+
+    fun shareNormal() {
+        if (sharing) return
         sharing = true
         scope.launch {
-            val shared = withContext(Dispatchers.IO) {
-                exportOrientedImageForShare(context, source, rotation, flip)
-            }
+            val file = resolveShareSourceFile()
             sharing = false
-            if (shared == null || !FileActions.shareFile(context, shared)) {
+            if (file == null || !FileActions.shareFile(context, file)) {
                 Toast.makeText(context, context.getString(R.string.image_share_failed), Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    fun shareWithPassword(password: String) {
+        if (sharing) return
+        sharing = true
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    val source = resolveShareSourceFile() ?: error("export failed")
+                    val locked = SharePasswordExporter.exportLocked(context, source, password)
+                    withContext(Dispatchers.Main) {
+                        FileActions.shareFile(context, locked)
+                    }
+                }.getOrDefault(false)
+            }
+            sharing = false
+            if (!ok) {
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.share_password_failed),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
+
+    when (shareGate) {
+        ShareGateDialog.Choice -> ShareChoiceDialog(
+            onDismiss = { shareGate = null },
+            onShareNormal = {
+                shareGate = null
+                shareNormal()
+            },
+            onShareWithPassword = { shareGate = ShareGateDialog.Password },
+        )
+        ShareGateDialog.Password -> SharePasswordPromptDialog(
+            usesPdfPassword = false,
+            onDismiss = { shareGate = null },
+            onConfirm = { password ->
+                shareGate = null
+                shareWithPassword(password)
+            },
+        )
+        null -> Unit
     }
 
     if (editing) {
@@ -193,7 +240,7 @@ fun ImageViewerScreen(
                         Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.edit))
                     }
                     IconButton(
-                        onClick = { shareCurrentView() },
+                        onClick = { shareGate = ShareGateDialog.Choice },
                         enabled = !sharing,
                     ) {
                         Icon(Icons.Default.Share, contentDescription = stringResource(R.string.share))
