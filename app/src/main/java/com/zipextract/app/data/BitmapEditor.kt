@@ -53,6 +53,46 @@ object BitmapEditor {
         return output
     }
 
+    fun drawTextOverlays(
+        source: Bitmap,
+        overlays: List<TextOverlayData>,
+    ): Bitmap {
+        if (overlays.isEmpty()) return source
+        val output = source.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(output)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            textAlign = Paint.Align.CENTER
+        }
+        overlays.forEach { overlay ->
+            val text = overlay.text.trim()
+            if (text.isEmpty()) return@forEach
+            val scale = source.width / overlay.canvasWidth.coerceAtLeast(1f)
+            paint.color = overlay.colorArgb
+            paint.textSize = overlay.sizePx * scale
+            val lines = text.split('\n')
+            val lineHeight = paint.fontSpacing
+            val totalHeight = lineHeight * lines.size
+            val startY = overlay.y * source.height - totalHeight / 2f + lineHeight / 2f
+            val cx = overlay.x * source.width
+            lines.forEachIndexed { index, line ->
+                canvas.drawText(line, cx, startY + index * lineHeight, paint)
+            }
+        }
+        return output
+    }
+
+    fun applyEdits(
+        source: Bitmap,
+        strokes: List<StrokeData>,
+        textOverlays: List<TextOverlayData>,
+    ): Bitmap {
+        val withInk = drawStrokes(source, strokes)
+        val withText = drawTextOverlays(withInk, textOverlays)
+        if (withInk !== source && withInk !== withText) withInk.recycle()
+        return withText
+    }
+
     fun saveToPictures(context: Context, bitmap: Bitmap, baseName: String): File? {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val safeBase = baseName.substringBeforeLast('.')
@@ -124,5 +164,15 @@ data class StrokeData(
     val points: List<StrokePoint>,
     val colorArgb: Int,
     val widthPx: Float,
+    val canvasWidth: Float,
+)
+
+/** Normalized (0–1) center position of a text overlay on the image. */
+data class TextOverlayData(
+    val text: String,
+    val x: Float,
+    val y: Float,
+    val colorArgb: Int,
+    val sizePx: Float,
     val canvasWidth: Float,
 )

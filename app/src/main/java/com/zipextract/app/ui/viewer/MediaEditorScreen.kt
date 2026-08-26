@@ -22,10 +22,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Undo
@@ -34,6 +37,7 @@ import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Title
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,6 +45,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -49,7 +54,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,22 +77,28 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.zipextract.app.data.BitmapEditor
 import com.zipextract.app.data.FileActions
 import com.zipextract.app.data.StrokeData
 import com.zipextract.app.data.StrokePoint
+import com.zipextract.app.data.TextOverlayData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.max
+import kotlin.math.roundToInt
 
-private enum class EditorTool { NONE, CROP, PEN }
+private enum class EditorTool { NONE, CROP, PEN, TEXT }
 
 private data class PenColor(val color: Color, val argb: Int)
 
@@ -94,6 +107,7 @@ private val penColors = listOf(
     PenColor(Color(0xFF2563EB), 0xFF2563EB.toInt()),
     PenColor(Color(0xFF111827), 0xFF111827.toInt()),
     PenColor(Color(0xFFF59E0B), 0xFFF59E0B.toInt()),
+    PenColor(Color(0xFFFFFFFF), 0xFFFFFFFF.toInt()),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -124,6 +138,12 @@ fun MediaEditorScreen(
     val strokes = remember { mutableStateListOf<StrokeData>() }
     var currentStroke by remember { mutableStateOf<List<StrokePoint>?>(null) }
 
+    val textOverlays = remember { mutableStateListOf<TextOverlayData>() }
+    var selectedTextIndex by remember { mutableIntStateOf(-1) }
+    var draftText by remember { mutableStateOf("") }
+    var textSizePx by remember { mutableFloatStateOf(42f) }
+    var lastCanvasWidth by remember { mutableFloatStateOf(1f) }
+
     LaunchedEffect(sourceFile, sourceBitmap) {
         loading = true
         error = null
@@ -146,19 +166,58 @@ fun MediaEditorScreen(
         loading = false
     }
 
+    fun syncDraftFromSelection() {
+        val idx = selectedTextIndex
+        if (idx in textOverlays.indices) {
+            val overlay = textOverlays[idx]
+            draftText = overlay.text
+            textSizePx = overlay.sizePx
+            selectedPen = penColors.firstOrNull { it.argb == overlay.colorArgb } ?: selectedPen
+        }
+    }
+
+    fun commitDraftText(forceNew: Boolean = false) {
+        val content = draftText.trim()
+        if (content.isEmpty()) return
+        val canvasW = lastCanvasWidth.coerceAtLeast(1f)
+        val idx = selectedTextIndex
+        if (!forceNew && idx in textOverlays.indices) {
+            val prev = textOverlays[idx]
+            textOverlays[idx] = prev.copy(
+                text = content,
+                colorArgb = selectedPen.argb,
+                sizePx = textSizePx,
+                canvasWidth = canvasW,
+            )
+        } else {
+            textOverlays += TextOverlayData(
+                text = content,
+                x = 0.5f,
+                y = 0.5f,
+                colorArgb = selectedPen.argb,
+                sizePx = textSizePx,
+                canvasWidth = canvasW,
+            )
+            selectedTextIndex = textOverlays.lastIndex
+        }
+    }
+
     fun exportBitmap(): Bitmap? {
         val base = working ?: return null
-        return BitmapEditor.drawStrokes(base, strokes.toList())
+        return BitmapEditor.applyEdits(base, strokes.toList(), textOverlays.toList())
     }
 
     fun applyCrop() {
         val base = working ?: return
-        val withInk = BitmapEditor.drawStrokes(base, strokes.toList())
-        val cropped = BitmapEditor.crop(withInk, cropLeft, cropTop, cropRight, cropBottom)
-        if (withInk !== base && withInk !== cropped) withInk.recycle()
+        val edited = BitmapEditor.applyEdits(base, strokes.toList(), textOverlays.toList())
+        val cropped = BitmapEditor.crop(edited, cropLeft, cropTop, cropRight, cropBottom)
+        if (edited !== base && edited !== cropped) edited.recycle()
         working = cropped
         strokes.clear()
         currentStroke = null
+        textOverlays.clear()
+        selectedTextIndex = -1
+        draftText = ""
         cropLeft = 0.08f
         cropTop = 0.08f
         cropRight = 0.92f
@@ -168,6 +227,7 @@ fun MediaEditorScreen(
     }
 
     fun saveAndMaybeShare(share: Boolean) {
+        if (tool == EditorTool.TEXT) commitDraftText()
         val bitmap = exportBitmap() ?: return
         busy = true
         scope.launch {
@@ -181,6 +241,29 @@ fun MediaEditorScreen(
             }
             Toast.makeText(context, context.getString(R.string.edit_saved, saved.name), Toast.LENGTH_SHORT).show()
             if (share) FileActions.shareFile(context, saved)
+        }
+    }
+
+    fun undo() {
+        when {
+            tool == EditorTool.TEXT && selectedTextIndex in textOverlays.indices -> {
+                textOverlays.removeAt(selectedTextIndex)
+                selectedTextIndex = if (textOverlays.isEmpty()) -1 else textOverlays.lastIndex
+                draftText = textOverlays.getOrNull(selectedTextIndex)?.text.orEmpty()
+            }
+            tool == EditorTool.TEXT && textOverlays.isNotEmpty() -> {
+                textOverlays.removeAt(textOverlays.lastIndex)
+                selectedTextIndex = if (textOverlays.isEmpty()) -1 else textOverlays.lastIndex
+                draftText = textOverlays.getOrNull(selectedTextIndex)?.text.orEmpty()
+            }
+            currentStroke != null -> currentStroke = null
+            strokes.isNotEmpty() -> strokes.removeAt(strokes.lastIndex)
+            textOverlays.isNotEmpty() -> {
+                textOverlays.removeAt(textOverlays.lastIndex)
+                selectedTextIndex = if (textOverlays.isEmpty()) -1 else textOverlays.lastIndex
+                draftText = textOverlays.getOrNull(selectedTextIndex)?.text.orEmpty()
+            }
+            draftText.isNotBlank() -> draftText = ""
         }
     }
 
@@ -236,6 +319,7 @@ fun MediaEditorScreen(
                         FilterChip(
                             selected = tool == EditorTool.CROP,
                             onClick = {
+                                if (tool == EditorTool.TEXT) commitDraftText()
                                 tool = if (tool == EditorTool.CROP) EditorTool.NONE else EditorTool.CROP
                             },
                             label = { Text(stringResource(R.string.edit_crop)) },
@@ -244,17 +328,37 @@ fun MediaEditorScreen(
                         FilterChip(
                             selected = tool == EditorTool.PEN,
                             onClick = {
+                                if (tool == EditorTool.TEXT) commitDraftText()
                                 tool = if (tool == EditorTool.PEN) EditorTool.NONE else EditorTool.PEN
                             },
                             label = { Text(stringResource(R.string.edit_pen)) },
                             leadingIcon = { Icon(Icons.Default.Edit, null, Modifier.size(18.dp)) },
                         )
-                        IconButton(
+                        FilterChip(
+                            selected = tool == EditorTool.TEXT,
                             onClick = {
-                                if (currentStroke != null) currentStroke = null
-                                else if (strokes.isNotEmpty()) strokes.removeAt(strokes.lastIndex)
+                                if (tool == EditorTool.TEXT) {
+                                    commitDraftText()
+                                    tool = EditorTool.NONE
+                                } else {
+                                    tool = EditorTool.TEXT
+                                    if (textOverlays.isEmpty() && draftText.isBlank()) {
+                                        selectedTextIndex = -1
+                                    } else if (selectedTextIndex !in textOverlays.indices && textOverlays.isNotEmpty()) {
+                                        selectedTextIndex = textOverlays.lastIndex
+                                        syncDraftFromSelection()
+                                    }
+                                }
                             },
-                            enabled = strokes.isNotEmpty() || currentStroke != null,
+                            label = { Text(stringResource(R.string.edit_text)) },
+                            leadingIcon = { Icon(Icons.Default.Title, null, Modifier.size(18.dp)) },
+                        )
+                        IconButton(
+                            onClick = { undo() },
+                            enabled = strokes.isNotEmpty() ||
+                                currentStroke != null ||
+                                textOverlays.isNotEmpty() ||
+                                draftText.isNotBlank(),
                         ) {
                             Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = stringResource(R.string.undo))
                         }
@@ -266,7 +370,7 @@ fun MediaEditorScreen(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            penColors.forEach { option ->
+                            penColors.take(4).forEach { option ->
                                 Box(
                                     modifier = Modifier
                                         .size(if (selectedPen == option) 30.dp else 24.dp)
@@ -285,6 +389,110 @@ fun MediaEditorScreen(
                             TextButton(onClick = { strokeWidth = 8f }) { Text(stringResource(R.string.edit_stroke_medium)) }
                             TextButton(onClick = { strokeWidth = 14f }) { Text(stringResource(R.string.edit_stroke_thick)) }
                         }
+                    }
+
+                    if (tool == EditorTool.TEXT) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = draftText,
+                            onValueChange = { value ->
+                                draftText = value
+                                val idx = selectedTextIndex
+                                if (idx in textOverlays.indices) {
+                                    val prev = textOverlays[idx]
+                                    textOverlays[idx] = prev.copy(
+                                        text = value,
+                                        colorArgb = selectedPen.argb,
+                                        sizePx = textSizePx,
+                                        canvasWidth = lastCanvasWidth.coerceAtLeast(1f),
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = false,
+                            maxLines = 3,
+                            placeholder = { Text(stringResource(R.string.edit_text_placeholder)) },
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            penColors.forEach { option ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(if (selectedPen == option) 30.dp else 24.dp)
+                                        .clip(CircleShape)
+                                        .background(option.color)
+                                        .border(
+                                            width = if (selectedPen == option) 2.dp else 1.dp,
+                                            color = if (option.color == Color.White) Color.Gray else Color.White,
+                                            shape = CircleShape,
+                                        )
+                                        .clickable {
+                                            selectedPen = option
+                                            val idx = selectedTextIndex
+                                            if (idx in textOverlays.indices) {
+                                                textOverlays[idx] = textOverlays[idx].copy(colorArgb = option.argb)
+                                            }
+                                        },
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    textSizePx = 28f
+                                    val idx = selectedTextIndex
+                                    if (idx in textOverlays.indices) {
+                                        textOverlays[idx] = textOverlays[idx].copy(sizePx = 28f)
+                                    }
+                                },
+                            ) { Text(stringResource(R.string.edit_text_small)) }
+                            TextButton(
+                                onClick = {
+                                    textSizePx = 42f
+                                    val idx = selectedTextIndex
+                                    if (idx in textOverlays.indices) {
+                                        textOverlays[idx] = textOverlays[idx].copy(sizePx = 42f)
+                                    }
+                                },
+                            ) { Text(stringResource(R.string.edit_text_medium)) }
+                            TextButton(
+                                onClick = {
+                                    textSizePx = 64f
+                                    val idx = selectedTextIndex
+                                    if (idx in textOverlays.indices) {
+                                        textOverlays[idx] = textOverlays[idx].copy(sizePx = 64f)
+                                    }
+                                },
+                            ) { Text(stringResource(R.string.edit_text_large)) }
+                            Spacer(modifier = Modifier.weight(1f))
+                            Button(
+                                onClick = {
+                                    if (selectedTextIndex in textOverlays.indices) {
+                                        commitDraftText(forceNew = false)
+                                        draftText = ""
+                                        selectedTextIndex = -1
+                                    } else {
+                                        commitDraftText(forceNew = true)
+                                    }
+                                },
+                                enabled = draftText.isNotBlank(),
+                            ) {
+                                Text(stringResource(R.string.edit_text_add))
+                            }
+                        }
+                        Text(
+                            text = stringResource(R.string.edit_text_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
 
                     if (tool == EditorTool.CROP) {
@@ -339,6 +547,11 @@ fun MediaEditorScreen(
                         currentStroke = currentStroke,
                         penColor = selectedPen.color,
                         strokeWidth = strokeWidth,
+                        textOverlays = textOverlays,
+                        selectedTextIndex = selectedTextIndex,
+                        draftText = draftText,
+                        draftColor = selectedPen.color,
+                        draftSizePx = textSizePx,
                         cropLeft = cropLeft,
                         cropTop = cropTop,
                         cropRight = cropRight,
@@ -365,6 +578,41 @@ fun MediaEditorScreen(
                                 )
                             }
                         },
+                        onCanvasWidth = { lastCanvasWidth = it },
+                        onSelectText = { index ->
+                            selectedTextIndex = index
+                            syncDraftFromSelection()
+                        },
+                        onMoveText = { index, x, y ->
+                            if (index in textOverlays.indices) {
+                                textOverlays[index] = textOverlays[index].copy(x = x, y = y)
+                            }
+                        },
+                        onPlaceDraft = { x, y ->
+                            val content = draftText.trim()
+                            if (content.isEmpty()) return@EditorCanvas
+                            val canvasW = lastCanvasWidth.coerceAtLeast(1f)
+                            if (selectedTextIndex in textOverlays.indices) {
+                                textOverlays[selectedTextIndex] = textOverlays[selectedTextIndex].copy(
+                                    text = content,
+                                    x = x,
+                                    y = y,
+                                    colorArgb = selectedPen.argb,
+                                    sizePx = textSizePx,
+                                    canvasWidth = canvasW,
+                                )
+                            } else {
+                                textOverlays += TextOverlayData(
+                                    text = content,
+                                    x = x,
+                                    y = y,
+                                    colorArgb = selectedPen.argb,
+                                    sizePx = textSizePx,
+                                    canvasWidth = canvasW,
+                                )
+                                selectedTextIndex = textOverlays.lastIndex
+                            }
+                        },
                     )
                 }
             }
@@ -380,6 +628,11 @@ private fun EditorCanvas(
     currentStroke: List<StrokePoint>?,
     penColor: Color,
     strokeWidth: Float,
+    textOverlays: List<TextOverlayData>,
+    selectedTextIndex: Int,
+    draftText: String,
+    draftColor: Color,
+    draftSizePx: Float,
     cropLeft: Float,
     cropTop: Float,
     cropRight: Float,
@@ -388,6 +641,10 @@ private fun EditorCanvas(
     onStrokeStart: (StrokePoint) -> Unit,
     onStrokeMove: (StrokePoint) -> Unit,
     onStrokeEnd: (canvasWidth: Float) -> Unit,
+    onCanvasWidth: (Float) -> Unit,
+    onSelectText: (Int) -> Unit,
+    onMoveText: (Int, Float, Float) -> Unit,
+    onPlaceDraft: (Float, Float) -> Unit,
 ) {
     BoxWithConstraints(
         modifier = Modifier
@@ -411,6 +668,11 @@ private fun EditorCanvas(
         val density = LocalDensity.current
         val drawWdp = with(density) { drawW.toDp() }
         val drawHdp = with(density) { drawH.toDp() }
+        val overlaysState = rememberUpdatedState(textOverlays)
+        val selectedState = rememberUpdatedState(selectedTextIndex)
+        val draftState = rememberUpdatedState(draftText)
+
+        LaunchedEffect(drawW) { onCanvasWidth(drawW) }
 
         fun toNorm(offset: Offset): StrokePoint? {
             if (offset.x < 0f || offset.x > drawW || offset.y < 0f || offset.y > drawH) return null
@@ -425,8 +687,8 @@ private fun EditorCanvas(
                 .width(drawWdp)
                 .height(drawHdp)
                 .then(
-                    if (tool == EditorTool.PEN) {
-                        Modifier.pointerInput(tool, penColor, strokeWidth, drawW, drawH) {
+                    when (tool) {
+                        EditorTool.PEN -> Modifier.pointerInput(tool, penColor, strokeWidth, drawW, drawH) {
                             detectDragGestures(
                                 onDragStart = { start -> toNorm(start)?.let(onStrokeStart) },
                                 onDrag = { change, _ ->
@@ -437,8 +699,46 @@ private fun EditorCanvas(
                                 onDragCancel = { onStrokeEnd(drawW) },
                             )
                         }
-                    } else {
-                        Modifier
+                        EditorTool.TEXT -> Modifier.pointerInput(tool, drawW, drawH) {
+                            detectDragGestures(
+                                onDragStart = { start ->
+                                    val norm = toNorm(start) ?: return@detectDragGestures
+                                    val overlays = overlaysState.value
+                                    val hitIndex = overlays.indices.minByOrNull { i ->
+                                        val o = overlays[i]
+                                        val dx = (o.x - norm.x) * drawW
+                                        val dy = (o.y - norm.y) * drawH
+                                        dx * dx + dy * dy
+                                    }?.takeIf { i ->
+                                        val o = overlays[i]
+                                        val dx = (o.x - norm.x) * drawW
+                                        val dy = (o.y - norm.y) * drawH
+                                        dx * dx + dy * dy <= 90f * 90f
+                                    }
+                                    if (hitIndex != null) {
+                                        onSelectText(hitIndex)
+                                    } else if (draftState.value.isNotBlank() ||
+                                        selectedState.value in overlays.indices
+                                    ) {
+                                        onPlaceDraft(norm.x, norm.y)
+                                    }
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    val overlays = overlaysState.value
+                                    val idx = selectedState.value
+                                    if (idx in overlays.indices) {
+                                        val prev = overlays[idx]
+                                        val nx = (prev.x + dragAmount.x / drawW).coerceIn(0.02f, 0.98f)
+                                        val ny = (prev.y + dragAmount.y / drawH).coerceIn(0.02f, 0.98f)
+                                        onMoveText(idx, nx, ny)
+                                    }
+                                },
+                                onDragEnd = {},
+                                onDragCancel = {},
+                            )
+                        }
+                        else -> Modifier
                     },
                 ),
         ) {
@@ -514,6 +814,62 @@ private fun EditorCanvas(
                         drawCircle(Color(0xFF2563EB), radius = 12f, center = center)
                     }
                 }
+            }
+
+            textOverlays.forEachIndexed { index, overlay ->
+                key(index, overlay.text, overlay.x, overlay.y, overlay.sizePx, overlay.colorArgb) {
+                    val scale = drawW / overlay.canvasWidth.coerceAtLeast(1f)
+                    val fontSp = with(density) { (overlay.sizePx * scale).toSp() }
+                    val selected = index == selectedTextIndex && tool == EditorTool.TEXT
+                    var measured by remember { mutableStateOf(IntSize.Zero) }
+                    Text(
+                        text = overlay.text.ifBlank { " " },
+                        color = Color(overlay.colorArgb),
+                        fontSize = fontSp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .onSizeChanged { measured = it }
+                            .offset {
+                                IntOffset(
+                                    (overlay.x * drawW - measured.width / 2f).roundToInt(),
+                                    (overlay.y * drawH - measured.height / 2f).roundToInt(),
+                                )
+                            }
+                            .then(
+                                if (selected) {
+                                    Modifier
+                                        .background(Color.Black.copy(alpha = 0.25f), RoundedCornerShape(6.dp))
+                                        .border(1.dp, Color.White.copy(alpha = 0.8f), RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                } else {
+                                    Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                },
+                            )
+                            .widthIn(max = drawWdp * 0.9f)
+                            .clickable(enabled = tool == EditorTool.TEXT) { onSelectText(index) },
+                    )
+                }
+            }
+
+            // Preview uncommitted draft at center when TEXT tool has typed text but no overlays yet.
+            if (tool == EditorTool.TEXT &&
+                draftText.isNotBlank() &&
+                selectedTextIndex !in textOverlays.indices
+            ) {
+                val fontSp = with(density) { draftSizePx.toSp() }
+                Text(
+                    text = draftText,
+                    color = draftColor,
+                    fontSize = fontSp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .background(Color.Black.copy(alpha = 0.25f), RoundedCornerShape(6.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.8f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .widthIn(max = drawWdp * 0.9f),
+                )
             }
 
             if (tool == EditorTool.CROP) {
