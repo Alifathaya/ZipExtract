@@ -161,6 +161,7 @@ class MainActivity : AppCompatActivity() {
                         onSearchQueryChange = viewModel::updateSearchQuery,
                         onClearSearch = viewModel::clearSearch,
                         onOpenFileAnywhere = viewModel::openFileFromAnywhere,
+                        onMissingImages = viewModel::reportMissingImages,
                         onSetFileFilter = viewModel::setFileFilter,
                         onToggleSort = viewModel::toggleSort,
                         onRequestPermission = { requestStorageAccess() },

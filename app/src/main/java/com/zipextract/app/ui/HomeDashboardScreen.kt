@@ -67,6 +67,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -122,6 +123,7 @@ fun HomeDashboardScreen(
     onOpenLanguage: () -> Unit,
     onOpenFile: (FileItem) -> Unit,
     onViewAllPhotos: () -> Unit,
+    onMissingPhotos: (List<String>) -> Unit = {},
 ) {
     val isSearching = searchQuery.trim().length >= 2
 
@@ -267,6 +269,7 @@ fun HomeDashboardScreen(
                     loading = isLoading,
                     onOpenPhoto = onOpenFile,
                     onViewAll = onViewAllPhotos,
+                    onMissingPhotos = onMissingPhotos,
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
@@ -408,9 +411,19 @@ private fun RecentPhotosSection(
     loading: Boolean,
     onOpenPhoto: (FileItem) -> Unit,
     onViewAll: () -> Unit,
+    onMissingPhotos: (List<String>) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val samplePhotos = photos.take(6)
+    // Hide deleted files immediately; ask ViewModel to top up with newer photos.
+    val samplePhotos = remember(photos) {
+        photos.filter { it.file.exists() && it.file.isFile }.take(6)
+    }
+    LaunchedEffect(photos) {
+        val missing = photos
+            .filter { !it.file.exists() || !it.file.isFile }
+            .map { it.path }
+        if (missing.isNotEmpty()) onMissingPhotos(missing)
+    }
 
     Column(modifier = modifier) {
         Row(
@@ -482,6 +495,7 @@ private fun RecentPhotosSection(
                                 photo = photo,
                                 onClick = { onOpenPhoto(photo) },
                                 size = thumbSize,
+                                onLoadFailed = { onMissingPhotos(listOf(it)) },
                             )
                         }
                     }
@@ -496,6 +510,7 @@ private fun PhotoThumbnail(
     photo: FileItem,
     onClick: () -> Unit,
     size: Dp = 108.dp,
+    onLoadFailed: (String) -> Unit = {},
 ) {
     Surface(
         modifier = Modifier
@@ -521,6 +536,7 @@ private fun PhotoThumbnail(
                 }
             },
             error = {
+                LaunchedEffect(photo.path) { onLoadFailed(photo.path) }
                 PhotoPlaceholderTile(modifier = Modifier.fillMaxSize())
             },
             success = {

@@ -244,6 +244,7 @@ fun FileBrowserScreen(
     onSearchQueryChange: (String) -> Unit,
     onClearSearch: () -> Unit,
     onOpenFileAnywhere: (FileItem) -> Unit,
+    onMissingImages: (Collection<String>) -> Unit = {},
     onSetFileFilter: (FileFilter) -> Unit,
     onToggleSort: () -> Unit,
     onRequestPermission: () -> Unit,
@@ -474,6 +475,7 @@ fun FileBrowserScreen(
             onOpenLanguage = { showLanguagePicker = true },
             onOpenFile = onOpenFileAnywhere,
             onViewAllPhotos = { onOpenCategory(FileCategory.IMAGES) },
+            onMissingPhotos = { onMissingImages(it) },
         )
         return
     }
@@ -850,6 +852,7 @@ fun FileBrowserScreen(
                             onOpenItem = onOpenItem,
                             onToggleSelect = onToggleSelect,
                             onToggleFavorite = onToggleFavoritePath,
+                            onMissingImages = onMissingImages,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -1791,13 +1794,24 @@ private fun ImageGalleryGrid(
     onOpenItem: (FileItem) -> Unit,
     onToggleSelect: (FileItem) -> Unit,
     onToggleFavorite: (String) -> Unit,
+    onMissingImages: (Collection<String>) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    if (items.isEmpty()) {
+    // Skip deleted files in the grid; refill is handled by onMissingImages / ViewModel prune.
+    val visibleItems = remember(items) {
+        items.filter { it.file.exists() && it.file.isFile }
+    }
+    LaunchedEffect(items) {
+        val missing = items
+            .filter { !it.file.exists() || !it.file.isFile }
+            .map { it.path }
+        if (missing.isNotEmpty()) onMissingImages(missing)
+    }
+    if (visibleItems.isEmpty()) {
         EmptyPane(message = stringResource(R.string.no_photos_in_album))
         return
     }
-    val sections = remember(items) { groupByTime(items) }
+    val sections = remember(visibleItems) { groupByTime(visibleItems) }
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
@@ -1824,6 +1838,7 @@ private fun ImageGalleryGrid(
                     },
                     onLongClick = { onToggleSelect(item) },
                     onToggleFavorite = { onToggleFavorite(item.path) },
+                    onLoadFailed = { onMissingImages(listOf(it)) },
                 )
             }
         }
@@ -1840,6 +1855,7 @@ private fun ImageThumbnailCell(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onLoadFailed: (String) -> Unit = {},
 ) {
     Box(
         modifier = Modifier
@@ -1864,6 +1880,7 @@ private fun ImageThumbnailCell(
                 }
             },
             error = {
+                LaunchedEffect(item.path) { onLoadFailed(item.path) }
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
