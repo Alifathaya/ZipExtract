@@ -1,6 +1,5 @@
 package com.zipextract.app
 
-import android.app.DownloadManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -15,8 +14,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -24,17 +28,23 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zipextract.app.data.AppPreferences
 import com.zipextract.app.data.LocaleHelper
 import com.zipextract.app.data.ThemeMode
+import com.zipextract.app.license.AppUpdateDownloadResult
+import com.zipextract.app.license.AppUpdateDownloader
 import com.zipextract.app.license.AppUpdateInfo
-import com.zipextract.app.license.LicenseApi
 import com.zipextract.app.license.LicenseGateStatus
 import com.zipextract.app.license.LicenseRepository
 import com.zipextract.app.license.LicenseScheduler
@@ -42,6 +52,8 @@ import com.zipextract.app.ui.FileBrowserScreen
 import com.zipextract.app.ui.FileBrowserViewModel
 import com.zipextract.app.ui.license.LicenseLockScreen
 import com.zipextract.app.ui.theme.FileNestTheme
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * AppCompatActivity so [AppCompatDelegate.setApplicationLocales] applies reliably
@@ -70,6 +82,9 @@ class MainActivity : AppCompatActivity() {
                     val context = LocalContext.current
                     val licenseRepo = remember { LicenseRepository.get(context) }
                     val licenseState by licenseRepo.state.collectAsStateWithLifecycle()
+                    val scope = rememberCoroutineScope()
+                    var updateDownload by remember { mutableStateOf<AppUpdateInfo?>(null) }
+                    var updateProgress by remember { mutableFloatStateOf(0f) }
 
                 val legacyPermissionLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestMultiplePermissions()
@@ -224,7 +239,7 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     val pendingUpdate = licenseState.pendingUpdate
-                    if (pendingUpdate != null) {
+                    if (pendingUpdate != null && updateDownload == null) {
                         AlertDialog(
                             onDismissRequest = { licenseRepo.dismissUpdate(pendingUpdate) },
                             title = {
@@ -239,22 +254,42 @@ class MainActivity : AppCompatActivity() {
                             confirmButton = {
                                 TextButton(
                                     onClick = {
-                                        val started = enqueueAppUpdateDownload(
-                                            context,
-                                            pendingUpdate,
-                                        )
-                                        Toast.makeText(
-                                            context,
-                                            context.getString(
-                                                if (started) {
-                                                    R.string.app_update_downloading
-                                                } else {
-                                                    R.string.app_update_open_failed
-                                                },
-                                            ),
-                                            Toast.LENGTH_SHORT,
-                                        ).show()
                                         licenseRepo.dismissUpdate(pendingUpdate)
+                                        updateProgress = 0f
+                                        updateDownload = pendingUpdate
+                                        scope.launch {
+                                            val result = AppUpdateDownloader.downloadAndInstall(
+                                                context = context,
+                                                update = pendingUpdate,
+                                                onProgress = { updateProgress = it },
+                                            )
+                                            updateDownload = null
+                                            when (result) {
+                                                AppUpdateDownloadResult.InstalledStarted -> {
+                                                    Toast.makeText(
+                                                        context,
+                                                        context.getString(R.string.app_update_installing),
+                                                        Toast.LENGTH_LONG,
+                                                    ).show()
+                                                }
+                                                AppUpdateDownloadResult.NeedInstallPermission -> {
+                                                    Toast.makeText(
+                                                        context,
+                                                        context.getString(R.string.app_update_need_permission),
+                                                        Toast.LENGTH_LONG,
+                                                    ).show()
+                                                }
+                                                is AppUpdateDownloadResult.Failed -> {
+                                                    Toast.makeText(
+                                                        context,
+                                                        context.getString(
+                                                            R.string.app_update_open_failed,
+                                                        ) + " (${result.message})",
+                                                        Toast.LENGTH_LONG,
+                                                    ).show()
+                                                }
+                                            }
+                                        }
                                     },
                                 ) {
                                     Text(stringResource(R.string.app_update_action))
@@ -267,6 +302,39 @@ class MainActivity : AppCompatActivity() {
                                     Text(stringResource(R.string.app_update_later))
                                 }
                             },
+                        )
+                    }
+
+                    val downloading = updateDownload
+                    if (downloading != null) {
+                        AlertDialog(
+                            onDismissRequest = { /* block dismiss while downloading */ },
+                            title = {
+                                Text(
+                                    stringResource(
+                                        R.string.app_update_downloading_title,
+                                        downloading.version,
+                                    ),
+                                )
+                            },
+                            text = {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    Text(stringResource(R.string.app_update_downloading))
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    LinearProgressIndicator(
+                                        progress = { updateProgress.coerceIn(0f, 1f) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        stringResource(
+                                            R.string.app_update_progress_pct,
+                                            (updateProgress * 100f).roundToInt().coerceIn(0, 100),
+                                        ),
+                                    )
+                                }
+                            },
+                            confirmButton = {},
                         )
                     }
                 }
@@ -342,32 +410,6 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val GITHUB_APK_BASE =
             "https://github.com/Alifathaya/ZipExtract/releases/download"
-
-        /**
-         * Download APK from GitHub Releases (URL never shown in the UI).
-         */
-        fun enqueueAppUpdateDownload(
-            context: android.content.Context,
-            update: AppUpdateInfo,
-        ): Boolean {
-            val downloadUrl = resolveUpdateDownloadUrl(update) ?: return false
-            return runCatching {
-                val dm = context.getSystemService(DownloadManager::class.java) ?: return false
-                val fileName = "FileNest-${update.version}.apk"
-                val request = DownloadManager.Request(Uri.parse(downloadUrl))
-                    .setTitle(context.getString(R.string.app_update_title, update.version))
-                    .setDescription(context.getString(R.string.app_update_downloading))
-                    .setNotificationVisibility(
-                        DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED,
-                    )
-                    .setAllowedOverMetered(true)
-                    .setAllowedOverRoaming(true)
-                    .setMimeType("application/vnd.android.package-archive")
-                    .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-                dm.enqueue(request)
-                true
-            }.getOrDefault(false)
-        }
 
         fun resolveUpdateDownloadUrl(update: AppUpdateInfo): String? {
             val raw = update.url.trim()

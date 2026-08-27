@@ -478,6 +478,10 @@
     <string name="app_update_download">Update</string>
     <string name="app_update_later">Nanti</string>
     <string name="app_update_downloading">Mengunduh update…</string>
+    <string name="app_update_downloading_title">Mengunduh v%1$s</string>
+    <string name="app_update_progress_pct">%1$d%%</string>
+    <string name="app_update_installing">Unduhan selesai — membuka installer…</string>
+    <string name="app_update_need_permission">Izinkan instal dari sumber ini, lalu ketuk Update lagi</string>
     <string name="app_update_open_failed">Gagal mengunduh update</string>
     <string name="documents_root_summary">Penyimpanan lewat FileNest</string>
 </resources>
