@@ -474,7 +474,9 @@
     <string name="license_network_error">Gagal menghubungi server lisensi</string>
     <string name="license_activate_failed">Aktivasi gagal (%1$s)</string>
     <string name="app_update_title">Update tersedia (v%1$s)</string>
-    <string name="app_update_download">Unduh</string>
+    <string name="app_update_action">Update</string>
+    <string name="app_update_download">Update</string>
     <string name="app_update_later">Nanti</string>
-    <string name="app_update_open_failed">Tidak bisa membuka tautan update</string>
+    <string name="app_update_downloading">Mengunduh update…</string>
+    <string name="app_update_open_failed">Gagal mengunduh update</string>
 </resources>

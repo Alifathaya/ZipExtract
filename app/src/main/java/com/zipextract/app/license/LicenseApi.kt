@@ -113,8 +113,8 @@ class LicenseApi(
             val version = json.optString("version").trim()
             val message = json.optString("message").trim()
             val url = json.optString("url").trim()
-            if (version.isBlank() || message.isBlank() || url.isBlank()) return null
-            if (!url.startsWith("http://") && !url.startsWith("https://")) return null
+            if (version.isBlank() || message.isBlank()) return null
+            // URL may be relative (/v1/updates/latest) — app resolves against LICENSE_API_BASE_URL.
             return AppUpdateInfo(
                 version = version,
                 message = message,

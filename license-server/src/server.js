@@ -19,13 +19,18 @@ const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const Database = require('better-sqlite3');
 const { WebSocketServer } = require('ws');
+const multer = require('multer');
 
 const PORT = Number(process.env.PORT || 8787);
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme';
 const TRIAL_DAYS = Number(process.env.TRIAL_DAYS || 30);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+/** Stored APK updates — keep at most MAX_UPDATE_APKS per audience. */
+const UPDATES_DIR = process.env.UPDATES_DIR || path.join(DATA_DIR, 'apk-updates');
+const MAX_UPDATE_APKS = 3;
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
+fs.mkdirSync(UPDATES_DIR, { recursive: true });
 const db = new Database(path.join(DATA_DIR, 'license.sqlite'));
 db.pragma('journal_mode = WAL');
 
@@ -69,7 +74,8 @@ CREATE TABLE IF NOT EXISTS update_announcements (
   message TEXT NOT NULL,
   url TEXT NOT NULL,
   audience TEXT NOT NULL DEFAULT 'all',
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  filename TEXT
 );
 `);
 
@@ -79,6 +85,12 @@ try {
   /* column already exists */
 }
 db.prepare(`UPDATE keys SET app = 'any' WHERE app IS NOT NULL AND app != 'any'`).run();
+
+try {
+  db.exec(`ALTER TABLE update_announcements ADD COLUMN filename TEXT`);
+} catch (_) {
+  /* column already exists */
+}
 
 const insertEvent = db.prepare(
   `INSERT INTO events (at, kind, device_id, detail) VALUES (?, ?, ?, ?)`,
@@ -139,13 +151,104 @@ function audienceMatches(audience, deviceId) {
 
 function updatePayload(row) {
   if (!row) return null;
+  // Clients always download via /v1/updates/latest — never expose storage paths.
   return {
     version: row.version,
     message: row.message,
-    url: row.url,
+    url: publicLatestUpdatePath(row.audience),
     createdAt: row.created_at,
     audience: row.audience,
+    filename: row.filename || null,
   };
+}
+
+function publicLatestUpdatePath(audience) {
+  const app = audience === 'brilink' ? 'brilink' : 'filenest';
+  return `/v1/updates/latest?app=${app}`;
+}
+
+function safeApkAudience(audience) {
+  if (audience === 'brilink') return 'brilink';
+  if (audience === 'all') return 'all';
+  return 'filenest';
+}
+
+function listApkFiles(audienceFilter) {
+  let files = [];
+  try {
+    files = fs.readdirSync(UPDATES_DIR).filter((f) => f.toLowerCase().endsWith('.apk'));
+  } catch (_) {
+    return [];
+  }
+  const out = [];
+  for (const name of files) {
+    const full = path.join(UPDATES_DIR, name);
+    let st;
+    try {
+      st = fs.statSync(full);
+    } catch (_) {
+      continue;
+    }
+    // Filename: {audience}-{version}-{timestamp}.apk
+    const m = /^([a-z]+)-(.+)-(\d+)\.apk$/i.exec(name);
+    const audience = m ? m[1].toLowerCase() : 'filenest';
+    const version = m ? m[2] : '';
+    if (audienceFilter && audienceFilter !== 'all') {
+      if (audience !== audienceFilter && audience !== 'all') continue;
+    }
+    out.push({
+      filename: name,
+      audience,
+      version,
+      size: st.size,
+      mtimeMs: st.mtimeMs,
+      createdAt: new Date(st.mtimeMs).toISOString(),
+    });
+  }
+  out.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return out;
+}
+
+/** Keep only the newest MAX_UPDATE_APKS files for this audience (and shared "all"). */
+function pruneUpdateApks(audience) {
+  // Prune only files matching this audience tag (not cross-delete other apps).
+  const own = listApkFiles(null).filter((f) => f.audience === target);
+  for (const old of own.slice(MAX_UPDATE_APKS)) {
+    try {
+      fs.unlinkSync(path.join(UPDATES_DIR, old.filename));
+    } catch (_) {
+      /* ignore */
+    }
+    try {
+      db.prepare(`UPDATE update_announcements SET filename = NULL WHERE filename = ?`).run(
+        old.filename,
+      );
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  return listApkFiles(target);
+}
+
+function resolveLatestApk(appId) {
+  const audience = appId === 'brilink' ? 'brilink' : 'filenest';
+  const files = listApkFiles(null).filter(
+    (f) => f.audience === audience || f.audience === 'all',
+  );
+  return files[0] || null;
+}
+
+function saveUploadedApk(file, audience, version) {
+  const safeAudience = safeApkAudience(audience);
+  const safeVersion = String(version || '0')
+    .replace(/[^0-9A-Za-z._-]/g, '_')
+    .slice(0, 32);
+  const stamp = Date.now();
+  const filename = `${safeAudience}-${safeVersion}-${stamp}.apk`;
+  const dest = path.join(UPDATES_DIR, filename);
+  fs.renameSync(file.path, dest);
+  pruneUpdateApks(safeAudience);
+  return filename;
 }
 
 /** Most recent announcement that matches this device's app prefix. */
@@ -188,6 +291,20 @@ app.set('trust proxy', 1);
 app.use(cors());
 app.use(express.json({ limit: '32kb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
+
+const apkUpload = multer({
+  dest: path.join(UPDATES_DIR, '.tmp'),
+  limits: { fileSize: 80 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    const name = String(file.originalname || '').toLowerCase();
+    const ok =
+      name.endsWith('.apk') ||
+      file.mimetype === 'application/vnd.android.package-archive' ||
+      file.mimetype === 'application/octet-stream';
+    cb(ok ? null : new Error('apk_only'), ok);
+  },
+});
+fs.mkdirSync(path.join(UPDATES_DIR, '.tmp'), { recursive: true });
 
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -564,50 +681,82 @@ app.get('/v1/admin/stats', requireAdmin, (_req, res) => {
 });
 
 /** Publish an in-app update announcement (WS push + attach on check/register). */
-app.post('/v1/admin/updates/broadcast', requireAdmin, (req, res) => {
-  const version = String(req.body?.version || '').trim().slice(0, 32);
-  const message = String(req.body?.message || '').trim().slice(0, 2000);
-  const url = String(req.body?.url || '').trim().slice(0, 2000);
-  const audienceRaw = String(req.body?.audience || 'all').trim().toLowerCase();
-  const audience = ['all', 'filenest', 'brilink'].includes(audienceRaw)
-    ? audienceRaw
-    : null;
-  if (!version || !message || !url || !audience) {
-    return res.status(400).json({ error: 'invalid_request' });
-  }
-  if (!/^https?:\/\//i.test(url)) {
-    return res.status(400).json({ error: 'invalid_url' });
-  }
-  const created = nowIso();
-  const info = db
-    .prepare(
-      `INSERT INTO update_announcements (version, message, url, audience, created_at)
-       VALUES (?, ?, ?, ?, ?)`,
-    )
-    .run(version, message, url, audience, created);
-  const update = {
-    id: Number(info.lastInsertRowid),
-    version,
-    message,
-    url,
-    createdAt: created,
-    audience,
-  };
-  const pushed = broadcastUpdate(update);
-  logEvent(
-    'admin_update_broadcast',
-    null,
-    `${audience}:${version}:pushed_${pushed}`,
-  );
-  return res.json({ ok: true, update, pushed });
-});
+app.post(
+  '/v1/admin/updates/broadcast',
+  requireAdmin,
+  (req, res, next) => {
+    apkUpload.single('apk')(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({ error: err.message || 'upload_failed' });
+      }
+      next();
+    });
+  },
+  (req, res) => {
+    const version = String(req.body?.version || '').trim().slice(0, 32);
+    const message = String(req.body?.message || '').trim().slice(0, 2000);
+    const audienceRaw = String(req.body?.audience || 'all').trim().toLowerCase();
+    const audience = ['all', 'filenest', 'brilink'].includes(audienceRaw)
+      ? audienceRaw
+      : null;
+    if (!version || !message || !audience) {
+      if (req.file?.path) {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      return res.status(400).json({ error: 'invalid_request' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'apk_required' });
+    }
 
+    let filename;
+    try {
+      filename = saveUploadedApk(req.file, audience, version);
+    } catch (e) {
+      return res.status(500).json({ error: 'save_failed', detail: String(e.message || e) });
+    }
+
+    const created = nowIso();
+    const url = publicLatestUpdatePath(audience);
+    const info = db
+      .prepare(
+        `INSERT INTO update_announcements (version, message, url, audience, created_at, filename)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(version, message, url, audience, created, filename);
+    const update = {
+      id: Number(info.lastInsertRowid),
+      version,
+      message,
+      url,
+      createdAt: created,
+      audience,
+      filename,
+    };
+    const pushed = broadcastUpdate(update);
+    logEvent(
+      'admin_update_broadcast',
+      null,
+      `${audience}:${version}:${filename}:pushed_${pushed}`,
+    );
+    return res.json({
+      ok: true,
+      update,
+      pushed,
+      files: listApkFiles(audience === 'all' ? null : audience).slice(0, MAX_UPDATE_APKS),
+    });
+  },
+);
+
+/** List stored APK backups (max 3 per audience) + recent announcements. */
 app.get('/v1/admin/updates/latest', requireAdmin, (req, res) => {
   const audience = String(req.query.audience || '').trim().toLowerCase();
   let rows = db
-    .prepare(
-      `SELECT * FROM update_announcements ORDER BY id DESC LIMIT 20`,
-    )
+    .prepare(`SELECT * FROM update_announcements ORDER BY id DESC LIMIT 20`)
     .all();
   if (audience && ['all', 'filenest', 'brilink'].includes(audience)) {
     rows = rows.filter((r) => r.audience === audience || r.audience === 'all');
@@ -617,7 +766,36 @@ app.get('/v1/admin/updates/latest', requireAdmin, (req, res) => {
       id: r.id,
       ...updatePayload(r),
     })),
+    files: listApkFiles(
+      audience && ['filenest', 'brilink', 'all'].includes(audience) ? audience : null,
+    ).slice(0, 12),
+    maxFiles: MAX_UPDATE_APKS,
+    updatesDir: 'apk-updates',
   });
+});
+
+/**
+ * Public download — always serves the newest APK for the app.
+ * Clients open this URL without displaying it to the user.
+ */
+app.get('/v1/updates/latest', (req, res) => {
+  const appId = String(req.query.app || 'filenest').trim().toLowerCase();
+  const latest = resolveLatestApk(appId);
+  if (!latest) {
+    return res.status(404).json({ error: 'no_update' });
+  }
+  const full = path.join(UPDATES_DIR, latest.filename);
+  if (!fs.existsSync(full)) {
+    return res.status(404).json({ error: 'file_missing' });
+  }
+  const downloadName = `FileNest-${latest.version || 'update'}.apk`;
+  res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${downloadName.replace(/"/g, '')}"`,
+  );
+  res.setHeader('Cache-Control', 'no-store');
+  return res.sendFile(full);
 });
 
 app.get('/', (_req, res) => {
@@ -659,7 +837,7 @@ function broadcastUpdate(update) {
     type: 'update',
     version: update.version,
     message: update.message,
-    url: update.url,
+    url: update.url || publicLatestUpdatePath(update.audience),
     createdAt: update.createdAt,
     audience: update.audience,
   });

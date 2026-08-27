@@ -1,5 +1,6 @@
 package com.zipextract.app
 
+import android.app.DownloadManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -32,6 +33,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zipextract.app.data.AppPreferences
 import com.zipextract.app.data.LocaleHelper
 import com.zipextract.app.data.ThemeMode
+import com.zipextract.app.license.AppUpdateInfo
+import com.zipextract.app.license.LicenseApi
 import com.zipextract.app.license.LicenseGateStatus
 import com.zipextract.app.license.LicenseRepository
 import com.zipextract.app.license.LicenseScheduler
@@ -236,24 +239,25 @@ class MainActivity : AppCompatActivity() {
                             confirmButton = {
                                 TextButton(
                                     onClick = {
-                                        runCatching {
-                                            context.startActivity(
-                                                Intent(
-                                                    Intent.ACTION_VIEW,
-                                                    Uri.parse(pendingUpdate.url),
-                                                ),
-                                            )
-                                        }.onFailure {
-                                            Toast.makeText(
-                                                context,
-                                                context.getString(R.string.app_update_open_failed),
-                                                Toast.LENGTH_SHORT,
-                                            ).show()
-                                        }
+                                        val started = enqueueAppUpdateDownload(
+                                            context,
+                                            pendingUpdate,
+                                        )
+                                        Toast.makeText(
+                                            context,
+                                            context.getString(
+                                                if (started) {
+                                                    R.string.app_update_downloading
+                                                } else {
+                                                    R.string.app_update_open_failed
+                                                },
+                                            ),
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
                                         licenseRepo.dismissUpdate(pendingUpdate)
                                     },
                                 ) {
-                                    Text(stringResource(R.string.app_update_download))
+                                    Text(stringResource(R.string.app_update_action))
                                 }
                             },
                             dismissButton = {
@@ -332,6 +336,37 @@ class MainActivity : AppCompatActivity() {
                 android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
             read && write
+        }
+    }
+
+    companion object {
+        /**
+         * Always download the newest APK from the license server.
+         * The download URL is never shown in the UI.
+         */
+        fun enqueueAppUpdateDownload(
+            context: android.content.Context,
+            update: AppUpdateInfo,
+        ): Boolean {
+            val base = BuildConfig.LICENSE_API_BASE_URL.trim().trimEnd('/')
+            if (base.isBlank()) return false
+            val downloadUrl = "$base/v1/updates/latest?app=${LicenseApi.APP_ID}"
+            return runCatching {
+                val dm = context.getSystemService(DownloadManager::class.java) ?: return false
+                val fileName = "FileNest-${update.version}.apk"
+                val request = DownloadManager.Request(Uri.parse(downloadUrl))
+                    .setTitle(context.getString(R.string.app_update_title, update.version))
+                    .setDescription(context.getString(R.string.app_update_downloading))
+                    .setNotificationVisibility(
+                        DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED,
+                    )
+                    .setAllowedOverMetered(true)
+                    .setAllowedOverRoaming(true)
+                    .setMimeType("application/vnd.android.package-archive")
+                    .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                dm.enqueue(request)
+                true
+            }.getOrDefault(false)
         }
     }
 }
