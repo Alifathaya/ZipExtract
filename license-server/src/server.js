@@ -91,6 +91,11 @@ try {
 } catch (_) {
   /* column already exists */
 }
+try {
+  db.exec(`ALTER TABLE update_announcements ADD COLUMN target_device_ids TEXT`);
+} catch (_) {
+  /* column already exists */
+}
 
 const insertEvent = db.prepare(
   `INSERT INTO events (at, kind, device_id, detail) VALUES (?, ?, ?, ?)`,
@@ -151,6 +156,7 @@ function audienceMatches(audience, deviceId) {
 
 function updatePayload(row) {
   if (!row) return null;
+  const targets = parseTargetDeviceIds(row.target_device_ids);
   // Clients always download via /v1/updates/latest — never expose storage paths.
   return {
     version: row.version,
@@ -159,7 +165,30 @@ function updatePayload(row) {
     createdAt: row.created_at,
     audience: row.audience,
     filename: row.filename || null,
+    targetCount: targets ? targets.length : null,
+    targetDeviceIds: targets,
   };
+}
+
+function parseTargetDeviceIds(raw) {
+  if (raw == null || raw === '') return null;
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!Array.isArray(parsed)) return null;
+    const ids = parsed
+      .map((id) => String(id || '').trim())
+      .filter((id) => id.length >= 8 && id.length <= 128);
+    return ids.length ? ids : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function announcementTargetsDevice(row, deviceId) {
+  if (!audienceMatches(row.audience, deviceId)) return false;
+  const targets = parseTargetDeviceIds(row.target_device_ids);
+  if (!targets) return true; // null = semua device dalam audience
+  return targets.includes(deviceId);
 }
 
 function publicLatestUpdatePath(audience) {
@@ -252,7 +281,7 @@ function saveUploadedApk(file, audience, version) {
   return filename;
 }
 
-/** Most recent announcement that matches this device's app prefix. */
+/** Most recent announcement that matches this device (audience + optional target list). */
 function latestUpdateForDevice(deviceId) {
   const rows = db
     .prepare(
@@ -260,7 +289,7 @@ function latestUpdateForDevice(deviceId) {
     )
     .all();
   for (const row of rows) {
-    if (audienceMatches(row.audience, deviceId)) {
+    if (announcementTargetsDevice(row, deviceId)) {
       return updatePayload(row);
     }
   }
@@ -700,6 +729,31 @@ app.post(
     const audience = ['all', 'filenest', 'brilink'].includes(audienceRaw)
       ? audienceRaw
       : null;
+    let deviceIdsRaw = req.body?.deviceIds;
+    if (typeof deviceIdsRaw === 'string') {
+      try {
+        deviceIdsRaw = JSON.parse(deviceIdsRaw);
+      } catch (_) {
+        deviceIdsRaw = String(deviceIdsRaw)
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+    }
+    const requestedIds = Array.isArray(deviceIdsRaw)
+      ? deviceIdsRaw.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    // Deduplicate + keep only ids that exist and match audience.
+    const known = new Set(
+      db
+        .prepare(`SELECT device_id FROM devices`)
+        .all()
+        .map((r) => r.device_id),
+    );
+    const targetDeviceIds = [...new Set(requestedIds)].filter(
+      (id) => known.has(id) && audienceMatches(audience || 'all', id),
+    );
+
     if (!version || !message || !audience) {
       if (req.file?.path) {
         try {
@@ -713,6 +767,16 @@ app.post(
     if (!req.file) {
       return res.status(400).json({ error: 'apk_required' });
     }
+    if (!targetDeviceIds.length) {
+      if (req.file?.path) {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      return res.status(400).json({ error: 'no_devices_selected' });
+    }
 
     let filename;
     try {
@@ -723,12 +787,14 @@ app.post(
 
     const created = nowIso();
     const url = publicLatestUpdatePath(audience);
+    const targetJson = JSON.stringify(targetDeviceIds);
     const info = db
       .prepare(
-        `INSERT INTO update_announcements (version, message, url, audience, created_at, filename)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO update_announcements
+          (version, message, url, audience, created_at, filename, target_device_ids)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(version, message, url, audience, created, filename);
+      .run(version, message, url, audience, created, filename, targetJson);
     const update = {
       id: Number(info.lastInsertRowid),
       version,
@@ -737,17 +803,20 @@ app.post(
       createdAt: created,
       audience,
       filename,
+      targetDeviceIds,
+      targetCount: targetDeviceIds.length,
     };
     const pushed = broadcastUpdate(update);
     logEvent(
       'admin_update_broadcast',
       null,
-      `${audience}:${version}:${filename}:pushed_${pushed}`,
+      `${audience}:${version}:${filename}:devices_${targetDeviceIds.length}:pushed_${pushed}`,
     );
     return res.json({
       ok: true,
       update,
       pushed,
+      targeted: targetDeviceIds.length,
       files: listApkFiles(audience === 'all' ? null : audience).slice(0, MAX_UPDATE_APKS),
     });
   },
@@ -842,9 +911,16 @@ function broadcastUpdate(update) {
     createdAt: update.createdAt,
     audience: update.audience,
   });
+  const targets = Array.isArray(update.targetDeviceIds)
+    ? new Set(update.targetDeviceIds)
+    : null;
   let sent = 0;
   for (const [deviceId, set] of socketsByDevice.entries()) {
-    if (!audienceMatches(update.audience, deviceId)) continue;
+    if (targets) {
+      if (!targets.has(deviceId)) continue;
+    } else if (!audienceMatches(update.audience, deviceId)) {
+      continue;
+    }
     for (const ws of set) {
       if (ws.readyState === 1) {
         try {
