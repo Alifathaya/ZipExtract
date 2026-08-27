@@ -211,6 +211,7 @@ function listApkFiles(audienceFilter) {
 
 /** Keep only the newest MAX_UPDATE_APKS files for this audience (and shared "all"). */
 function pruneUpdateApks(audience) {
+  const target = safeApkAudience(audience);
   // Prune only files matching this audience tag (not cross-delete other apps).
   const own = listApkFiles(null).filter((f) => f.audience === target);
   for (const old of own.slice(MAX_UPDATE_APKS)) {
