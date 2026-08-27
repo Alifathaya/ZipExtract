@@ -16,3 +16,8 @@ scripts/.vps-agent-bootstrap-token
 .kotlin/
 =======
 >>>>>>> origin/main
+
+node_modules/
+license-server/node_modules/
+license-server/data/
+*.apk
