@@ -929,8 +929,18 @@
     $('gen1').onclick = () => generate(1);
     $('gen5').onclick = () => generate(5);
     $('broadcastUpdateBtn').onclick = broadcastUpdate;
+    $('updateSelectAllBtn').onclick = () => setUpdateDeviceChecks(true);
+    $('updateClearAllBtn').onclick = () => setUpdateDeviceChecks(false);
+    $('updateAudience').addEventListener('change', () => {
+      // Reset selection when audience changes so list defaults to all checked.
+      renderUpdateDevicePicker();
+    });
+    $('updateDeviceSearch').addEventListener('input', () => renderUpdateDevicePicker());
     document.querySelectorAll('[data-panel-tab]').forEach((btn) => {
-      btn.onclick = () => setActivePanelTab(btn.dataset.panelTab);
+      btn.onclick = () => {
+        setActivePanelTab(btn.dataset.panelTab);
+        if (btn.dataset.panelTab === 'update') renderUpdateDevicePicker();
+      };
     });
     $('filenestDeviceSearch').addEventListener('input', (e) => {
       renderDevicesForApp('filenest', e.target.value || '');
