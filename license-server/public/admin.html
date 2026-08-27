@@ -304,15 +304,15 @@
       <div class="card">
         <h2 style="margin:0 0 8px;font-size:1.05rem;">Broadcast update app</h2>
         <p class="muted" style="margin:0 0 10px;">
-          Upload APK ke folder server (backup max 3 file per app). Device online dapat notifikasi langsung.
-          User hanya melihat tombol <strong>Update</strong> — link server tidak ditampilkan; unduhan selalu file terbaru.
+          APK diambil dari <strong>GitHub Releases</strong> (bukan diupload ke VPS).
+          Pastikan release <code>vX.Y.Z</code> + file <code>FileNest-X.Y.Z.apk</code> sudah ada.
+          User hanya melihat tombol <strong>Update</strong> — link tidak ditampilkan.
         </p>
-        <label for="updateVersion">Versi baru (contoh: 2.4.87)</label>
-        <input id="updateVersion" type="text" placeholder="2.4.87" autocomplete="off" />
+        <label for="updateVersion">Versi baru (contoh: 2.4.89)</label>
+        <input id="updateVersion" type="text" placeholder="2.4.89" autocomplete="off" />
+        <p id="updateUrlPreview" class="muted mono" style="margin:8px 0 0;word-break:break-all;"></p>
         <label for="updateMessage" style="margin-top:10px;display:block;">Pesan</label>
         <textarea id="updateMessage" rows="3" placeholder="Update tersedia: perbaikan zip &amp; lisensi." style="width:100%;margin-top:4px;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font:inherit;"></textarea>
-        <label for="updateApk" style="margin-top:10px;display:block;">File APK</label>
-        <input id="updateApk" type="file" accept=".apk,application/vnd.android.package-archive" style="width:100%;margin-top:4px;" />
         <label for="updateAudience" style="margin-top:10px;display:block;">Audience</label>
         <select id="updateAudience" style="width:100%;margin-top:4px;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font:inherit;">
           <option value="all">Semua (FileNest + BRI-Link)</option>
@@ -328,14 +328,10 @@
         <p id="updateDevicePickHint" class="muted" style="margin:8px 0 0;"></p>
         <div id="updateDevicePickList" class="device-pick-box muted">Muat device…</div>
         <div class="row" style="margin-top:12px;">
-          <button id="broadcastUpdateBtn" type="button">Upload &amp; kirim</button>
+          <button id="broadcastUpdateBtn" type="button">Kirim pengumuman</button>
         </div>
         <p id="updateMsg" class="ok hidden"></p>
         <p id="updateErr" class="err hidden"></p>
-      </div>
-      <div class="card">
-        <h2 style="margin:0 0 8px;font-size:1.05rem;">APK di server (max 3 / app)</h2>
-        <div id="apkFileList" class="muted">Memuat…</div>
       </div>
       <div class="card">
         <h2 style="margin:0 0 8px;font-size:1.05rem;">Pengumuman terbaru</h2>
@@ -577,26 +573,9 @@
 
     async function loadUpdates() {
       const el = $('updateList');
-      const filesEl = $('apkFileList');
       try {
         const data = await api('/v1/admin/updates/latest');
         const rows = data.updates || [];
-        const files = data.files || [];
-        const maxFiles = data.maxFiles || 3;
-        if (!files.length) {
-          filesEl.textContent = 'Belum ada APK di folder server.';
-        } else {
-          filesEl.innerHTML = files.map((f, idx) => {
-            const mb = (Number(f.size || 0) / (1024 * 1024)).toFixed(1);
-            const newest = idx === 0 ? ' · <strong>terbaru</strong>' : '';
-            return '<div class="item"><div><strong>' + escapeHtml(f.filename) + '</strong>' + newest + '</div>' +
-              '<div class="muted">v' + escapeHtml(f.version || '—') +
-              ' · ' + escapeHtml(f.audience || '') +
-              ' · ' + mb + ' MB · ' + fmtDate(f.createdAt) + '</div></div>';
-          }).join('') +
-            '<p class="muted" style="margin:8px 0 0;">Backup max ' + maxFiles +
-            ' file per audience. Unduhan user selalu file terbaru.</p>';
-        }
         if (!rows.length) {
           el.textContent = 'Belum ada pengumuman update.';
           return;
@@ -609,15 +588,28 @@
             '<span class="badge">' + escapeHtml(u.audience || 'all') + '</span> · ' +
             '<span class="badge">' + escapeHtml(targetLabel) + '</span></div>' +
             '<div style="margin:6px 0;">' + escapeHtml(u.message) + '</div>' +
-            (u.filename
-              ? '<div class="mono muted">' + escapeHtml(u.filename) + '</div>'
+            (u.url
+              ? '<div class="mono muted" style="word-break:break-all;">' + escapeHtml(u.url) + '</div>'
               : '') +
             '<div class="muted">' + fmtDate(u.createdAt) + '</div></div>';
         }).join('');
       } catch (e) {
         el.textContent = 'Gagal memuat: ' + e.message;
-        filesEl.textContent = 'Gagal memuat file.';
       }
+    }
+
+    function githubApkUrlPreview(version) {
+      const v = String(version || '').trim().replace(/^v/i, '');
+      if (!v) return '';
+      return 'https://github.com/Alifathaya/ZipExtract/releases/download/v' +
+        encodeURIComponent(v) + '/FileNest-' + encodeURIComponent(v) + '.apk';
+    }
+
+    function refreshUpdateUrlPreview() {
+      const url = githubApkUrlPreview($('updateVersion').value);
+      $('updateUrlPreview').textContent = url
+        ? ('Unduhan: ' + url)
+        : 'Isi versi untuk melihat URL GitHub Release.';
     }
 
     function selectedUpdateDeviceIds() {
@@ -694,19 +686,12 @@
     async function broadcastUpdate() {
       show($('updateErr'), false);
       show($('updateMsg'), false);
-      const version = ($('updateVersion').value || '').trim();
+      const version = ($('updateVersion').value || '').trim().replace(/^v/i, '');
       const message = ($('updateMessage').value || '').trim();
       const audience = $('updateAudience').value || 'filenest';
-      const fileInput = $('updateApk');
-      const file = fileInput.files && fileInput.files[0];
       const deviceIds = selectedUpdateDeviceIds();
       if (!version || !message) {
         $('updateErr').textContent = 'Isi versi dan pesan.';
-        show($('updateErr'), true);
-        return;
-      }
-      if (!file) {
-        $('updateErr').textContent = 'Pilih file APK.';
         show($('updateErr'), true);
         return;
       }
@@ -715,67 +700,28 @@
         show($('updateErr'), true);
         return;
       }
-      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      const url = githubApkUrlPreview(version);
       if (!confirm(
-        'Upload APK (' + sizeMb + ' MB) & kirim update v' + version +
-        ' ke ' + deviceIds.length + ' device?\n\nJangan tutup halaman sampai selesai.',
+        'Kirim pengumuman v' + version + ' ke ' + deviceIds.length +
+        ' device?\n\nPastikan APK sudah ada di GitHub Release.',
       )) return;
 
       const btn = $('broadcastUpdateBtn');
       const prevLabel = btn.textContent;
       btn.disabled = true;
-      btn.textContent = 'Mengunggah 0%…';
-
+      btn.textContent = 'Mengirim…';
       try {
-        const form = new FormData();
-        form.append('version', version);
-        form.append('message', message);
-        form.append('audience', audience);
-        form.append('deviceIds', JSON.stringify(deviceIds));
-        form.append('apk', file);
-
-        const data = await new Promise((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open('POST', '/v1/admin/updates/broadcast');
-          if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
-          xhr.timeout = 30 * 60 * 1000; // 30 menit — HP lambat
-          xhr.upload.onprogress = (ev) => {
-            if (!ev.lengthComputable) return;
-            const pct = Math.min(99, Math.round((ev.loaded / ev.total) * 100));
-            btn.textContent = 'Mengunggah ' + pct + '%…';
-          };
-          xhr.onload = () => {
-            let body = {};
-            try { body = JSON.parse(xhr.responseText || '{}'); } catch (_) {}
-            if (xhr.status >= 200 && xhr.status < 300) resolve(body);
-            else {
-              const msg = body.error || ('HTTP ' + xhr.status);
-              reject(new Error(
-                msg === 'no_devices_selected' ? 'Device terpilih tidak valid.' :
-                msg === 'apk_required' ? 'File APK wajib.' :
-                msg
-              ));
-            }
-          };
-          xhr.onerror = () => reject(new Error(
-            'Gagal jaringan saat upload. Coba Wi‑Fi / jangan kunci HP.',
-          ));
-          xhr.ontimeout = () => reject(new Error(
-            'Upload timeout. Coba lagi lewat Wi‑Fi.',
-          ));
-          xhr.onabort = () => reject(new Error('Upload dibatalkan.'));
-          xhr.send(form);
+        const data = await api('/v1/admin/updates/broadcast', {
+          method: 'POST',
+          body: JSON.stringify({ version, message, audience, deviceIds, url }),
         });
-
-        btn.textContent = 'Selesai';
         $('updateMsg').textContent =
-          'APK tersimpan. Ditarget: ' + (data.targeted || deviceIds.length) +
+          'Terkirim. Ditarget: ' + (data.targeted || deviceIds.length) +
           ' device · online dipush: ' + (data.pushed || 0) + '.';
         show($('updateMsg'), true);
-        fileInput.value = '';
         await loadUpdates();
       } catch (e) {
-        $('updateErr').textContent = e.message || 'Upload gagal';
+        $('updateErr').textContent = e.message || 'Gagal kirim';
         show($('updateErr'), true);
       } finally {
         btn.disabled = false;
@@ -966,6 +912,8 @@
     $('broadcastUpdateBtn').onclick = broadcastUpdate;
     $('updateSelectAllBtn').onclick = () => setUpdateDeviceChecks(true);
     $('updateClearAllBtn').onclick = () => setUpdateDeviceChecks(false);
+    $('updateVersion').addEventListener('input', refreshUpdateUrlPreview);
+    refreshUpdateUrlPreview();
     $('updateAudience').addEventListener('change', () => {
       // Reset DOM so picker defaults to all checked for the new audience.
       $('updateDevicePickList').innerHTML = '';

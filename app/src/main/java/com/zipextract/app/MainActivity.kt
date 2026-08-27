@@ -340,17 +340,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        private const val GITHUB_APK_BASE =
+            "https://github.com/Alifathaya/ZipExtract/releases/download"
+
         /**
-         * Always download the newest APK from the license server.
-         * The download URL is never shown in the UI.
+         * Download APK from GitHub Releases (URL never shown in the UI).
          */
         fun enqueueAppUpdateDownload(
             context: android.content.Context,
             update: AppUpdateInfo,
         ): Boolean {
-            val base = BuildConfig.LICENSE_API_BASE_URL.trim().trimEnd('/')
-            if (base.isBlank()) return false
-            val downloadUrl = "$base/v1/updates/latest?app=${LicenseApi.APP_ID}"
+            val downloadUrl = resolveUpdateDownloadUrl(update) ?: return false
             return runCatching {
                 val dm = context.getSystemService(DownloadManager::class.java) ?: return false
                 val fileName = "FileNest-${update.version}.apk"
@@ -367,6 +367,20 @@ class MainActivity : AppCompatActivity() {
                 dm.enqueue(request)
                 true
             }.getOrDefault(false)
+        }
+
+        fun resolveUpdateDownloadUrl(update: AppUpdateInfo): String? {
+            val raw = update.url.trim()
+            if (raw.startsWith("https://") || raw.startsWith("http://")) {
+                return raw
+            }
+            val version = update.version.trim().removePrefix("v").removePrefix("V")
+            if (version.isBlank()) return null
+            if (raw.startsWith("/")) {
+                val base = BuildConfig.LICENSE_API_BASE_URL.trim().trimEnd('/')
+                if (base.isNotBlank()) return base + raw
+            }
+            return "$GITHUB_APK_BASE/v$version/FileNest-$version.apk"
         }
     }
 }

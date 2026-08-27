@@ -25,9 +25,14 @@ const PORT = Number(process.env.PORT || 8787);
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme';
 const TRIAL_DAYS = Number(process.env.TRIAL_DAYS || 30);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
-/** Stored APK updates — keep at most MAX_UPDATE_APKS per audience. */
+/** Optional local APK cache (legacy). Primary downloads use GitHub Releases. */
 const UPDATES_DIR = process.env.UPDATES_DIR || path.join(DATA_DIR, 'apk-updates');
 const MAX_UPDATE_APKS = 3;
+const GITHUB_RELEASES_BASE = (
+  process.env.GITHUB_RELEASES_BASE ||
+  'https://github.com/Alifathaya/ZipExtract/releases/download'
+).replace(/\/$/, '');
+const GITHUB_APK_NAME_PREFIX = process.env.GITHUB_APK_NAME_PREFIX || 'FileNest';
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPDATES_DIR, { recursive: true });
@@ -154,14 +159,46 @@ function audienceMatches(audience, deviceId) {
   return true;
 }
 
+function normalizeVersion(version) {
+  return String(version || '')
+    .trim()
+    .replace(/^v/i, '')
+    .slice(0, 32);
+}
+
+/** Canonical APK URL on GitHub Releases (source of truth). */
+function githubApkUrl(version) {
+  const v = normalizeVersion(version);
+  if (!v) return null;
+  return `${GITHUB_RELEASES_BASE}/v${v}/${GITHUB_APK_NAME_PREFIX}-${v}.apk`;
+}
+
+function isAllowedDownloadUrl(url) {
+  if (!/^https:\/\//i.test(url)) return false;
+  try {
+    const u = new URL(url);
+    // Prefer GitHub; allow same-host absolute URLs only if explicitly https.
+    if (u.hostname === 'github.com' || u.hostname.endsWith('.githubusercontent.com')) {
+      return true;
+    }
+    return false;
+  } catch (_) {
+    return false;
+  }
+}
+
 function updatePayload(row) {
   if (!row) return null;
   const targets = parseTargetDeviceIds(row.target_device_ids);
-  // Clients always download via /v1/updates/latest — never expose storage paths.
+  const stored = String(row.url || '').trim();
+  const url =
+    (stored && /^https:\/\//i.test(stored) && stored) ||
+    githubApkUrl(row.version) ||
+    publicLatestUpdatePath(row.audience);
   return {
     version: row.version,
     message: row.message,
-    url: publicLatestUpdatePath(row.audience),
+    url,
     createdAt: row.created_at,
     audience: row.audience,
     filename: row.filename || null,
@@ -713,119 +750,88 @@ app.get('/v1/admin/stats', requireAdmin, (_req, res) => {
   res.json({ devices, active, unusedKeys, trialDays: TRIAL_DAYS });
 });
 
-/** Publish an in-app update announcement (WS push + attach on check/register). */
-app.post(
-  '/v1/admin/updates/broadcast',
-  requireAdmin,
-  (req, res, next) => {
-    apkUpload.single('apk')(req, res, (err) => {
-      if (err) {
-        return res.status(400).json({ error: err.message || 'upload_failed' });
-      }
-      next();
-    });
-  },
-  (req, res) => {
-    const version = String(req.body?.version || '').trim().slice(0, 32);
-    const message = String(req.body?.message || '').trim().slice(0, 2000);
-    const audienceRaw = String(req.body?.audience || 'all').trim().toLowerCase();
-    const audience = ['all', 'filenest', 'brilink'].includes(audienceRaw)
-      ? audienceRaw
-      : null;
-    let deviceIdsRaw = req.body?.deviceIds;
-    if (typeof deviceIdsRaw === 'string') {
-      try {
-        deviceIdsRaw = JSON.parse(deviceIdsRaw);
-      } catch (_) {
-        deviceIdsRaw = String(deviceIdsRaw)
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean);
-      }
-    }
-    const requestedIds = Array.isArray(deviceIdsRaw)
-      ? deviceIdsRaw.map((id) => String(id || '').trim()).filter(Boolean)
-      : [];
-    // Deduplicate + keep only ids that exist and match audience.
-    const known = new Set(
-      db
-        .prepare(`SELECT device_id FROM devices`)
-        .all()
-        .map((r) => r.device_id),
-    );
-    const targetDeviceIds = [...new Set(requestedIds)].filter(
-      (id) => known.has(id) && audienceMatches(audience || 'all', id),
-    );
-
-    if (!version || !message || !audience) {
-      if (req.file?.path) {
-        try {
-          fs.unlinkSync(req.file.path);
-        } catch (_) {
-          /* ignore */
-        }
-      }
-      return res.status(400).json({ error: 'invalid_request' });
-    }
-    if (!req.file) {
-      return res.status(400).json({ error: 'apk_required' });
-    }
-    if (!targetDeviceIds.length) {
-      if (req.file?.path) {
-        try {
-          fs.unlinkSync(req.file.path);
-        } catch (_) {
-          /* ignore */
-        }
-      }
-      return res.status(400).json({ error: 'no_devices_selected' });
-    }
-
-    let filename;
+/** Publish an in-app update announcement (WS push + attach on check/register).
+ * APK itself lives on GitHub Releases — this only notifies selected devices.
+ */
+app.post('/v1/admin/updates/broadcast', requireAdmin, (req, res) => {
+  const version = normalizeVersion(req.body?.version);
+  const message = String(req.body?.message || '').trim().slice(0, 2000);
+  const audienceRaw = String(req.body?.audience || 'all').trim().toLowerCase();
+  const audience = ['all', 'filenest', 'brilink'].includes(audienceRaw)
+    ? audienceRaw
+    : null;
+  let deviceIdsRaw = req.body?.deviceIds;
+  if (typeof deviceIdsRaw === 'string') {
     try {
-      filename = saveUploadedApk(req.file, audience, version);
-    } catch (e) {
-      return res.status(500).json({ error: 'save_failed', detail: String(e.message || e) });
+      deviceIdsRaw = JSON.parse(deviceIdsRaw);
+    } catch (_) {
+      deviceIdsRaw = String(deviceIdsRaw)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
     }
+  }
+  const requestedIds = Array.isArray(deviceIdsRaw)
+    ? deviceIdsRaw.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  const known = new Set(
+    db
+      .prepare(`SELECT device_id FROM devices`)
+      .all()
+      .map((r) => r.device_id),
+  );
+  const targetDeviceIds = [...new Set(requestedIds)].filter(
+    (id) => known.has(id) && audienceMatches(audience || 'all', id),
+  );
 
-    const created = nowIso();
-    const url = publicLatestUpdatePath(audience);
-    const targetJson = JSON.stringify(targetDeviceIds);
-    const info = db
-      .prepare(
-        `INSERT INTO update_announcements
-          (version, message, url, audience, created_at, filename, target_device_ids)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(version, message, url, audience, created, filename, targetJson);
-    const update = {
-      id: Number(info.lastInsertRowid),
-      version,
-      message,
-      url,
-      createdAt: created,
-      audience,
-      filename,
-      targetDeviceIds,
-      targetCount: targetDeviceIds.length,
-    };
-    const pushed = broadcastUpdate(update);
-    logEvent(
-      'admin_update_broadcast',
-      null,
-      `${audience}:${version}:${filename}:devices_${targetDeviceIds.length}:pushed_${pushed}`,
-    );
-    return res.json({
-      ok: true,
-      update,
-      pushed,
-      targeted: targetDeviceIds.length,
-      files: listApkFiles(audience === 'all' ? null : audience).slice(0, MAX_UPDATE_APKS),
-    });
-  },
-);
+  const overrideUrl = String(req.body?.url || '').trim();
+  const url = overrideUrl || githubApkUrl(version);
 
-/** List stored APK backups (max 3 per audience) + recent announcements. */
+  if (!version || !message || !audience || !url) {
+    return res.status(400).json({ error: 'invalid_request' });
+  }
+  if (!isAllowedDownloadUrl(url)) {
+    return res.status(400).json({ error: 'invalid_url' });
+  }
+  if (!targetDeviceIds.length) {
+    return res.status(400).json({ error: 'no_devices_selected' });
+  }
+
+  const created = nowIso();
+  const targetJson = JSON.stringify(targetDeviceIds);
+  const info = db
+    .prepare(
+      `INSERT INTO update_announcements
+        (version, message, url, audience, created_at, filename, target_device_ids)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(version, message, url, audience, created, null, targetJson);
+  const update = {
+    id: Number(info.lastInsertRowid),
+    version,
+    message,
+    url,
+    createdAt: created,
+    audience,
+    filename: null,
+    targetDeviceIds,
+    targetCount: targetDeviceIds.length,
+  };
+  const pushed = broadcastUpdate(update);
+  logEvent(
+    'admin_update_broadcast',
+    null,
+    `${audience}:${version}:github:devices_${targetDeviceIds.length}:pushed_${pushed}`,
+  );
+  return res.json({
+    ok: true,
+    update,
+    pushed,
+    targeted: targetDeviceIds.length,
+  });
+});
+
+/** Recent announcements (download URLs point to GitHub Releases). */
 app.get('/v1/admin/updates/latest', requireAdmin, (req, res) => {
   const audience = String(req.query.audience || '').trim().toLowerCase();
   let rows = db
@@ -839,20 +845,29 @@ app.get('/v1/admin/updates/latest', requireAdmin, (req, res) => {
       id: r.id,
       ...updatePayload(r),
     })),
-    files: listApkFiles(
-      audience && ['filenest', 'brilink', 'all'].includes(audience) ? audience : null,
-    ).slice(0, 12),
-    maxFiles: MAX_UPDATE_APKS,
-    updatesDir: 'apk-updates',
+    downloadSource: 'github_releases',
+    githubReleasesBase: GITHUB_RELEASES_BASE,
   });
 });
 
 /**
- * Public download — always serves the newest APK for the app.
- * Clients open this URL without displaying it to the user.
+ * Compatibility redirect — prefer announcement GitHub URL; fall back to local cache.
+ * New apps download GitHub URL directly from the update payload.
  */
 app.get('/v1/updates/latest', (req, res) => {
   const appId = String(req.query.app || 'filenest').trim().toLowerCase();
+  const audience = appId === 'brilink' ? 'brilink' : 'filenest';
+  const rows = db
+    .prepare(`SELECT * FROM update_announcements ORDER BY id DESC LIMIT 40`)
+    .all();
+  for (const row of rows) {
+    if (row.audience !== audience && row.audience !== 'all') continue;
+    const payload = updatePayload(row);
+    if (payload?.url && /^https:\/\//i.test(payload.url)) {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.redirect(302, payload.url);
+    }
+  }
   const latest = resolveLatestApk(appId);
   if (!latest) {
     return res.status(404).json({ error: 'no_update' });
@@ -910,7 +925,7 @@ function broadcastUpdate(update) {
     type: 'update',
     version: update.version,
     message: update.message,
-    url: update.url || publicLatestUpdatePath(update.audience),
+    url: update.url || githubApkUrl(update.version),
     createdAt: update.createdAt,
     audience: update.audience,
   });
