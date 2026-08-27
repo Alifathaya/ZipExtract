@@ -3,6 +3,7 @@
     <string name="app_name">FileNest</string>
 
     <string name="app_tagline">Manage files &amp; archives with ease</string>
+    <string name="app_version_label">v%1$s</string>
     <string name="language">Language</string>
     <string name="language_title">Choose language</string>
     <string name="language_subtitle">Pick a language for FileNest. You can change it anytime from the menu.</string>

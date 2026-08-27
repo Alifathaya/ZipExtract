@@ -87,6 +87,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
+import com.zipextract.app.BuildConfig
 import com.zipextract.app.R
 import com.zipextract.app.data.CategorySummary
 import com.zipextract.app.data.DeviceStorageVolume
@@ -132,11 +133,23 @@ fun HomeDashboardScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text(
-                            text = stringResource(R.string.app_name),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                        )
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text(
+                                text = stringResource(R.string.app_name),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = stringResource(
+                                    R.string.app_version_label,
+                                    BuildConfig.VERSION_NAME,
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 2.dp),
+                            )
+                        }
                         Text(
                             text = stringResource(R.string.app_tagline),
                             style = MaterialTheme.typography.bodyMedium,

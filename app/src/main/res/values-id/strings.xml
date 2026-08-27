@@ -3,6 +3,7 @@
     <string name="app_name">FileNest</string>
 
     <string name="app_tagline">Kelola file &amp; arsip dengan mudah</string>
+    <string name="app_version_label">v%1$s</string>
     <string name="language">Bahasa</string>
     <string name="language_title">Pilih bahasa</string>
     <string name="language_subtitle">Pilih bahasa untuk FileNest. Bisa diubah lagi kapan saja dari menu.</string>
