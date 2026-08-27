@@ -16,6 +16,7 @@ data class LicenseServerResponse(
     val daysAdded: Int? = null,
     val unlimited: Boolean = false,
     val error: String? = null,
+    val update: AppUpdateInfo? = null,
 )
 
 class LicenseApi(
@@ -38,11 +39,12 @@ class LicenseApi(
         )
     }
 
-    fun check(deviceId: String): LicenseServerResponse {
+    fun check(deviceId: String, appVersion: String = BuildConfig.VERSION_NAME): LicenseServerResponse {
         return post(
             "/v1/license/check",
             JSONObject()
                 .put("deviceId", deviceId)
+                .put("appVersion", appVersion)
                 .put("appId", APP_ID),
         )
     }
@@ -102,7 +104,31 @@ class LicenseApi(
                 unlimited = json.optBoolean("unlimited", false) ||
                     isUnlimitedEpoch(parseIso(json.optString("expiresAt"))),
                 error = httpError ?: json.optString("error").ifBlank { null },
+                update = parseUpdate(json.optJSONObject("update")),
             )
+        }
+
+        fun parseUpdate(json: JSONObject?): AppUpdateInfo? {
+            if (json == null) return null
+            val version = json.optString("version").trim()
+            val message = json.optString("message").trim()
+            val url = json.optString("url").trim()
+            if (version.isBlank() || message.isBlank() || url.isBlank()) return null
+            if (!url.startsWith("http://") && !url.startsWith("https://")) return null
+            return AppUpdateInfo(
+                version = version,
+                message = message,
+                url = url,
+                createdAt = json.optString("createdAt").trim(),
+            )
+        }
+
+        fun parseUpdateMessage(json: JSONObject): AppUpdateInfo? {
+            // Dedicated WS frame: { type: "update", version, message, url, createdAt }
+            if (json.optString("type") == "update") {
+                return parseUpdate(json)
+            }
+            return parseUpdate(json.optJSONObject("update"))
         }
 
         fun parseIso(value: String): Long {
@@ -117,6 +143,28 @@ class LicenseApi(
                 timeInMillis = epochMs
             }.get(java.util.Calendar.YEAR)
             return year >= 9000
+        }
+
+        /** True when [remote] is a newer semver-like version than [local]. */
+        fun isNewerVersion(remote: String, local: String): Boolean {
+            fun parts(s: String): List<Int> {
+                return s.trim()
+                    .removePrefix("v")
+                    .removePrefix("V")
+                    .split('.', '-', '_')
+                    .map { token ->
+                        token.takeWhile { it.isDigit() }.toIntOrNull() ?: 0
+                    }
+            }
+            val a = parts(remote)
+            val b = parts(local)
+            val n = maxOf(a.size, b.size)
+            for (i in 0 until n) {
+                val x = a.getOrElse(i) { 0 }
+                val y = b.getOrElse(i) { 0 }
+                if (x != y) return x > y
+            }
+            return false
         }
     }
 }

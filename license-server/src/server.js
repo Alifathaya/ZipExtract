@@ -62,6 +62,15 @@ CREATE TABLE IF NOT EXISTS events (
   device_id TEXT,
   detail TEXT
 );
+
+CREATE TABLE IF NOT EXISTS update_announcements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  version TEXT NOT NULL,
+  message TEXT NOT NULL,
+  url TEXT NOT NULL,
+  audience TEXT NOT NULL DEFAULT 'all',
+  created_at TEXT NOT NULL
+);
 `);
 
 try {
@@ -119,6 +128,41 @@ function generateKeyCode() {
   return out;
 }
 
+/** Audience filter: all | filenest (fn_) | brilink (bl_). */
+function audienceMatches(audience, deviceId) {
+  const id = String(deviceId || '');
+  const a = String(audience || 'all');
+  if (a === 'filenest') return id.startsWith('fn_');
+  if (a === 'brilink') return id.startsWith('bl_');
+  return true;
+}
+
+function updatePayload(row) {
+  if (!row) return null;
+  return {
+    version: row.version,
+    message: row.message,
+    url: row.url,
+    createdAt: row.created_at,
+    audience: row.audience,
+  };
+}
+
+/** Most recent announcement that matches this device's app prefix. */
+function latestUpdateForDevice(deviceId) {
+  const rows = db
+    .prepare(
+      `SELECT * FROM update_announcements ORDER BY id DESC LIMIT 40`,
+    )
+    .all();
+  for (const row of rows) {
+    if (audienceMatches(row.audience, deviceId)) {
+      return updatePayload(row);
+    }
+  }
+  return null;
+}
+
 function devicePayload(row) {
   const serverTime = nowIso();
   const unlimited = isUnlimitedExpires(row.expires_at);
@@ -127,13 +171,16 @@ function devicePayload(row) {
   let status = 'active';
   if (blocked) status = 'blocked';
   else if (expired) status = 'expired';
-  return {
+  const payload = {
     status,
     expiresAt: row.expires_at,
     serverTime,
     trialDays: TRIAL_DAYS,
     unlimited,
   };
+  const update = latestUpdateForDevice(row.device_id);
+  if (update) payload.update = update;
+  return payload;
 }
 
 const app = express();
@@ -215,6 +262,7 @@ app.post('/v1/license/register', (req, res) => {
 
 app.post('/v1/license/check', (req, res) => {
   const deviceId = String(req.body?.deviceId || '').trim();
+  const appVersion = String(req.body?.appVersion || '').trim() || null;
   if (!deviceId) {
     return res.status(400).json({ error: 'invalid_device_id' });
   }
@@ -222,10 +270,9 @@ app.post('/v1/license/check', (req, res) => {
   if (!row) {
     return res.status(404).json({ error: 'unknown_device', status: 'unknown' });
   }
-  db.prepare(`UPDATE devices SET last_check_at = ? WHERE device_id = ?`).run(
-    nowIso(),
-    deviceId,
-  );
+  db.prepare(
+    `UPDATE devices SET last_check_at = ?, app_version = COALESCE(?, app_version) WHERE device_id = ?`,
+  ).run(nowIso(), appVersion, deviceId);
   const payload = devicePayload(row);
   logEvent('check', deviceId, payload.status);
   return res.json(payload);
@@ -516,6 +563,63 @@ app.get('/v1/admin/stats', requireAdmin, (_req, res) => {
   res.json({ devices, active, unusedKeys, trialDays: TRIAL_DAYS });
 });
 
+/** Publish an in-app update announcement (WS push + attach on check/register). */
+app.post('/v1/admin/updates/broadcast', requireAdmin, (req, res) => {
+  const version = String(req.body?.version || '').trim().slice(0, 32);
+  const message = String(req.body?.message || '').trim().slice(0, 2000);
+  const url = String(req.body?.url || '').trim().slice(0, 2000);
+  const audienceRaw = String(req.body?.audience || 'all').trim().toLowerCase();
+  const audience = ['all', 'filenest', 'brilink'].includes(audienceRaw)
+    ? audienceRaw
+    : null;
+  if (!version || !message || !url || !audience) {
+    return res.status(400).json({ error: 'invalid_request' });
+  }
+  if (!/^https?:\/\//i.test(url)) {
+    return res.status(400).json({ error: 'invalid_url' });
+  }
+  const created = nowIso();
+  const info = db
+    .prepare(
+      `INSERT INTO update_announcements (version, message, url, audience, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(version, message, url, audience, created);
+  const update = {
+    id: Number(info.lastInsertRowid),
+    version,
+    message,
+    url,
+    createdAt: created,
+    audience,
+  };
+  const pushed = broadcastUpdate(update);
+  logEvent(
+    'admin_update_broadcast',
+    null,
+    `${audience}:${version}:pushed_${pushed}`,
+  );
+  return res.json({ ok: true, update, pushed });
+});
+
+app.get('/v1/admin/updates/latest', requireAdmin, (req, res) => {
+  const audience = String(req.query.audience || '').trim().toLowerCase();
+  let rows = db
+    .prepare(
+      `SELECT * FROM update_announcements ORDER BY id DESC LIMIT 20`,
+    )
+    .all();
+  if (audience && ['all', 'filenest', 'brilink'].includes(audience)) {
+    rows = rows.filter((r) => r.audience === audience || r.audience === 'all');
+  }
+  return res.json({
+    updates: rows.map((r) => ({
+      id: r.id,
+      ...updatePayload(r),
+    })),
+  });
+});
+
 app.get('/', (_req, res) => {
   res.redirect('/admin.html');
 });
@@ -534,6 +638,7 @@ function pushLicenseToDevice(deviceId, payload) {
     trialDays: payload.trialDays,
     daysAdded: payload.daysAdded,
     unlimited: Boolean(payload.unlimited),
+    update: payload.update || undefined,
   });
   let sent = 0;
   for (const ws of set) {
@@ -543,6 +648,32 @@ function pushLicenseToDevice(deviceId, payload) {
         sent += 1;
       } catch (_) {
         /* ignore */
+      }
+    }
+  }
+  return sent;
+}
+
+function broadcastUpdate(update) {
+  const msg = JSON.stringify({
+    type: 'update',
+    version: update.version,
+    message: update.message,
+    url: update.url,
+    createdAt: update.createdAt,
+    audience: update.audience,
+  });
+  let sent = 0;
+  for (const [deviceId, set] of socketsByDevice.entries()) {
+    if (!audienceMatches(update.audience, deviceId)) continue;
+    for (const ws of set) {
+      if (ws.readyState === 1) {
+        try {
+          ws.send(msg);
+          sent += 1;
+        } catch (_) {
+          /* ignore */
+        }
       }
     }
   }
@@ -577,14 +708,24 @@ wss.on('connection', (ws, req) => {
   const row = db.prepare(`SELECT * FROM devices WHERE device_id = ?`).get(deviceId);
   if (row) {
     try {
+      const payload = devicePayload(row);
       ws.send(
         JSON.stringify({
           type: 'license',
-          ...devicePayload(row),
+          ...payload,
         }),
       );
     } catch (_) {
       /* ignore */
+    }
+  } else {
+    const update = latestUpdateForDevice(deviceId);
+    if (update) {
+      try {
+        ws.send(JSON.stringify({ type: 'update', ...update }));
+      } catch (_) {
+        /* ignore */
+      }
     }
   }
 

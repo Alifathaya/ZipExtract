@@ -12,12 +12,13 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Receives Block/Unblock commands from the license server over WebSocket.
+ * Receives Block/Unblock and update announcements from the license server over WebSocket.
  * Idle most of the time — no HTTP polling loop.
  */
 class LicensePushClient(
     private val deviceId: String,
     private val onLicense: (LicenseServerResponse) -> Unit,
+    private val onUpdate: (AppUpdateInfo) -> Unit,
     private val baseUrl: String = BuildConfig.LICENSE_API_BASE_URL,
 ) {
     private val client = OkHttpClient.Builder()
@@ -70,8 +71,15 @@ class LicensePushClient(
                     val json = runCatching { JSONObject(text) }.getOrNull() ?: return
                     val type = json.optString("type")
                     if (type == "pong") return
-                    if (type != "license" && !json.has("status")) return
-                    onLicense(LicenseApi.parseResponse(json))
+                    if (type == "update") {
+                        LicenseApi.parseUpdateMessage(json)?.let(onUpdate)
+                        return
+                    }
+                    if (type == "license" || json.has("status")) {
+                        val res = LicenseApi.parseResponse(json)
+                        onLicense(res)
+                        res.update?.let(onUpdate)
+                    }
                 }
 
                 override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {

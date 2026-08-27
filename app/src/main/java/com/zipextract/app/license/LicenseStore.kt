@@ -25,6 +25,11 @@ class LicenseStore(context: Context) {
         get() = prefs.getBoolean(UNLIMITED, false)
         set(value) = prefs.edit().putBoolean(UNLIMITED, value).apply()
 
+    /** Key of last dismissed update announcement (`version|createdAt`). */
+    var dismissedUpdateKey: String
+        get() = prefs.getString(DISMISSED_UPDATE, "").orEmpty()
+        set(value) = prefs.edit().putString(DISMISSED_UPDATE, value).apply()
+
     fun clearLicenseFlags() {
         prefs.edit()
             .remove(EXPIRES)
@@ -42,6 +47,7 @@ class LicenseStore(context: Context) {
         private const val REGISTERED = "registered"
         private const val BLOCKED = "blocked"
         private const val UNLIMITED = "unlimited"
+        private const val DISMISSED_UPDATE = "dismissed_update_key"
 
         /** Offline grace without a successful server check. */
         const val GRACE_MS: Long = 3L * 24 * 60 * 60 * 1000

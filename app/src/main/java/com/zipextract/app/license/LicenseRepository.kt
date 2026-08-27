@@ -27,6 +27,7 @@ class LicenseRepository private constructor(
         val client = LicensePushClient(
             deviceId = deviceId(),
             onLicense = { res -> applyServerResponse(res) },
+            onUpdate = { info -> offerUpdate(info) },
         )
         pushClient = client
         client.start()
@@ -70,6 +71,13 @@ class LicenseRepository private constructor(
             withContext(Dispatchers.IO) {
                 evaluate(forceNetwork = true)
             }
+        }
+    }
+
+    fun dismissUpdate(info: AppUpdateInfo) {
+        store.dismissedUpdateKey = info.dismissKey()
+        if (_state.value.pendingUpdate?.dismissKey() == info.dismissKey()) {
+            _state.value = _state.value.copy(pendingUpdate = null)
         }
     }
 
@@ -195,6 +203,7 @@ class LicenseRepository private constructor(
     private fun applyServerResponse(res: LicenseServerResponse) {
         val id = deviceId()
         val unlimited = res.unlimited || LicenseApi.isUnlimitedEpoch(res.expiresAtEpochMs)
+        val pending = visibleUpdate(res.update)
         when (res.status) {
             "blocked" -> {
                 store.blocked = true
@@ -208,6 +217,7 @@ class LicenseRepository private constructor(
                     deviceId = id,
                     message = blockedMessage(),
                     unlimited = unlimited,
+                    pendingUpdate = pending,
                 )
             }
             "expired" -> {
@@ -222,6 +232,7 @@ class LicenseRepository private constructor(
                     deviceId = id,
                     message = app.getString(com.zipextract.app.R.string.license_expired),
                     unlimited = false,
+                    pendingUpdate = pending,
                 )
             }
             else -> {
@@ -242,19 +253,33 @@ class LicenseRepository private constructor(
                         app.getString(com.zipextract.app.R.string.license_expired)
                     },
                     unlimited = unlimited,
+                    pendingUpdate = pending,
                 )
             }
         }
+    }
+
+    private fun offerUpdate(info: AppUpdateInfo) {
+        val pending = visibleUpdate(info) ?: return
+        _state.value = _state.value.copy(pendingUpdate = pending)
+    }
+
+    private fun visibleUpdate(info: AppUpdateInfo?): AppUpdateInfo? {
+        if (info == null) return null
+        if (!LicenseApi.isNewerVersion(info.version, BuildConfig.VERSION_NAME)) return null
+        if (info.dismissKey() == store.dismissedUpdateKey) return null
+        return info
     }
 
     private fun applyOfflineGate(
         allowProvisional: Boolean = false,
         fallbackMessage: String? = null,
     ) {
+        val pending = _state.value.pendingUpdate
         _state.value = computeOfflineState(
             allowProvisional = allowProvisional,
             fallbackMessage = fallbackMessage,
-        )
+        ).copy(pendingUpdate = pending)
     }
 
     private fun computeOfflineState(

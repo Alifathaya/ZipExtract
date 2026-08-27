@@ -15,7 +15,10 @@ import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -23,6 +26,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zipextract.app.data.AppPreferences
@@ -214,6 +218,52 @@ class MainActivity : AppCompatActivity() {
                         onOpenImportedCloudFile = viewModel::openImportedCloudFile,
                     )
                         }
+                    }
+
+                    val pendingUpdate = licenseState.pendingUpdate
+                    if (pendingUpdate != null) {
+                        AlertDialog(
+                            onDismissRequest = { licenseRepo.dismissUpdate(pendingUpdate) },
+                            title = {
+                                Text(
+                                    stringResource(
+                                        R.string.app_update_title,
+                                        pendingUpdate.version,
+                                    ),
+                                )
+                            },
+                            text = { Text(pendingUpdate.message) },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        runCatching {
+                                            context.startActivity(
+                                                Intent(
+                                                    Intent.ACTION_VIEW,
+                                                    Uri.parse(pendingUpdate.url),
+                                                ),
+                                            )
+                                        }.onFailure {
+                                            Toast.makeText(
+                                                context,
+                                                context.getString(R.string.app_update_open_failed),
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
+                                        licenseRepo.dismissUpdate(pendingUpdate)
+                                    },
+                                ) {
+                                    Text(stringResource(R.string.app_update_download))
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(
+                                    onClick = { licenseRepo.dismissUpdate(pendingUpdate) },
+                                ) {
+                                    Text(stringResource(R.string.app_update_later))
+                                }
+                            },
+                        )
                     }
                 }
                 }

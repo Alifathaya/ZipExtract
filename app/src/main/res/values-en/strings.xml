@@ -473,4 +473,8 @@
     <string name="license_activated_ok">License extended</string>
     <string name="license_network_error">Could not reach the license server</string>
     <string name="license_activate_failed">Activation failed (%1$s)</string>
+    <string name="app_update_title">Update available (v%1$s)</string>
+    <string name="app_update_download">Download</string>
+    <string name="app_update_later">Later</string>
+    <string name="app_update_open_failed">Could not open update link</string>
 </resources>

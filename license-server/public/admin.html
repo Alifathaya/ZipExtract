@@ -234,6 +234,7 @@
 
     <div class="tabs">
       <button type="button" class="tab active" data-panel-tab="keys">Generate Key</button>
+      <button type="button" class="tab" data-panel-tab="update">Update App</button>
       <button type="button" class="tab" data-panel-tab="filenest">FileNest</button>
       <button type="button" class="tab" data-panel-tab="brilink">BRI-Link</button>
     </div>
@@ -260,6 +261,37 @@
       <div class="card">
         <h2 style="margin:0 0 8px;font-size:1.05rem;">Key terbaru</h2>
         <div id="keyList" class="muted">Memuat…</div>
+      </div>
+    </div>
+
+    <div id="panelUpdate" class="panel hidden">
+      <div class="card">
+        <h2 style="margin:0 0 8px;font-size:1.05rem;">Broadcast update app</h2>
+        <p class="muted" style="margin:0 0 10px;">
+          Device online dapat notifikasi langsung (WebSocket). Device offline melihatnya saat cek lisensi berikutnya.
+          Hanya versi yang lebih baru dari versi app di HP yang ditampilkan.
+        </p>
+        <label for="updateVersion">Versi baru (contoh: 2.4.86)</label>
+        <input id="updateVersion" type="text" placeholder="2.4.86" autocomplete="off" />
+        <label for="updateMessage" style="margin-top:10px;display:block;">Pesan</label>
+        <textarea id="updateMessage" rows="3" placeholder="Update tersedia: perbaikan zip &amp; lisensi." style="width:100%;margin-top:4px;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font:inherit;"></textarea>
+        <label for="updateUrl" style="margin-top:10px;display:block;">URL APK / unduhan</label>
+        <input id="updateUrl" type="url" placeholder="https://github.com/.../releases/download/..." autocomplete="off" />
+        <label for="updateAudience" style="margin-top:10px;display:block;">Audience</label>
+        <select id="updateAudience" style="width:100%;margin-top:4px;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font:inherit;">
+          <option value="all">Semua (FileNest + BRI-Link)</option>
+          <option value="filenest" selected>FileNest saja (fn_)</option>
+          <option value="brilink">BRI-Link saja (bl_)</option>
+        </select>
+        <div class="row" style="margin-top:12px;">
+          <button id="broadcastUpdateBtn" type="button">Kirim pengumuman</button>
+        </div>
+        <p id="updateMsg" class="ok hidden"></p>
+        <p id="updateErr" class="err hidden"></p>
+      </div>
+      <div class="card">
+        <h2 style="margin:0 0 8px;font-size:1.05rem;">Pengumuman terbaru</h2>
+        <div id="updateList" class="muted">Memuat…</div>
       </div>
     </div>
 
@@ -298,6 +330,7 @@
         btn.classList.toggle('active', btn.dataset.panelTab === tab);
       });
       $('panelKeys').classList.toggle('hidden', tab !== 'keys');
+      $('panelUpdate').classList.toggle('hidden', tab !== 'update');
       $('panelFilenest').classList.toggle('hidden', tab !== 'filenest');
       $('panelBrilink').classList.toggle('hidden', tab !== 'brilink');
     }
@@ -393,6 +426,7 @@
         $('statKeys').textContent = stats.unusedKeys;
         await loadKeys();
         await loadDevices();
+        await loadUpdates();
         $('statFilenest').textContent = allDevices.filter((d) => deviceMatchesApp(d, 'filenest')).length;
         $('statBrilink').textContent = allDevices.filter((d) => deviceMatchesApp(d, 'brilink')).length;
       } catch (e) {
@@ -490,6 +524,56 @@
       el.querySelectorAll('[data-delete-key]').forEach((btn) => {
         btn.onclick = () => deleteKey(btn.dataset.deleteKey, btn.dataset.keyUsed === '1');
       });
+    }
+
+    async function loadUpdates() {
+      const el = $('updateList');
+      try {
+        const data = await api('/v1/admin/updates/latest');
+        const rows = data.updates || [];
+        if (!rows.length) {
+          el.textContent = 'Belum ada pengumuman update.';
+          return;
+        }
+        el.innerHTML = rows.map((u) => {
+          return '<div class="item"><div><strong>v' + escapeHtml(u.version) + '</strong> · ' +
+            '<span class="badge">' + escapeHtml(u.audience || 'all') + '</span></div>' +
+            '<div style="margin:6px 0;">' + escapeHtml(u.message) + '</div>' +
+            '<div class="mono muted" style="word-break:break-all;">' + escapeHtml(u.url) + '</div>' +
+            '<div class="muted">' + fmtDate(u.createdAt) + '</div></div>';
+        }).join('');
+      } catch (e) {
+        el.textContent = 'Gagal memuat: ' + e.message;
+      }
+    }
+
+    async function broadcastUpdate() {
+      show($('updateErr'), false);
+      show($('updateMsg'), false);
+      const version = ($('updateVersion').value || '').trim();
+      const message = ($('updateMessage').value || '').trim();
+      const url = ($('updateUrl').value || '').trim();
+      const audience = $('updateAudience').value || 'filenest';
+      if (!version || !message || !url) {
+        $('updateErr').textContent = 'Isi versi, pesan, dan URL.';
+        show($('updateErr'), true);
+        return;
+      }
+      if (!confirm('Kirim pengumuman update v' + version + ' ke ' + audience + '?')) return;
+      try {
+        const data = await api('/v1/admin/updates/broadcast', {
+          method: 'POST',
+          body: JSON.stringify({ version, message, url, audience }),
+        });
+        $('updateMsg').textContent =
+          'Terkirim. Device online dipush: ' + (data.pushed || 0) +
+          '. Offline akan melihat saat cek lisensi.';
+        show($('updateMsg'), true);
+        await loadUpdates();
+      } catch (e) {
+        $('updateErr').textContent = e.message;
+        show($('updateErr'), true);
+      }
     }
 
     async function loadDevices() {
@@ -666,6 +750,7 @@
     $('refreshBtn').onclick = refreshAll;
     $('gen1').onclick = () => generate(1);
     $('gen5').onclick = () => generate(5);
+    $('broadcastUpdateBtn').onclick = broadcastUpdate;
     document.querySelectorAll('[data-panel-tab]').forEach((btn) => {
       btn.onclick = () => setActivePanelTab(btn.dataset.panelTab);
     });

@@ -473,4 +473,8 @@
     <string name="license_activated_ok">Lisensi diperpanjang</string>
     <string name="license_network_error">Gagal menghubungi server lisensi</string>
     <string name="license_activate_failed">Aktivasi gagal (%1$s)</string>
+    <string name="app_update_title">Update tersedia (v%1$s)</string>
+    <string name="app_update_download">Unduh</string>
+    <string name="app_update_later">Nanti</string>
+    <string name="app_update_open_failed">Tidak bisa membuka tautan update</string>
 </resources>

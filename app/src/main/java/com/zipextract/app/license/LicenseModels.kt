@@ -14,6 +14,15 @@ enum class LicenseGateStatus {
     Disabled,
 }
 
+data class AppUpdateInfo(
+    val version: String,
+    val message: String,
+    val url: String,
+    val createdAt: String = "",
+) {
+    fun dismissKey(): String = "$version|$createdAt"
+}
+
 data class LicenseUiState(
     val gate: LicenseGateStatus = LicenseGateStatus.Loading,
     val expiresAtEpochMs: Long? = null,
@@ -21,4 +30,5 @@ data class LicenseUiState(
     val message: String? = null,
     val activating: Boolean = false,
     val unlimited: Boolean = false,
+    val pendingUpdate: AppUpdateInfo? = null,
 )
