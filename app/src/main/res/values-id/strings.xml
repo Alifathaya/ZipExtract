@@ -479,4 +479,5 @@
     <string name="app_update_later">Nanti</string>
     <string name="app_update_downloading">Mengunduh update…</string>
     <string name="app_update_open_failed">Gagal mengunduh update</string>
+    <string name="documents_root_summary">Penyimpanan lewat FileNest</string>
 </resources>
