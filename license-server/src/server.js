@@ -341,6 +341,9 @@ const apiLimiter = rateLimit({
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) =>
+    req.method === 'POST' &&
+    String(req.path || '').includes('/admin/updates/broadcast'),
 });
 const activateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

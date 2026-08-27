@@ -83,10 +83,18 @@ systemctl enable --now filenest-license
 systemctl restart filenest-license
 
 cat > /etc/nginx/sites-available/filenest-license <<NGX
+map \$http_upgrade \$connection_upgrade {
+    default upgrade;
+    ''      close;
+}
 server {
     listen 80 default_server;
     server_name ${DOMAIN} ${VPS_IP} _;
-    location / {
+    client_max_body_size 100m;
+    client_body_timeout 1800s;
+    client_header_timeout 120s;
+    send_timeout 1800s;
+    location /v1/license/ws {
         proxy_pass http://127.0.0.1:${PORT};
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
@@ -94,13 +102,29 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
+        proxy_set_header Connection \$connection_upgrade;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
+    }
+    location / {
+        proxy_pass http://127.0.0.1:${PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Connection "";
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_connect_timeout 60s;
+        proxy_read_timeout 1800s;
+        proxy_send_timeout 1800s;
     }
 }
 NGX
 ln -sf /etc/nginx/sites-available/filenest-license /etc/nginx/sites-enabled/filenest-license
+# Avoid duplicate default_server if sites-enabled has a copy of the same file
+rm -f /etc/nginx/sites-enabled/default
 nginx -t
 systemctl reload nginx
 
