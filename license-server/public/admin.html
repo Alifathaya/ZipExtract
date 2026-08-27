@@ -361,7 +361,8 @@
       const id = String(device.device_id || '').toLowerCase();
       const code = shortCode(device.device_id).toLowerCase();
       const note = String(device.note || '').toLowerCase();
-      return id.includes(q) || code.includes(q) || note.includes(q);
+      const ver = String(device.app_version || '').toLowerCase();
+      return id.includes(q) || code.includes(q) || note.includes(q) || ver.includes(q);
     }
 
     async function api(path, opts = {}) {
@@ -694,13 +695,18 @@
         const noteLine = noteText
           ? '<div><span class="device-note">' + escapeHtml(noteText) + '</span></div>'
           : '<div><span class="device-note empty">Belum ada keterangan</span></div>';
+        const appVer = String(d.app_version || '').trim();
+        const appVerLabel = appVer ? ('v' + escapeHtml(appVer)) : 'versi belum dilaporkan';
         return '<div class="item">' +
           '<div class="device-row">' +
             '<div class="device-main">' +
-              '<div>' + statusBadge + ' <strong style="letter-spacing:0.06em;">' + code + '</strong></div>' +
+              '<div>' + statusBadge + ' <strong style="letter-spacing:0.06em;">' + code + '</strong>' +
+                ' · <span class="badge">' + appVerLabel + '</span></div>' +
               noteLine +
               '<div class="mono">' + id + '</div>' +
-              '<div class="muted">Exp: ' + expLabel + '<br>Last check: ' + fmtDate(d.last_check_at) + '</div>' +
+              '<div class="muted">App: ' + appVerLabel +
+                '<br>Exp: ' + expLabel +
+                '<br>Last check: ' + fmtDate(d.last_check_at) + '</div>' +
             '</div>' +
             '<button type="button" class="menu-btn" data-menu="' + app + '-' + idx + '" aria-label="Menu" aria-expanded="false">⋮</button>' +
             '<div class="menu-pop" data-menu-pop="' + app + '-' + idx + '">' + menuHtml + '</div>' +
