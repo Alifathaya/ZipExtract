@@ -1,0 +1,6 @@
+# Local / generated (this repo is release-only; no app source)
+.DS_Store
+*.apk
+*.aab
+*.keystore
+local.properties
