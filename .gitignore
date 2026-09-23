@@ -1,6 +1,20 @@
-# Local / generated (this repo is release-only; no app source)
+*.iml
+.gradle
+/local.properties
+/.idea
 .DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+app/build
 *.apk
+*.ap_
 *.aab
-*.keystore
-local.properties
+scripts/.vps-agent-bootstrap-token
+.kotlin/
+
+node_modules/
+license-server/node_modules/
+license-server/data/
+*.apk

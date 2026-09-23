@@ -1,20 +1,82 @@
-# FileNest (releases)
+# ZipExtract
 
-Repo publik ini **hanya untuk GitHub Releases** (APK FileNest).
+Aplikasi Android untuk mengelola file: **buat ZIP**, **extract**, **kompresi**, **baca PDF**, **lihat foto/gambar**, serta operasi file seperti **copy / cut / paste**, rename, hapus, dan buat folder.
 
-Kode sumber sudah dipindah ke repo private **FileNest** dan tidak lagi dipelihara di sini.
+## Fitur
 
-## Unduh APK
+- File browser (navigasi folder storage)
+- Seleksi multi-file (tap lama / mode seleksi)
+- Buat ZIP (opsional kompresi maksimal)
+- Extract ZIP ke folder baru
+- Baca PDF (scroll per halaman via `PdfRenderer`)
+- Lihat foto/gambar (JPG, PNG, WEBP, GIF, BMP, …) dengan zoom & pan
+- Copy, Cut, Paste / Move
+- Rename, Delete, Buat folder
+- Progress indikator saat zip / extract / paste
+- Buka file `.zip` / PDF / gambar dari app lain (intent VIEW)
 
-Buka [Releases](https://github.com/Alifathaya/ZipExtract/releases) dan unduh aset seperti:
+## Stack
 
-`FileNest-<versi>.apk`
+- Kotlin
+- Jetpack Compose + Material 3
+- Coroutines + Coil (gambar)
+- `java.util.zip` + Android `PdfRenderer`
 
-Contoh:
+## Cara jalankan (lokal)
 
-`https://github.com/Alifathaya/ZipExtract/releases/download/v2.4.91/FileNest-2.4.91.apk`
+1. Buka folder project ini di **Android Studio** (Ladybug / versi baru).
+2. Biarkan Gradle sync selesai.
+3. Hubungkan device/emulator (API 26+).
+4. Run konfigurasi `app`.
+
+## Lisensi bulanan (opsional)
+
+Folder `license-server/` berisi API Node + admin panel web (untuk HP Anda).
+
+1. Deploy ke VPS (lihat `license-server/README.md`).
+2. Set URL di `local.properties` atau CI:
+
+```properties
+LICENSE_API_BASE_URL=http://62.238.96.225
+```
+
+Admin: http://62.238.96.225/admin.html
+
+Tanpa URL custom, build memakai IP Helsinki di atas.
+
+Saat pertama dibuka, app akan meminta **izin akses semua file** (Android 11+) agar bisa browse & menulis di storage.
+
+## Build APK di GitHub Actions
+
+Setiap push ke `main` akan otomatis build APK debug.
+
+1. Buka tab **Actions** di repo GitHub.
+2. Pilih workflow **Build APK**.
+3. Setelah selesai, unduh artifact **ZipExtract-debug**.
+
+Bisa juga dijalankan manual lewat **Actions → Build APK → Run workflow**.
+
+## Struktur
+
+```
+app/src/main/java/com/zipextract/app/
+  MainActivity.kt
+  data/
+    Models.kt
+    FileOperations.kt
+    ZipManager.kt
+  ui/
+    FileBrowserViewModel.kt
+    FileBrowserScreen.kt
+    theme/Theme.kt
+    viewer/
+      PdfViewerScreen.kt
+      ImageViewerScreen.kt
+```
 
 ## Catatan
 
-- Jangan buka / clone repo ini untuk development.
-- Update in-app mengarah ke URL release di repo ini.
+- Min SDK 26, Target SDK 35
+- Untuk production, pertimbangkan Scoped Storage / SAF jika tidak ingin memakai `MANAGE_EXTERNAL_STORAGE`
+- Archive: ZIP / JAR / APK (belum RAR/7z)
+- Beberapa format gambar khusus (mis. HEIC) mungkin tidak ter-decode di semua device

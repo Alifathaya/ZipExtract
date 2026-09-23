@@ -1,0 +1,1187 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>License Admin — FileNest, BRI-Link, Qibla &amp; Browser M3U</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --ok: #4ade80;
+      --bad: #f87171;
+      --warn: #fbbf24;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: linear-gradient(160deg, #0f172a, #1e293b 60%, #0f172a);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 16px;
+      padding-bottom: 40px;
+    }
+    h1 { font-size: 1.35rem; margin: 0 0 4px; }
+    .sub { color: var(--muted); font-size: 0.9rem; margin: 0; }
+    .topbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .topbar-text { flex: 1; min-width: 0; }
+    .top-actions {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+      align-items: center;
+      padding-top: 2px;
+    }
+    .top-actions.hidden { display: none; }
+    .top-actions button {
+      width: auto;
+      margin-top: 0;
+      padding: 8px 12px;
+      font-size: 0.85rem;
+      white-space: nowrap;
+    }
+    .card {
+      background: var(--card);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 14px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.25);
+    }
+    label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 6px; }
+    input {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid #334155;
+      background: #0f172a;
+      color: var(--text);
+      font-size: 1rem;
+    }
+    button {
+      width: 100%;
+      margin-top: 10px;
+      padding: 13px 16px;
+      border: 0;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #0f172a;
+      font-weight: 700;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    button.secondary { background: #334155; color: var(--text); }
+    button.danger { background: var(--bad); color: #111; }
+    button:disabled { opacity: .5; }
+    .row { display: flex; gap: 8px; }
+    .row button { flex: 1; }
+    .stat {
+      display: flex; justify-content: space-between;
+      padding: 8px 0; border-bottom: 1px solid #334155;
+    }
+    .stat:last-child { border-bottom: 0; }
+    .keybox {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 1.15rem;
+      letter-spacing: 0.04em;
+      background: #0f172a;
+      padding: 12px;
+      border-radius: 10px;
+      word-break: break-all;
+      margin: 8px 0;
+      border: 1px dashed #475569;
+    }
+    .key-row {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+      margin: 8px 0;
+    }
+    .key-row .keybox {
+      flex: 1;
+      margin: 0;
+      font-size: 0.95rem;
+    }
+    .key-delete-btn {
+      width: auto;
+      min-width: 72px;
+      margin-top: 0;
+      padding: 10px 12px;
+      align-self: stretch;
+    }
+    .item {
+      padding: 10px 0;
+      border-bottom: 1px solid #334155;
+      font-size: 0.9rem;
+    }
+    .item:last-child { border-bottom: 0; }
+    .muted { color: var(--muted); font-size: 0.8rem; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+    .badge.active { background: #14532d; color: var(--ok); }
+    .badge.expired { background: #7f1d1d; color: var(--bad); }
+    .badge.blocked { background: #78350f; color: var(--warn); }
+    .badge.unused { background: #1e3a5f; color: var(--accent); }
+    .badge.unlimited { background: #312e81; color: #c4b5fd; }
+    .device-pick-box {
+      margin-top: 10px;
+      max-height: 280px;
+      overflow: auto;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      background: #0f172a;
+      padding: 6px 8px;
+    }
+    .device-pick-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 8px 4px;
+      border-bottom: 1px solid #1e293b;
+      font-size: 0.9rem;
+    }
+    .device-pick-row:last-child { border-bottom: 0; }
+    .device-pick-row input {
+      width: auto;
+      margin: 2px 0 0;
+      flex-shrink: 0;
+    }
+    .device-pick-meta { color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
+    .device-pick-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+    .device-pick-actions button {
+      width: auto;
+      margin-top: 0;
+      padding: 8px 12px;
+      font-size: 0.85rem;
+    }
+    .device-note {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      background: #1e3a5f;
+      color: var(--accent);
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
+    .device-note.empty {
+      background: transparent;
+      color: var(--muted);
+      border: 1px dashed #475569;
+      font-weight: 500;
+    }
+    .err { color: var(--bad); margin-top: 8px; font-size: 0.9rem; }
+    .ok { color: var(--ok); margin-top: 8px; font-size: 0.9rem; }
+    .hidden { display: none; }
+    .mono { font-family: ui-monospace, monospace; font-size: 0.78rem; word-break: break-all; }
+    .device-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      position: relative;
+    }
+    .device-main { flex: 1; min-width: 0; }
+    .menu-btn {
+      width: 40px;
+      min-width: 40px;
+      margin: 0;
+      padding: 6px 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 1.35rem;
+      line-height: 1;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+    .menu-btn:hover, .menu-btn[aria-expanded="true"] {
+      background: #334155;
+      color: var(--text);
+    }
+    .menu-pop {
+      display: none;
+      position: absolute;
+      top: 36px;
+      right: 0;
+      z-index: 20;
+      min-width: 180px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      box-shadow: 0 12px 28px rgba(0,0,0,.45);
+      padding: 6px;
+      overflow: hidden;
+    }
+    .menu-pop.open { display: block; }
+    .menu-pop button {
+      width: 100%;
+      margin: 0;
+      padding: 11px 12px;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text);
+      font-weight: 600;
+      font-size: 0.9rem;
+      text-align: left;
+    }
+    .menu-pop button:hover { background: #1e293b; }
+    .menu-pop button.danger {
+      background: transparent;
+      color: var(--bad);
+    }
+    .menu-pop button.danger:hover { background: #7f1d1d33; }
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .tab {
+      flex: 1 1 calc(33.33% - 6px);
+      min-width: calc(33.33% - 6px);
+      margin-top: 0;
+      padding: 12px 8px;
+      border-radius: 10px;
+      background: #334155;
+      color: var(--text);
+      font-weight: 700;
+      font-size: 0.85rem;
+    }
+    .tab.active { background: var(--accent); color: #0f172a; }
+    .panel.hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="topbar-text">
+      <h1>License Admin</h1>
+      <p class="sub">FileNest, BRI-Link, Qibla &amp; Browser M3U — key universal untuk semua app</p>
+    </div>
+    <div id="topActions" class="top-actions hidden">
+      <button class="secondary" id="refreshBtn" type="button">Muat ulang</button>
+      <button class="secondary" id="logoutBtn" type="button">Keluar</button>
+    </div>
+  </div>
+
+  <section id="loginCard" class="card">
+    <label for="password">Password admin</label>
+    <input id="password" type="password" autocomplete="current-password" placeholder="Admin password" />
+    <button id="loginBtn" type="button">Masuk</button>
+    <p id="loginErr" class="err hidden"></p>
+  </section>
+
+  <section id="app" class="hidden">
+    <div class="card">
+      <div class="stat"><span>Device terdaftar</span><strong id="statDevices">—</strong></div>
+      <div class="stat"><span>Aktif (belum expired)</span><strong id="statActive">—</strong></div>
+      <div class="stat"><span>Key belum dipakai</span><strong id="statKeys">—</strong></div>
+      <div class="stat"><span>FileNest (fn_)</span><strong id="statFilenest">—</strong></div>
+      <div class="stat"><span>BRI-Link (bl_ + blo_)</span><strong id="statBrilink">—</strong></div>
+      <div class="stat"><span>Qibla (qb_)</span><strong id="statQibla">—</strong></div>
+      <div class="stat"><span>Browser M3U (bm_)</span><strong id="statBrowserM3u">—</strong></div>
+    </div>
+
+    <div class="tabs">
+      <button type="button" class="tab active" data-panel-tab="keys">Generate Key</button>
+      <button type="button" class="tab" data-panel-tab="update">Update App</button>
+      <button type="button" class="tab" data-panel-tab="filenest">FileNest</button>
+      <button type="button" class="tab" data-panel-tab="brilink">BRI-Link</button>
+      <button type="button" class="tab" data-panel-tab="qibla">Qibla</button>
+      <button type="button" class="tab" data-panel-tab="browserm3u">Browser M3U</button>
+    </div>
+
+    <div id="panelKeys" class="panel">
+      <div class="card">
+        <h2 style="margin:0 0 8px;font-size:1.05rem;">Generate key</h2>
+        <p class="muted" style="margin:0 0 10px;">Key bisa dipakai di FileNest, BRI-Link, Qibla, dan Browser M3U.</p>
+        <label for="days">Hari per key</label>
+        <input id="days" type="number" min="1" max="3650" value="30" />
+        <label style="margin-top:10px;display:flex;align-items:center;gap:8px;color:var(--text);">
+          <input id="unlimitedKey" type="checkbox" style="width:auto;margin:0;" />
+          Unlimited (seumur hidup)
+        </label>
+        <div class="row">
+          <button id="gen1" type="button">Buat 1 key</button>
+          <button id="gen5" class="secondary" type="button">Buat 5</button>
+        </div>
+        <div id="newKeys"></div>
+        <p id="genMsg" class="ok hidden"></p>
+        <p id="genErr" class="err hidden"></p>
+      </div>
+
+      <div class="card">
+        <h2 style="margin:0 0 8px;font-size:1.05rem;">Key terbaru</h2>
+        <div id="keyList" class="muted">Memuat…</div>
+      </div>
+    </div>
+
+    <div id="panelUpdate" class="panel hidden">
+      <div class="card">
+        <h2 style="margin:0 0 8px;font-size:1.05rem;">Broadcast update app</h2>
+        <p class="muted" style="margin:0 0 10px;">
+          FileNest / BRI-Link / Qibla: APK dari <strong>GitHub Releases</strong>
+          (<code>vX.Y.Z</code> + nama file sesuai audience).
+          <strong>Browser M3U</strong>: APK hanya dari VPS
+          <code>http://62.238.96.225:4173/Browser-M3U.apk</code>
+          (bukan GitHub). Pastikan APK live sudah di-deploy ke VPS sebelum broadcast.
+          User hanya melihat tombol <strong>Update</strong> — link tidak ditampilkan.
+        </p>
+        <label for="updateVersion">Versi baru (contoh: 2.4.89)</label>
+        <input id="updateVersion" type="text" placeholder="2.4.89" autocomplete="off" />
+        <p id="updateUrlPreview" class="muted mono" style="margin:8px 0 0;word-break:break-all;"></p>
+        <label for="updateMessage" style="margin-top:10px;display:block;">Pesan</label>
+        <textarea id="updateMessage" rows="3" placeholder="Update tersedia: perbaikan zip &amp; lisensi." style="width:100%;margin-top:4px;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font:inherit;"></textarea>
+        <label for="updateAudience" style="margin-top:10px;display:block;">Audience</label>
+        <select id="updateAudience" style="width:100%;margin-top:4px;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font:inherit;">
+          <option value="all">Semua (FileNest + BRI-Link + Qibla)</option>
+          <option value="filenest" selected>FileNest saja (fn_)</option>
+          <option value="brilink">BRI-Link (toko bl_ + owner blo_)</option>
+          <option value="qibla">Qibla saja (qb_)</option>
+          <option value="browserm3u">Browser M3U saja (bm_)</option>
+        </select>
+        <label style="margin-top:12px;display:block;">Pilih device penerima</label>
+        <input id="updateDeviceSearch" type="search" placeholder="Cari kode / keterangan / versi..." autocomplete="off" style="margin-top:4px;" />
+        <div class="device-pick-actions">
+          <button type="button" class="secondary" id="updateSelectAllBtn">Centang semua</button>
+          <button type="button" class="secondary" id="updateClearAllBtn">Hapus centang</button>
+        </div>
+        <p id="updateDevicePickHint" class="muted" style="margin:8px 0 0;"></p>
+        <div id="updateDevicePickList" class="device-pick-box muted">Muat device…</div>
+        <div class="row" style="margin-top:12px;">
+          <button id="broadcastUpdateBtn" type="button">Kirim pengumuman</button>
+        </div>
+        <p id="updateMsg" class="ok hidden"></p>
+        <p id="updateErr" class="err hidden"></p>
+      </div>
+      <div class="card">
+        <h2 style="margin:0 0 8px;font-size:1.05rem;">Pengumuman terbaru</h2>
+        <div id="updateList" class="muted">Memuat…</div>
+      </div>
+    </div>
+
+    <div id="panelFilenest" class="panel hidden">
+      <div class="card">
+        <h2 style="margin:0 0 8px;font-size:1.05rem;">Device FileNest</h2>
+        <p class="muted" style="margin:0 0 10px;">Device ID diawali <code>fn_</code></p>
+        <label for="filenestDeviceSearch">Cari kode / device ID / keterangan</label>
+        <input id="filenestDeviceSearch" type="search" placeholder="Contoh: Pak Dwi, A3F9B2C1, atau fn_..." autocomplete="off" />
+        <p id="filenestDeviceSearchHint" class="muted" style="margin:8px 0 0;"></p>
+        <div id="filenestDeviceList" class="muted">Memuat…</div>
+      </div>
+    </div>
+
+    <div id="panelBrilink" class="panel hidden">
+      <div class="card">
+        <h2 style="margin:0 0 8px;font-size:1.05rem;">Ringkasan rilis BRI-Link (main)</h2>
+        <p class="muted" style="margin:0 0 10px;">
+          Dua APK di <code>Alifathaya/BRILink-Release</code>:
+          <strong>BRI-Link-X.Y.Z.apk</strong> (toko <code>com.brilink.app</code>) dan
+          <strong>BRI-Link-Owner-X.Y.Z.apk</strong> (owner <code>com.brilink.app.owner</code>).
+        </p>
+        <div class="item" style="margin:0;">
+          <div><strong>v1.1.20</strong> <span class="badge">rilis main</span></div>
+          <div class="muted" style="margin-top:6px;">
+            Owner APK diperkecil (source set owner vs store; R8 minify hanya owner release).
+            Toko: transaksi + kamera bukti. Owner: login + laporan read-only, push WebSocket refresh.
+          </div>
+        </div>
+        <div class="item" style="margin-top:10px;">
+          <div><strong>v1.1.19</strong></div>
+          <div class="muted" style="margin-top:6px;">
+            Nama outlet di dashboard toko; sync laporan push ke app owner (<code>/v1/owner/ws</code>).
+          </div>
+        </div>
+        <div class="item" style="margin-top:10px;">
+          <div><strong>v1.1.18</strong></div>
+          <div class="muted" style="margin-top:6px;">
+            HP toko tanpa tab/PIN owner — owner pakai app terpisah (<code>blo_</code>).
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h2 style="margin:0 0 8px;font-size:1.05rem;">Device BRI-Link</h2>
+        <p class="muted" style="margin:0 0 10px;">HP toko (<code>bl_</code>) dan app owner (<code>blo_</code>) dalam satu daftar. Broadcast audience BRI-Link mengirim APK toko ke <code>bl_</code> dan APK Owner ke <code>blo_</code>.</p>
+        <label for="brilinkDeviceSearch">Cari kode / device ID / keterangan</label>
+        <input id="brilinkDeviceSearch" type="search" placeholder="Contoh: Pak Dwi, blo_, bl_..." autocomplete="off" />
+        <p id="brilinkDeviceSearchHint" class="muted" style="margin:8px 0 0;"></p>
+        <div id="brilinkDeviceList" class="muted">Memuat…</div>
+      </div>
+    </div>
+
+    <div id="panelQibla" class="panel hidden">
+      <div class="card">
+        <h2 style="margin:0 0 8px;font-size:1.05rem;">Device Qibla</h2>
+        <p class="muted" style="margin:0 0 10px;">Device ID diawali <code>qb_</code> (PrayerQibla)</p>
+        <label for="qiblaDeviceSearch">Cari kode / device ID / keterangan</label>
+        <input id="qiblaDeviceSearch" type="search" placeholder="Contoh: Pak Dwi, A3F9B2C1, atau qb_..." autocomplete="off" />
+        <p id="qiblaDeviceSearchHint" class="muted" style="margin:8px 0 0;"></p>
+        <div id="qiblaDeviceList" class="muted">Memuat…</div>
+      </div>
+    </div>
+
+    <div id="panelBrowserM3u" class="panel hidden">
+      <div class="card">
+        <h2 style="margin:0 0 8px;font-size:1.05rem;">Device Browser M3U</h2>
+        <p class="muted" style="margin:0 0 10px;">
+          Device ID diawali <code>bm_</code> · APK live
+          <code>http://62.238.96.225:4173/Browser-M3U.apk</code>
+        </p>
+        <label for="browserm3uDeviceSearch">Cari kode / device ID / keterangan</label>
+        <input id="browserm3uDeviceSearch" type="search" placeholder="Contoh: Pak Dwi, A3F9B2C1, atau bm_..." autocomplete="off" />
+        <p id="browserm3uDeviceSearchHint" class="muted" style="margin:8px 0 0;"></p>
+        <div id="browserm3uDeviceList" class="muted">Memuat…</div>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    const TOKEN_KEY = 'brilink_admin_token';
+    let token = localStorage.getItem(TOKEN_KEY) || '';
+    let allDevices = [];
+    let activePanelTab = 'keys';
+
+    function setActivePanelTab(tab) {
+      activePanelTab = tab;
+      document.querySelectorAll('[data-panel-tab]').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.panelTab === tab);
+      });
+      $('panelKeys').classList.toggle('hidden', tab !== 'keys');
+      $('panelUpdate').classList.toggle('hidden', tab !== 'update');
+      $('panelFilenest').classList.toggle('hidden', tab !== 'filenest');
+      $('panelBrilink').classList.toggle('hidden', tab !== 'brilink');
+      $('panelQibla').classList.toggle('hidden', tab !== 'qibla');
+      $('panelBrowserM3u').classList.toggle('hidden', tab !== 'browserm3u');
+    }
+
+    function isBrilinkDeviceId(deviceId) {
+      const id = String(deviceId || '');
+      return id.startsWith('blo_') || id.startsWith('bl_');
+    }
+
+    function deviceMatchesApp(device, app) {
+      const id = String(device.device_id || '');
+      if (app === 'filenest') return id.startsWith('fn_');
+      if (app === 'brilink') return isBrilinkDeviceId(id);
+      if (app === 'qibla') return id.startsWith('qb_');
+      if (app === 'browserm3u') return id.startsWith('bm_');
+      return true;
+    }
+
+    function show(el, on) { el.classList.toggle('hidden', !on); }
+
+    function shortCode(deviceId) {
+      return String(deviceId || '').slice(-8).toUpperCase();
+    }
+
+    function brilinkRoleLabel(deviceId) {
+      const id = String(deviceId || '');
+      if (id.startsWith('blo_')) return 'owner';
+      if (id.startsWith('bl_')) return 'toko';
+      return '';
+    }
+
+    function brilinkRoleBadge(deviceId) {
+      const role = brilinkRoleLabel(deviceId);
+      if (!role) return '';
+      return ' <span class="badge">' + role + '</span>';
+    }
+
+    function $(id) { return document.getElementById(id); }
+
+    function deviceMatchesQuery(device, query) {
+      if (!query) return true;
+      const q = query.trim().toLowerCase();
+      if (!q) return true;
+      const id = String(device.device_id || '').toLowerCase();
+      const code = shortCode(device.device_id).toLowerCase();
+      const note = String(device.note || '').toLowerCase();
+      const ver = String(device.app_version || '').toLowerCase();
+      return id.includes(q) || code.includes(q) || note.includes(q) || ver.includes(q);
+    }
+
+    async function api(path, opts = {}) {
+      const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+      if (token) headers.Authorization = 'Bearer ' + token;
+      const res = await fetch(path, Object.assign({}, opts, { headers }));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = new Error(data.error || ('HTTP ' + res.status));
+        err.status = res.status;
+        err.data = data;
+        throw err;
+      }
+      return data;
+    }
+
+    function fmtDate(iso) {
+      if (!iso) return '—';
+      try {
+        return new Date(iso).toLocaleString();
+      } catch (_) { return iso; }
+    }
+
+    function escapeHtml(s) {
+      return String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    async function login() {
+      show($('loginErr'), false);
+      try {
+        const data = await api('/v1/admin/login', {
+          method: 'POST',
+          body: JSON.stringify({ password: $('password').value }),
+        });
+        token = data.token;
+        localStorage.setItem(TOKEN_KEY, token);
+        enterApp();
+      } catch (e) {
+        $('loginErr').textContent = 'Login gagal: ' + e.message;
+        show($('loginErr'), true);
+      }
+    }
+
+    function logout() {
+      token = '';
+      localStorage.removeItem(TOKEN_KEY);
+      show($('app'), false);
+      show($('topActions'), false);
+      show($('loginCard'), true);
+    }
+
+    async function enterApp() {
+      show($('loginCard'), false);
+      show($('app'), true);
+      show($('topActions'), true);
+      await refreshAll();
+    }
+
+    async function refreshAll() {
+      try {
+        const stats = await api('/v1/admin/stats');
+        $('statDevices').textContent = stats.devices;
+        $('statActive').textContent = stats.active;
+        $('statKeys').textContent = stats.unusedKeys;
+        await loadKeys();
+        await loadDevices();
+        await loadUpdates();
+        $('statFilenest').textContent = allDevices.filter((d) => deviceMatchesApp(d, 'filenest')).length;
+        $('statBrilink').textContent = allDevices.filter((d) => deviceMatchesApp(d, 'brilink')).length;
+        $('statQibla').textContent = allDevices.filter((d) => deviceMatchesApp(d, 'qibla')).length;
+        $('statBrowserM3u').textContent = allDevices.filter((d) => deviceMatchesApp(d, 'browserm3u')).length;
+      } catch (e) {
+        if (e.status === 401) logout();
+        else alert(e.message);
+      }
+    }
+
+    async function generate(count) {
+      show($('genErr'), false);
+      show($('genMsg'), false);
+      const unlimited = $('unlimitedKey').checked;
+      const days = Number($('days').value) || 30;
+      try {
+        const body = unlimited ? { unlimited: true, count } : { days, count };
+        const data = await api('/v1/admin/keys/generate', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        const box = $('newKeys');
+        box.innerHTML = '';
+        data.keys.forEach((k) => {
+          const row = document.createElement('div');
+          row.className = 'key-row';
+          const div = document.createElement('div');
+          div.className = 'keybox';
+          div.textContent = k.key;
+          const delBtn = document.createElement('button');
+          delBtn.type = 'button';
+          delBtn.className = 'danger key-delete-btn';
+          delBtn.textContent = 'Hapus';
+          delBtn.onclick = () => deleteKey(k.key, false);
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'secondary';
+          btn.textContent = 'Salin ' + k.key;
+          btn.onclick = async () => {
+            try {
+              await navigator.clipboard.writeText(k.key);
+              btn.textContent = 'Tersalin';
+            } catch (_) {
+              prompt('Salin key:', k.key);
+            }
+          };
+          row.appendChild(div);
+          row.appendChild(delBtn);
+          box.appendChild(row);
+          box.appendChild(btn);
+        });
+        $('genMsg').textContent = unlimited
+          ? 'Key unlimited dibuat (' + data.keys.length + ')'
+          : 'Key dibuat (' + data.keys.length + ' × ' + days + ' hari)';
+        show($('genMsg'), true);
+        await refreshAll();
+      } catch (e) {
+        $('genErr').textContent = e.message;
+        show($('genErr'), true);
+      }
+    }
+
+    async function deleteKey(code, confirmUsed) {
+      const msg = confirmUsed
+        ? 'Key ' + code + ' sudah dipakai. Hapus dari daftar? (lisensi device tidak berubah)'
+        : 'Hapus key ' + code + '?';
+      if (!confirm(msg)) return;
+      try {
+        await api('/v1/admin/keys/' + encodeURIComponent(code), { method: 'DELETE' });
+        await refreshAll();
+      } catch (e) {
+        alert('Gagal hapus key: ' + e.message);
+      }
+    }
+
+    async function loadKeys() {
+      const data = await api('/v1/admin/keys');
+      const el = $('keyList');
+      if (!data.keys.length) {
+        el.textContent = 'Belum ada key.';
+        return;
+      }
+      el.innerHTML = data.keys.slice(0, 50).map((k) => {
+        const daysLabel = Number(k.days) === 0 ? 'unlimited' : (k.days + ' hari');
+        const badgeExtra = Number(k.days) === 0 ? ' unlimited' : '';
+        const used = k.status === 'used';
+        return '<div class="item"><div><span class="badge ' + k.status + badgeExtra + '">' + k.status +
+          '</span> · ' + daysLabel + '</div>' +
+          '<div class="key-row">' +
+            '<div class="keybox">' + k.key_code + '</div>' +
+            '<button type="button" class="danger key-delete-btn" data-delete-key="' + k.key_code + '" data-key-used="' + (used ? '1' : '0') + '">Hapus</button>' +
+          '</div>' +
+          '<div class="muted">' + fmtDate(k.created_at) +
+          (k.used_by_device ? '<br>→ ' + k.used_by_device : '') + '</div></div>';
+      }).join('');
+
+      el.querySelectorAll('[data-delete-key]').forEach((btn) => {
+        btn.onclick = () => deleteKey(btn.dataset.deleteKey, btn.dataset.keyUsed === '1');
+      });
+    }
+
+    async function loadUpdates() {
+      const el = $('updateList');
+      try {
+        const data = await api('/v1/admin/updates/latest');
+        const rows = data.updates || [];
+        if (!rows.length) {
+          el.textContent = 'Belum ada pengumuman update.';
+          return;
+        }
+        el.innerHTML = rows.map((u) => {
+          const targetLabel = u.targetCount != null
+            ? (u.targetCount + ' device')
+            : 'semua audience';
+          return '<div class="item"><div><strong>v' + escapeHtml(u.version) + '</strong> · ' +
+            '<span class="badge">' + escapeHtml(u.audience || 'all') + '</span> · ' +
+            '<span class="badge">' + escapeHtml(targetLabel) + '</span></div>' +
+            '<div style="margin:6px 0;">' + escapeHtml(u.message) + '</div>' +
+            (u.url
+              ? '<div class="mono muted" style="word-break:break-all;">' + escapeHtml(u.url) + '</div>'
+              : '') +
+            '<div class="muted">' + fmtDate(u.createdAt) + '</div></div>';
+        }).join('');
+      } catch (e) {
+        el.textContent = 'Gagal memuat: ' + e.message;
+      }
+    }
+
+    function resolveBroadcastApkUrl(version, audience) {
+      const v = String(version || '').trim().replace(/^v/i, '');
+      if (!v) return '';
+      const aud = audience || $('updateAudience').value || 'filenest';
+      if (aud === 'brilink') {
+        return 'https://github.com/Alifathaya/BRILink-Release/releases/download/v' +
+          encodeURIComponent(v) + '/BRI-Link-' + encodeURIComponent(v) + '.apk';
+      }
+      if (aud === 'qibla') {
+        return 'https://github.com/Alifathaya/PrayerQibla/releases/download/v' +
+          encodeURIComponent(v) + '/PrayerQibla-' + encodeURIComponent(v) + '.apk';
+      }
+      if (aud === 'browserm3u') {
+        // Always VPS live APK — never GitHub Releases for Browser M3U.
+        return 'http://62.238.96.225:4173/Browser-M3U.apk';
+      }
+      return 'https://github.com/Alifathaya/ZipExtract/releases/download/v' +
+        encodeURIComponent(v) + '/FileNest-' + encodeURIComponent(v) + '.apk';
+    }
+
+    function githubApkUrlPreview(version, audience) {
+      return resolveBroadcastApkUrl(version, audience);
+    }
+
+    function refreshUpdateUrlPreview() {
+      const v = String($('updateVersion').value || '').trim().replace(/^v/i, '');
+      const aud = $('updateAudience').value || 'filenest';
+      const url = resolveBroadcastApkUrl(v, aud);
+      if (!url) {
+        $('updateUrlPreview').textContent = 'Isi versi untuk melihat URL unduhan.';
+        return;
+      }
+      if (aud === 'brilink' && v) {
+        const ownerUrl =
+          'https://github.com/Alifathaya/BRILink-Release/releases/download/v' +
+          encodeURIComponent(v) + '/BRI-Link-Owner-' + encodeURIComponent(v) + '.apk';
+        $('updateUrlPreview').textContent =
+          'Toko: ' + url + ' · Owner: ' + ownerUrl;
+        return;
+      }
+      if (aud === 'browserm3u') {
+        $('updateUrlPreview').textContent =
+          'Browser M3U unduh dari VPS (bukan GitHub): ' + url;
+        return;
+      }
+      $('updateUrlPreview').textContent = 'Unduhan: ' + url;
+    }
+
+    function selectedUpdateDeviceIds() {
+      return Array.from(document.querySelectorAll('#updateDevicePickList input[type="checkbox"]:checked'))
+        .map((el) => el.value)
+        .filter(Boolean);
+    }
+
+    function renderUpdateDevicePicker() {
+      const audience = $('updateAudience').value || 'filenest';
+      const query = $('updateDeviceSearch').value || '';
+      const el = $('updateDevicePickList');
+      const hint = $('updateDevicePickHint');
+      const pool = allDevices.filter((d) => {
+        if (audience === 'filenest') return deviceMatchesApp(d, 'filenest');
+        if (audience === 'brilink') return deviceMatchesApp(d, 'brilink');
+        if (audience === 'qibla') return deviceMatchesApp(d, 'qibla');
+        if (audience === 'browserm3u') return deviceMatchesApp(d, 'browserm3u');
+        return true;
+      });
+      const filtered = pool.filter((d) => deviceMatchesQuery(d, query));
+      if (!pool.length) {
+        el.textContent = 'Belum ada device untuk audience ini.';
+        hint.textContent = '';
+        return;
+      }
+      if (!filtered.length) {
+        el.textContent = 'Tidak ada device yang cocok dengan pencarian.';
+        hint.textContent = pool.length + ' device di audience ini';
+        return;
+      }
+      const previouslyChecked = new Set(selectedUpdateDeviceIds());
+      const selectAllDefault = previouslyChecked.size === 0 && !query;
+      hint.textContent = filtered.length + ' ditampilkan / ' + pool.length + ' device';
+      el.innerHTML = filtered.map((d) => {
+        const id = d.device_id;
+        const code = shortCode(id);
+        const note = String(d.note || '').trim();
+        const ver = String(d.app_version || '').trim();
+        const role = brilinkRoleLabel(id);
+        const checked = selectAllDefault || previouslyChecked.has(id) ? ' checked' : '';
+        return '<label class="device-pick-row">' +
+          '<input type="checkbox" value="' + escapeHtml(id) + '"' + checked + ' />' +
+          '<span><strong>' + escapeHtml(code) + '</strong>' +
+            (note ? ' · ' + escapeHtml(note) : '') +
+            (role ? ' · ' + escapeHtml(role) : '') +
+            '<div class="device-pick-meta">' +
+              (ver ? 'v' + escapeHtml(ver) + ' · ' : '') +
+              escapeHtml(id) +
+            '</div></span></label>';
+      }).join('');
+      updateDevicePickCountHint();
+      el.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+        cb.addEventListener('change', updateDevicePickCountHint);
+      });
+    }
+
+    function updateDevicePickCountHint() {
+      const n = selectedUpdateDeviceIds().length;
+      const audience = $('updateAudience').value || 'filenest';
+      const pool = allDevices.filter((d) => {
+        if (audience === 'filenest') return deviceMatchesApp(d, 'filenest');
+        if (audience === 'brilink') return deviceMatchesApp(d, 'brilink');
+        if (audience === 'qibla') return deviceMatchesApp(d, 'qibla');
+        if (audience === 'browserm3u') return deviceMatchesApp(d, 'browserm3u');
+        return true;
+      }).length;
+      const base = $('updateDevicePickHint').textContent.split('·')[0].trim();
+      $('updateDevicePickHint').textContent =
+        (base || (pool + ' device')) + ' · tercentang: ' + n;
+    }
+
+    function setUpdateDeviceChecks(checked) {
+      document.querySelectorAll('#updateDevicePickList input[type="checkbox"]').forEach((cb) => {
+        cb.checked = checked;
+      });
+      updateDevicePickCountHint();
+    }
+
+    async function broadcastUpdate() {
+      show($('updateErr'), false);
+      show($('updateMsg'), false);
+      const version = ($('updateVersion').value || '').trim().replace(/^v/i, '');
+      const message = ($('updateMessage').value || '').trim();
+      const audience = $('updateAudience').value || 'filenest';
+      const deviceIds = selectedUpdateDeviceIds();
+      if (!version || !message) {
+        $('updateErr').textContent = 'Isi versi dan pesan.';
+        show($('updateErr'), true);
+        return;
+      }
+      if (!deviceIds.length) {
+        $('updateErr').textContent = 'Centang minimal 1 device.';
+        show($('updateErr'), true);
+        return;
+      }
+      const url = resolveBroadcastApkUrl(version, audience);
+      const selected = allDevices.filter((d) => deviceIds.includes(d.device_id));
+      const maxInstalled = selected
+        .map((d) => String(d.app_version || '').trim())
+        .filter(Boolean);
+      let versionHint = '';
+      if (maxInstalled.length) {
+        versionHint = '\nVersi terpasang di device terpilih: ' + maxInstalled.join(', ');
+      }
+      if (!confirm(
+        'Kirim pengumuman v' + version + ' ke ' + deviceIds.length +
+        ' device?' + versionHint +
+        (audience === 'browserm3u'
+          ? '\n\nPastikan APK live sudah di VPS: http://62.238.96.225:4173/Browser-M3U.apk'
+          : '\n\nPastikan APK sudah ada di GitHub Release.') +
+        '\nTip: versi harus sama atau lebih baru dari yang terpasang agar dialog muncul.',
+      )) return;
+
+      const btn = $('broadcastUpdateBtn');
+      const prevLabel = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Mengirim…';
+      try {
+        const data = await api('/v1/admin/updates/broadcast', {
+          method: 'POST',
+          body: JSON.stringify({ version, message, audience, deviceIds, url }),
+        });
+        $('updateMsg').textContent =
+          'Terkirim. Ditarget: ' + (data.targeted || deviceIds.length) +
+          ' device · online dipush: ' + (data.pushed || 0) + '.';
+        show($('updateMsg'), true);
+        await loadUpdates();
+      } catch (e) {
+        $('updateErr').textContent = e.message || 'Gagal kirim';
+        show($('updateErr'), true);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = prevLabel;
+      }
+    }
+
+    async function loadDevices() {
+      const data = await api('/v1/admin/devices');
+      allDevices = data.devices || [];
+      renderDevicesForApp('filenest', $('filenestDeviceSearch').value || '');
+      renderDevicesForApp('brilink', $('brilinkDeviceSearch').value || '');
+      renderDevicesForApp('qibla', $('qiblaDeviceSearch').value || '');
+      renderDevicesForApp('browserm3u', $('browserm3uDeviceSearch').value || '');
+      renderUpdateDevicePicker();
+    }
+
+    function renderDevicesForApp(app, query) {
+      const listId = {
+        filenest: 'filenestDeviceList',
+        brilink: 'brilinkDeviceList',
+        qibla: 'qiblaDeviceList',
+        browserm3u: 'browserm3uDeviceList',
+      }[app];
+      const hintId = {
+        filenest: 'filenestDeviceSearchHint',
+        brilink: 'brilinkDeviceSearchHint',
+        qibla: 'qiblaDeviceSearchHint',
+        browserm3u: 'browserm3uDeviceSearchHint',
+      }[app];
+      const el = $(listId);
+      const hint = $(hintId);
+      const appDevices = allDevices.filter((d) => deviceMatchesApp(d, app));
+      const filtered = appDevices.filter((d) => deviceMatchesQuery(d, query));
+      if (!appDevices.length) {
+        el.textContent = 'Belum ada device ' + ({
+          filenest: 'FileNest',
+          brilink: 'BRI-Link',
+          qibla: 'Qibla',
+          browserm3u: 'Browser M3U',
+        }[app] || app) + '.';
+        hint.textContent = '';
+        return;
+      }
+      if (!filtered.length) {
+        el.textContent = 'Tidak ada device yang cocok.';
+        hint.textContent = 'Coba kode pendek 8 huruf dari user, atau sebagian device ID.';
+        return;
+      }
+      hint.textContent = filtered.length + ' dari ' + appDevices.length + ' device';
+      el.innerHTML = filtered.slice(0, 80).map((d, idx) => {
+        const st = d.status || 'active';
+        const unlimited = Boolean(d.unlimited);
+        const stillValid = unlimited || new Date(d.expires_at).getTime() > Date.now();
+        const id = d.device_id;
+        const menuItems = [];
+        menuItems.push({
+          action: 'note',
+          label: d.note ? 'Ubah keterangan' : 'Isi keterangan',
+          id: id,
+        });
+        if (String(id).startsWith('bm_')) {
+          menuItems.push({
+            action: 'show-adult',
+            label: d.showAdult ? 'Sembunyikan Adult' : 'Tampilkan Adult',
+            id: id,
+            showAdult: !d.showAdult,
+          });
+          menuItems.push({
+            action: 'show-vod',
+            label: d.showVod ? 'Nonaktifkan VOD' : 'Aktifkan VOD',
+            id: id,
+            showVod: !d.showVod,
+          });
+        }
+        if (st === 'blocked') {
+          if (stillValid) {
+            menuItems.push({ action: 'unblock', label: 'Unblock', id: id });
+          } else {
+            menuItems.push({ action: 'unblock', label: 'Unblock (+30 hari)', id: id, extend: true });
+          }
+          menuItems.push({ action: 'unblock', label: 'Unblock Unlimited', id: id, unlimited: true });
+        } else if (st === 'expired') {
+          menuItems.push({ action: 'allow', label: '+30 hari', id: id });
+          menuItems.push({ action: 'allow', label: 'Unlimited', id: id, unlimited: true });
+          menuItems.push({ action: 'block', label: 'Block', id: id, danger: true });
+        } else {
+          menuItems.push({ action: 'allow', label: '+30 hari', id: id, force: true });
+          if (!unlimited) {
+            menuItems.push({ action: 'allow', label: 'Unlimited', id: id, unlimited: true });
+          }
+          menuItems.push({ action: 'block', label: 'Block', id: id, danger: true });
+        }
+        menuItems.push({ action: 'delete', label: 'Hapus device', id: id, danger: true });
+        const menuHtml = menuItems.map((m) => {
+          const attrs = [
+            'type="button"',
+            'data-action="' + m.action + '"',
+            'data-id="' + m.id + '"',
+          ];
+          if (m.unlimited) attrs.push('data-unlimited="1"');
+          if (m.extend) attrs.push('data-extend="1"');
+          if (m.force) attrs.push('data-force="1"');
+          if (m.action === 'show-adult') attrs.push('data-show-adult="' + (m.showAdult ? '1' : '0') + '"');
+          if (m.action === 'show-vod') attrs.push('data-show-vod="' + (m.showVod ? '1' : '0') + '"');
+          if (m.danger) attrs.push('class="danger"');
+          return '<button ' + attrs.join(' ') + '>' + m.label + '</button>';
+        }).join('');
+        const expLabel = unlimited ? 'Unlimited' : fmtDate(d.expires_at);
+        const statusBadge = unlimited && st === 'active'
+          ? '<span class="badge unlimited">unlimited</span>'
+          : '<span class="badge ' + st + '">' + st + '</span>';
+        const adultBadge = (String(id).startsWith('bm_') && d.showAdult)
+          ? ' <span class="badge unlimited">adult</span>'
+          : '';
+        const vodBadge = (String(id).startsWith('bm_') && d.showVod)
+          ? ' <span class="badge unlimited">vod</span>'
+          : '';
+        const code = shortCode(id);
+        const noteText = String(d.note || '').trim();
+        const noteLine = noteText
+          ? '<div><span class="device-note">' + escapeHtml(noteText) + '</span></div>'
+          : '<div><span class="device-note empty">Belum ada keterangan</span></div>';
+        const appVer = String(d.app_version || '').trim();
+        const appVerLabel = appVer ? ('v' + escapeHtml(appVer)) : 'versi belum dilaporkan';
+        const deviceType = String(d.device_type || '').trim().toLowerCase();
+        const deviceTypeBadge = ['phone', 'tv', 'web'].includes(deviceType)
+          ? ' <span class="badge">' + escapeHtml(deviceType) + '</span>'
+          : '';
+        return '<div class="item">' +
+          '<div class="device-row">' +
+            '<div class="device-main">' +
+              '<div>' + statusBadge + adultBadge + vodBadge + brilinkRoleBadge(id) + ' <strong style="letter-spacing:0.06em;">' + code + '</strong>' +
+                ' · <span class="badge">' + appVerLabel + '</span>' + deviceTypeBadge + '</div>' +
+              noteLine +
+              '<div class="mono">' + id + '</div>' +
+              '<div class="muted">App: ' + appVerLabel +
+                '<br>Exp: ' + expLabel +
+                '<br>Last check: ' + fmtDate(d.last_check_at) + '</div>' +
+            '</div>' +
+            '<button type="button" class="menu-btn" data-menu="' + app + '-' + idx + '" aria-label="Menu" aria-expanded="false">⋮</button>' +
+            '<div class="menu-pop" data-menu-pop="' + app + '-' + idx + '">' + menuHtml + '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+
+      el.querySelectorAll('.menu-btn').forEach((btn) => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          const idx = btn.dataset.menu;
+          const pop = el.querySelector('[data-menu-pop="' + idx + '"]');
+          const wasOpen = pop.classList.contains('open');
+          closeAllDeviceMenus();
+          if (!wasOpen) {
+            pop.classList.add('open');
+            btn.setAttribute('aria-expanded', 'true');
+          }
+        };
+      });
+
+      el.querySelectorAll('.menu-pop button').forEach((btn) => {
+        btn.onclick = async (e) => {
+          e.stopPropagation();
+          closeAllDeviceMenus();
+          const action = btn.dataset.action;
+          const id = btn.dataset.id;
+          try {
+            if (action === 'note') {
+              const current = (allDevices.find((d) => d.device_id === id) || {}).note || '';
+              const next = prompt(
+                'Keterangan device (contoh: Pak Dwi). Kosongkan untuk hapus.',
+                current,
+              );
+              if (next === null) return;
+              await api('/v1/admin/devices/' + encodeURIComponent(id) + '/note', {
+                method: 'POST',
+                body: JSON.stringify({ note: next }),
+              });
+            } else if (action === 'show-adult') {
+              const showAdult = btn.dataset.showAdult === '1';
+              await api('/v1/admin/devices/' + encodeURIComponent(id) + '/show-adult', {
+                method: 'POST',
+                body: JSON.stringify({ showAdult }),
+              });
+            } else if (action === 'show-vod') {
+              const showVod = btn.dataset.showVod === '1';
+              await api('/v1/admin/devices/' + encodeURIComponent(id) + '/show-vod', {
+                method: 'POST',
+                body: JSON.stringify({ showVod }),
+              });
+            } else if (action === 'block') {
+              await api('/v1/admin/devices/' + encodeURIComponent(id) + '/block', {
+                method: 'POST',
+                body: '{}',
+              });
+            } else if (action === 'unblock') {
+              const body = {};
+              if (btn.dataset.unlimited === '1') body.unlimited = true;
+              else if (btn.dataset.extend === '1') body.days = 30;
+              await api('/v1/admin/devices/' + encodeURIComponent(id) + '/unblock', {
+                method: 'POST',
+                body: JSON.stringify(body),
+              });
+            } else if (action === 'allow') {
+              const body = {};
+              if (btn.dataset.unlimited === '1') {
+                body.unlimited = true;
+              } else {
+                body.days = 30;
+                if (btn.dataset.force === '1') body.forceExtend = true;
+              }
+              await api('/v1/admin/devices/' + encodeURIComponent(id) + '/allow', {
+                method: 'POST',
+                body: JSON.stringify(body),
+              });
+            } else if (action === 'delete') {
+              const dev = allDevices.find((d) => d.device_id === id) || {};
+              const code = shortCode(id);
+              const note = String(dev.note || '').trim();
+              const label = note ? (code + ' — ' + note) : code;
+              const ok = confirm(
+                'Hapus device ' + label + ' dari server?\n\n' +
+                'Device bisa daftar ulang (trial baru) jika app di-install lagi.',
+              );
+              if (!ok) return;
+              await api('/v1/admin/devices/' + encodeURIComponent(id), {
+                method: 'DELETE',
+              });
+            }
+            await refreshAll();
+          } catch (err) {
+            alert(err.message);
+          }
+        };
+      });
+    }
+
+    function closeAllDeviceMenus() {
+      document.querySelectorAll('.menu-pop.open').forEach((p) => p.classList.remove('open'));
+      document.querySelectorAll('.menu-btn[aria-expanded="true"]').forEach((b) => {
+        b.setAttribute('aria-expanded', 'false');
+      });
+    }
+
+    document.addEventListener('click', () => closeAllDeviceMenus());
+
+    $('unlimitedKey').addEventListener('change', () => {
+      $('days').disabled = $('unlimitedKey').checked;
+    });
+
+    $('loginBtn').onclick = login;
+    $('password').addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
+    $('logoutBtn').onclick = logout;
+    $('refreshBtn').onclick = refreshAll;
+    $('gen1').onclick = () => generate(1);
+    $('gen5').onclick = () => generate(5);
+    $('broadcastUpdateBtn').onclick = broadcastUpdate;
+    $('updateSelectAllBtn').onclick = () => setUpdateDeviceChecks(true);
+    $('updateClearAllBtn').onclick = () => setUpdateDeviceChecks(false);
+    $('updateVersion').addEventListener('input', refreshUpdateUrlPreview);
+    refreshUpdateUrlPreview();
+    $('updateAudience').addEventListener('change', () => {
+      // Reset DOM so picker defaults to all checked for the new audience.
+      $('updateDevicePickList').innerHTML = '';
+      renderUpdateDevicePicker();
+      refreshUpdateUrlPreview();
+    });
+    $('updateDeviceSearch').addEventListener('input', () => renderUpdateDevicePicker());
+    document.querySelectorAll('[data-panel-tab]').forEach((btn) => {
+      btn.onclick = () => {
+        setActivePanelTab(btn.dataset.panelTab);
+        if (btn.dataset.panelTab === 'update') renderUpdateDevicePicker();
+      };
+    });
+    $('filenestDeviceSearch').addEventListener('input', (e) => {
+      renderDevicesForApp('filenest', e.target.value || '');
+    });
+    $('brilinkDeviceSearch').addEventListener('input', (e) => {
+      renderDevicesForApp('brilink', e.target.value || '');
+    });
+    $('qiblaDeviceSearch').addEventListener('input', (e) => {
+      renderDevicesForApp('qibla', e.target.value || '');
+    });
+    $('browserm3uDeviceSearch').addEventListener('input', (e) => {
+      renderDevicesForApp('browserm3u', e.target.value || '');
+    });
+
+    if (token) {
+      enterApp().catch(() => logout());
+    }
+  </script>
+</body>
+</html>

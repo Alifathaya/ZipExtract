@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- License API is served over HTTP on browser-m3u.my.id (port 80). -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">browser-m3u.my.id</domain>
+    </domain-config>
+</network-security-config>

@@ -1,0 +1,1337 @@
+package com.zipextract.app.data
+
+import android.content.ContentResolver
+import android.content.ContentUris
+import android.content.Context
+import android.media.MediaScannerConnection
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.os.StatFs
+import android.os.storage.StorageManager
+import android.os.storage.StorageVolume
+import android.provider.DocumentsContract
+import android.provider.MediaStore
+import com.zipextract.app.R
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.nio.file.Files
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.concurrent.thread
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
+
+object FileOperations {
+
+    /**
+     * Cap per category keeps scan/cache/UI responsive on large libraries.
+     * Raised from 2_500 → 10_000 so most phones still show “all” recent files.
+     */
+    const val MAX_PER_CATEGORY = 10_000
+
+    fun defaultRoot(): File {
+        return Environment.getExternalStorageDirectory()
+    }
+
+    fun samePath(left: File, right: File): Boolean {
+        return runCatching {
+            left.canonicalFile.absolutePath == right.canonicalFile.absolutePath
+        }.getOrDefault(left.absolutePath == right.absolutePath)
+    }
+
+    fun getStorageInfo(): StorageInfo {
+        val root = defaultRoot()
+        return runCatching {
+            val stat = StatFs(root.absolutePath)
+            val total = stat.blockSizeLong * stat.blockCountLong
+            val free = stat.availableBlocksLong * stat.blockSizeLong
+            StorageInfo(totalBytes = total, freeBytes = free)
+        }.getOrDefault(StorageInfo(totalBytes = 0L, freeBytes = 0L))
+    }
+
+    /**
+     * Lists all mounted storage volumes: internal, microSD, and USB Type-C/OTG
+     * when the system exposes a path. Unmounted volumes are omitted.
+     */
+    fun listDeviceStorages(context: Context): List<DeviceStorageVolume> {
+        val manager = context.getSystemService(StorageManager::class.java) ?: return emptyList()
+        val volumes = manager.storageVolumes.mapNotNull { volume ->
+            toDeviceStorageVolume(context, volume)
+        }.toMutableList()
+
+        // Fallback: discover remounted volumes via app-specific external dirs
+        // when StorageVolume.directory is null (some OEM / USB cases).
+        val knownRoots = volumes.mapNotNull { it.root?.let { root ->
+            runCatching { root.canonicalPath }.getOrDefault(root.absolutePath)
+        } }.toHashSet()
+        discoverExtraVolumeRoots(context).forEach { root ->
+            val key = runCatching { root.canonicalPath }.getOrDefault(root.absolutePath)
+            if (key in knownRoots) return@forEach
+            if (!root.exists() || !root.isDirectory) return@forEach
+            val stats = statPath(root) ?: return@forEach
+            knownRoots += key
+            volumes += DeviceStorageVolume(
+                id = "extra:$key",
+                label = guessVolumeLabel(root),
+                kind = guessVolumeKind(label = null, path = key, isPrimary = false, isRemovable = true),
+                root = root,
+                totalBytes = stats.first,
+                freeBytes = stats.second,
+                isPrimary = false,
+                isRemovable = true,
+                isMounted = true,
+            )
+        }
+
+        return volumes.sortedWith(
+            compareByDescending<DeviceStorageVolume> { it.isPrimary }
+                .thenBy { it.kind.ordinal }
+                .thenBy { it.label.lowercase() },
+        )
+    }
+
+    private fun toDeviceStorageVolume(
+        context: Context,
+        volume: StorageVolume,
+    ): DeviceStorageVolume? {
+        val state = volume.state
+        val mounted = state == null ||
+            state == Environment.MEDIA_MOUNTED ||
+            state == Environment.MEDIA_MOUNTED_READ_ONLY
+        if (!mounted) return null
+
+        val root = volumeDirectory(volume) ?: return if (volume.isPrimary) {
+            // Always expose primary via the legacy shared-storage root.
+            val primary = defaultRoot()
+            val stats = statPath(primary) ?: (0L to 0L)
+            DeviceStorageVolume(
+                id = volumeUuid(volume) ?: "primary",
+                label = volume.getDescription(context).ifBlank {
+                    context.getString(R.string.storage_internal)
+                },
+                kind = StorageKind.INTERNAL,
+                root = primary,
+                totalBytes = stats.first,
+                freeBytes = stats.second,
+                isPrimary = true,
+                isRemovable = volume.isRemovable,
+                isMounted = true,
+            )
+        } else {
+            null
+        }
+
+        val stats = statPath(root) ?: (0L to 0L)
+        val label = volume.getDescription(context).ifBlank {
+            when {
+                volume.isPrimary -> context.getString(R.string.storage_internal)
+                else -> root.name.ifBlank { context.getString(R.string.storage_external) }
+            }
+        }
+        val path = runCatching { root.canonicalPath }.getOrDefault(root.absolutePath)
+        return DeviceStorageVolume(
+            id = volumeUuid(volume) ?: path,
+            label = label,
+            kind = guessVolumeKind(
+                label = label,
+                path = path,
+                isPrimary = volume.isPrimary,
+                isRemovable = volume.isRemovable,
+            ),
+            root = root,
+            totalBytes = stats.first,
+            freeBytes = stats.second,
+            isPrimary = volume.isPrimary,
+            isRemovable = volume.isRemovable,
+            isMounted = true,
+        )
+    }
+
+    private fun volumeUuid(volume: StorageVolume): String? {
+        return volume.uuid?.takeIf { it.isNotBlank() }
+            ?: if (volume.isPrimary) "primary" else null
+    }
+
+    private fun volumeDirectory(volume: StorageVolume): File? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            volume.directory?.let { return it }
+        }
+        // Pre-R public API: StorageVolume.getPath()
+        return runCatching {
+            val method = volume.javaClass.getMethod("getPath")
+            val path = method.invoke(volume) as? String
+            path?.takeIf { it.isNotBlank() }?.let { File(it) }
+        }.getOrNull()
+    }
+
+    private fun discoverExtraVolumeRoots(context: Context): List<File> {
+        val dirs = context.getExternalFilesDirs(null)?.filterNotNull().orEmpty()
+        return dirs.mapNotNull { appDir ->
+            // …/Android/data/<pkg>/files → climb to volume root
+            var cursor: File? = appDir
+            repeat(4) { cursor = cursor?.parentFile }
+            cursor?.takeIf { it.exists() && it.isDirectory }
+        }.distinctBy {
+            runCatching { it.canonicalPath }.getOrDefault(it.absolutePath)
+        }
+    }
+
+    private fun guessVolumeLabel(root: File): String {
+        val name = root.name
+        return when {
+            name.equals("0", ignoreCase = true) ||
+                root.absolutePath.contains("emulated", ignoreCase = true) -> "Internal"
+            name.matches(Regex("[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}")) -> "SD card"
+            else -> name.ifBlank { "Storage" }
+        }
+    }
+
+    private fun guessVolumeKind(
+        label: String?,
+        path: String,
+        isPrimary: Boolean,
+        isRemovable: Boolean,
+    ): StorageKind {
+        if (isPrimary || path.contains("emulated", ignoreCase = true)) {
+            return StorageKind.INTERNAL
+        }
+        val haystack = "${label.orEmpty()} $path".lowercase()
+        return when {
+            "usb" in haystack || "otg" in haystack || "type-c" in haystack ||
+                "typec" in haystack -> StorageKind.USB
+            isRemovable || "sd" in haystack || "card" in haystack ||
+                Regex("(?i)/[0-9A-F]{4}-[0-9A-F]{4}(/|$)").containsMatchIn(path) -> StorageKind.SD_CARD
+            else -> StorageKind.OTHER
+        }
+    }
+
+    private fun statPath(root: File): Pair<Long, Long>? {
+        return runCatching {
+            val stat = StatFs(root.absolutePath)
+            val total = stat.blockSizeLong * stat.blockCountLong
+            val free = stat.availableBlocksLong * stat.blockSizeLong
+            if (total <= 0L) null else total to free.coerceIn(0L, total)
+        }.getOrNull()
+    }
+
+    fun getCategorySummaries(
+        library: MediaLibrary? = null,
+        context: Context? = null,
+    ): List<CategorySummary> {
+        val media = library ?: scanMediaLibrary(context = context)
+        val installedApps = context?.let { InstalledApps.list(it) }
+        return FileCategory.entries.map { category ->
+            val folder = category.resolveFolder()
+            if (!folder.exists()) folder.mkdirs()
+            val (count, bytes) = when {
+                category == FileCategory.APPS && installedApps != null -> {
+                    installedApps.size to installedApps.sumOf { it.sizeBytes }
+                }
+                else -> {
+                    val items = media.forCategory(category)
+                    items.size to items.sumOf { it.sizeBytes }
+                }
+            }
+            CategorySummary(
+                category = category,
+                itemCount = count,
+                folder = folder,
+                totalBytes = bytes,
+            )
+        }
+    }
+
+    /** Instant placeholders so the home category grid can render before scanning finishes. */
+    fun getEmptyCategorySummaries(): List<CategorySummary> {
+        return FileCategory.entries.map { category ->
+            CategorySummary(
+                category = category,
+                itemCount = 0,
+                folder = category.resolveFolder(),
+                totalBytes = 0L,
+            )
+        }
+    }
+
+    fun countTopLevelItems(directory: File): Int {
+        if (!directory.exists() || !directory.isDirectory) return 0
+        return directory.listFiles()?.size ?: 0
+    }
+
+    fun getRecentImages(limit: Int = 12): List<FileItem> {
+        return getFilesForCategory(FileCategory.IMAGES, maxResults = 400).take(limit)
+    }
+
+    fun getRecentFiles(limit: Int = 12): List<FileItem> = getRecentImages(limit)
+
+    fun getAllImages(maxResults: Int = MAX_PER_CATEGORY): List<FileItem> {
+        return getFilesForCategory(FileCategory.IMAGES, maxResults)
+    }
+
+    fun getFilesForCategory(category: FileCategory, maxResults: Int = MAX_PER_CATEGORY): List<FileItem> {
+        return scanMediaLibrary(maxPerCategory = maxResults).forCategory(category).take(maxResults)
+    }
+
+    /**
+     * One-pass scan of common storage locations, then classify files into categories.
+     * When [contentResolver] is provided, MediaStore images/videos are merged in so
+     * newly taken camera shots (already indexed by the system) are not missed even if
+     * a filesystem walk is slow or skips an OEM-specific folder.
+     */
+    fun scanMediaLibrary(
+        maxPerCategory: Int = MAX_PER_CATEGORY,
+        maxDepth: Int = 8,
+        contentResolver: ContentResolver? = null,
+        context: Context? = null,
+    ): MediaLibrary {
+        val downloads = LinkedHashMap<String, FileItem>()
+        val images = LinkedHashMap<String, FileItem>()
+        val videos = LinkedHashMap<String, FileItem>()
+        val documents = LinkedHashMap<String, FileItem>()
+        val archives = LinkedHashMap<String, FileItem>()
+        val apps = LinkedHashMap<String, FileItem>()
+        val audio = LinkedHashMap<String, FileItem>()
+        val others = LinkedHashMap<String, FileItem>()
+        val visited = HashSet<String>()
+        val downloadRoots = downloadScanRoots(context)
+            .map { runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) }
+            .toSet()
+
+        fun underDownload(path: String): Boolean {
+            return downloadRoots.any { root ->
+                path == root || path.startsWith(root + File.separator)
+            }
+        }
+
+        fun addItem(map: MutableMap<String, FileItem>, item: FileItem) {
+            // Collect everything first; limiting mid-walk drops newer files when older folders
+            // are visited earlier (common with large photo libraries).
+            map[item.path] = item
+        }
+
+        fun classify(item: FileItem) {
+            when {
+                item.isImage -> addItem(images, item)
+                item.isVideo -> addItem(videos, item)
+                item.isApp -> addItem(apps, item)
+                item.isArchive -> addItem(archives, item)
+                item.isDocument -> addItem(documents, item)
+                item.isAudio -> addItem(audio, item)
+                else -> addItem(others, item)
+            }
+        }
+
+        mediaScanRoots(context).forEach { root ->
+            walkFiles(root, depth = 0, maxDepth = maxDepth, visited = visited) { file ->
+                val item = FileItem(file)
+                val path = runCatching { file.canonicalPath }.getOrDefault(file.absolutePath)
+                if (underDownload(path)) {
+                    addItem(downloads, item)
+                }
+                classify(item)
+            }
+        }
+
+        contentResolver?.let { resolver ->
+            mergeMediaStoreFiles(
+                resolver = resolver,
+                collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                into = images,
+            )
+            mergeMediaStoreFiles(
+                resolver = resolver,
+                collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                into = videos,
+            )
+            mergeMediaStoreFiles(
+                resolver = resolver,
+                collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                into = audio,
+            )
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                mergeMediaStoreFiles(
+                    resolver = resolver,
+                    collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    into = downloads,
+                    alsoClassify = { item -> classify(item) },
+                )
+            }
+        }
+
+        fun newest(map: Map<String, FileItem>): List<FileItem> {
+            return map.values
+                .sortedByDescending { it.lastModified }
+                .take(maxPerCategory)
+        }
+
+        return MediaLibrary(
+            downloads = newest(downloads),
+            images = newest(images),
+            videos = newest(videos),
+            documents = newest(documents),
+            archives = newest(archives),
+            apps = newest(apps),
+            audio = newest(audio),
+            others = newest(others),
+        )
+    }
+
+    /**
+     * Pull paths from MediaStore so camera / gallery apps' newest files appear even when
+     * they live outside the folders we walk first.
+     */
+    @Suppress("DEPRECATION")
+    private fun mergeMediaStoreFiles(
+        resolver: ContentResolver,
+        collection: Uri,
+        into: MutableMap<String, FileItem>,
+        alsoClassify: ((FileItem) -> Unit)? = null,
+    ) {
+        val projection = arrayOf(
+            MediaStore.MediaColumns.DATA,
+            MediaStore.MediaColumns.SIZE,
+            MediaStore.MediaColumns.DATE_MODIFIED,
+        )
+        runCatching {
+            resolver.query(
+                collection,
+                projection,
+                null,
+                null,
+                "${MediaStore.MediaColumns.DATE_MODIFIED} DESC",
+            )?.use { cursor ->
+                val dataIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
+                val sizeIdx = cursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
+                val modIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
+                if (dataIdx < 0) return
+                var merged = 0
+                while (cursor.moveToNext()) {
+                    if (merged >= 800) break
+                    val path = cursor.getString(dataIdx)?.takeIf { it.isNotBlank() } ?: continue
+                    if (into.containsKey(path)) continue
+                    val file = File(path)
+                    if (!file.isFile) continue
+                    val size = if (sizeIdx >= 0) {
+                        cursor.getLong(sizeIdx).takeIf { it > 0L } ?: file.length()
+                    } else {
+                        file.length()
+                    }
+                    val modified = if (modIdx >= 0) {
+                        val raw = cursor.getLong(modIdx)
+                        // MediaStore DATE_MODIFIED is seconds; File.lastModified is millis.
+                        if (raw in 1 until 10_000_000_000L) raw * 1000L else raw
+                    } else {
+                        file.lastModified()
+                    }
+                    val item = FileItem(
+                        file = file,
+                        name = file.name,
+                        path = file.absolutePath,
+                        isDirectory = false,
+                        sizeBytes = size,
+                        lastModified = modified,
+                    )
+                    into[path] = item
+                    alsoClassify?.invoke(item)
+                    merged++
+                }
+            }
+        }
+    }
+
+    /**
+     * Queries only MediaStore rows changed since [sinceEpochSeconds]. This is used by
+     * [MediaChangeWatcher] so a new photo/download can be inserted into the UI without
+     * walking storage again. At most 64 rows are returned for a burst.
+     */
+    @Suppress("DEPRECATION")
+    fun queryRecentMediaStoreChanges(
+        resolver: ContentResolver,
+        source: String,
+        changedUri: Uri?,
+        sinceEpochSeconds: Long,
+    ): List<FileItem> {
+        val collection = when (source) {
+            "images" -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            "video" -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            "downloads" -> if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            } else {
+                MediaStore.Files.getContentUri("external")
+            }
+            else -> MediaStore.Files.getContentUri("external")
+        }
+        // A row URI ends in a numeric MediaStore ID. Query it directly when available.
+        val rowUri = changedUri?.takeIf {
+            it.lastPathSegment?.toLongOrNull() != null
+        }
+        val target = rowUri ?: collection
+        val projection = arrayOf(
+            MediaStore.MediaColumns.DATA,
+            MediaStore.MediaColumns.SIZE,
+            MediaStore.MediaColumns.DATE_MODIFIED,
+            MediaStore.MediaColumns.DATE_ADDED,
+        )
+        val selection = if (rowUri == null && sinceEpochSeconds > 0L) {
+            "${MediaStore.MediaColumns.DATE_MODIFIED} >= ? OR " +
+                "${MediaStore.MediaColumns.DATE_ADDED} >= ?"
+        } else {
+            null
+        }
+        val selectionArgs = if (selection != null) {
+            arrayOf(sinceEpochSeconds.toString(), sinceEpochSeconds.toString())
+        } else {
+            null
+        }
+        return runCatching {
+            resolver.query(
+                target,
+                projection,
+                selection,
+                selectionArgs,
+                "${MediaStore.MediaColumns.DATE_MODIFIED} DESC",
+            )?.use { cursor ->
+                val dataIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
+                val sizeIdx = cursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
+                val modifiedIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
+                if (dataIdx < 0) return@use emptyList()
+                buildList {
+                    while (cursor.moveToNext() && size < 64) {
+                        val path = cursor.getString(dataIdx)?.takeIf { it.isNotBlank() } ?: continue
+                        val file = File(path)
+                        if (!file.isFile) continue
+                        val mediaSize = if (sizeIdx >= 0) cursor.getLong(sizeIdx) else 0L
+                        val rawModified = if (modifiedIdx >= 0) cursor.getLong(modifiedIdx) else 0L
+                        val modified = when {
+                            rawModified in 1 until 10_000_000_000L -> rawModified * 1000L
+                            rawModified > 0L -> rawModified
+                            else -> file.lastModified()
+                        }
+                        add(
+                            FileItem(
+                                file = file,
+                                name = file.name,
+                                path = file.absolutePath,
+                                isDirectory = false,
+                                sizeBytes = mediaSize.takeIf { it > 0L } ?: file.length(),
+                                lastModified = modified,
+                            ),
+                        )
+                    }
+                }
+            }.orEmpty()
+        }.getOrDefault(emptyList())
+    }
+
+    /**
+     * Upserts a small set of changed files into all relevant cached categories.
+     * A file may belong to Downloads and a media category at the same time.
+     */
+    fun mergeIncremental(base: MediaLibrary, changed: List<FileItem>): MediaLibrary {
+        if (changed.isEmpty()) return base
+
+        fun merge(current: List<FileItem>, accepts: (FileItem) -> Boolean): List<FileItem> {
+            val byPath = LinkedHashMap<String, FileItem>(current.size + changed.size)
+            current.asSequence()
+                .filter { it.file.isFile }
+                .forEach { byPath[it.path] = it }
+            changed.asSequence().filter(accepts).forEach { byPath[it.path] = it }
+            return byPath.values.sortedByDescending { it.lastModified }.take(MAX_PER_CATEGORY)
+        }
+
+        return MediaLibrary(
+            downloads = merge(base.downloads) { item ->
+                item.file.parentFile?.let(::isUnderDownloads) == true
+            },
+            images = merge(base.images) { it.isImage },
+            videos = merge(base.videos) { it.isVideo },
+            documents = merge(base.documents) { it.isDocument },
+            archives = merge(base.archives) { it.isArchive && !it.isApp },
+            apps = merge(base.apps) { it.isApp && !it.isInstalledApp },
+            audio = merge(base.audio) { it.isAudio },
+            others = merge(base.others) { item ->
+                !item.isImage && !item.isVideo && !item.isDocument && !item.isAudio &&
+                    !(item.isArchive && !item.isApp) && !item.isApp
+            },
+        )
+    }
+
+    fun isUnderDownloads(dir: File): Boolean {
+        val path = runCatching { dir.canonicalPath }.getOrDefault(dir.absolutePath)
+        return downloadScanRoots().any { root ->
+            val rootPath = runCatching { root.canonicalPath }.getOrDefault(root.absolutePath)
+            path == rootPath || path.startsWith(rootPath + File.separator)
+        }
+    }
+
+
+    /** Common Opera / Opera Mini / Opera GX download locations on Android. */
+    private fun operaDownloadCandidates(storageRoot: File): List<File> {
+        val packages = listOf(
+            "com.opera.browser",
+            "com.opera.browser.beta",
+            "com.opera.mini.native",
+            "com.opera.gx",
+            "com.opera.touch",
+        )
+        val out = mutableListOf(
+            File(storageRoot, "Opera"),
+            File(storageRoot, "Opera Downloads"),
+            File(storageRoot, "Download/Opera"),
+            File(storageRoot, "Downloads/Opera"),
+        )
+        packages.forEach { pkg ->
+            out += File(storageRoot, "Android/media/$pkg")
+            out += File(storageRoot, "Android/data/$pkg/files")
+            out += File(storageRoot, "Android/data/$pkg/files/Download")
+            out += File(storageRoot, "Android/data/$pkg/files/Downloads")
+            out += File(storageRoot, "Android/data/$pkg/cache/downloads")
+        }
+        return out
+    }
+
+    /**
+     * Hot download folders for [InboxFolderWatcher] (Opera + Chrome/Firefox media dirs).
+     * Exists even when the directory is not present yet — caller filters with isDirectory.
+     */
+    fun downloadWatchCandidates(storageRoot: File): List<File> {
+        val browsers = listOf(
+            "com.android.chrome",
+            "com.chrome.beta",
+            "org.mozilla.firefox",
+        )
+        val out = operaDownloadCandidates(storageRoot).toMutableList()
+        browsers.forEach { pkg ->
+            out += File(storageRoot, "Android/media/$pkg")
+            out += File(storageRoot, "Android/data/$pkg/files/Download")
+            out += File(storageRoot, "Android/data/$pkg/files/Downloads")
+        }
+        return out
+    }
+
+    private fun mediaScanRoots(context: Context? = null): List<File> {
+        val storage = Environment.getExternalStorageDirectory()
+        val candidates = mutableListOf(
+            File(storage, "DCIM"),
+            File(storage, "DCIM/Camera"),
+            File(storage, "Pictures"),
+            File(storage, "Pictures/Camera"),
+            File(storage, "Pictures/Screenshots"),
+            File(storage, "Movies"),
+            File(storage, "Video"),
+            File(storage, "Download"),
+            File(storage, "Downloads"),
+            File(storage, "Documents"),
+            File(storage, "Music"),
+            File(storage, "Podcasts"),
+            File(storage, "Recordings"),
+            File(storage, "Screenshots"),
+            File(storage, "WhatsApp"),
+            File(storage, "Android/media/com.whatsapp"),
+            File(storage, "Android/media/com.whatsapp.w4b"),
+            File(storage, "Telegram"),
+            File(storage, "Android/media/org.telegram.messenger"),
+            File(storage, "Snapchat"),
+            File(storage, "Bluetooth"),
+            storage,
+        )
+        candidates += operaDownloadCandidates(storage)
+        candidates += FileCategory.entries.map { it.resolveFolder() }
+
+        // Also walk common folders on microSD / USB volumes when present.
+        context?.let { ctx ->
+            listDeviceStorages(ctx)
+                .filter { !it.isPrimary && it.canBrowse }
+                .mapNotNull { it.root }
+                .forEach { volRoot ->
+                    candidates += listOf(
+                        volRoot,
+                        File(volRoot, "DCIM"),
+                        File(volRoot, "Pictures"),
+                        File(volRoot, "Movies"),
+                        File(volRoot, "Download"),
+                        File(volRoot, "Downloads"),
+                        File(volRoot, "Documents"),
+                        File(volRoot, "Music"),
+                        File(volRoot, "WhatsApp"),
+                    )
+                    candidates += operaDownloadCandidates(volRoot)
+                }
+        }
+
+        return candidates
+            .filter { it.exists() && it.isDirectory }
+            .distinctBy { runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) }
+    }
+
+    private fun downloadScanRoots(context: Context? = null): List<File> {
+        val storage = Environment.getExternalStorageDirectory()
+        val roots = mutableListOf(
+            File(storage, "Download"),
+            File(storage, "Downloads"),
+            FileCategory.DOWNLOADS.resolveFolder(),
+        )
+        roots += operaDownloadCandidates(storage)
+        context?.let { ctx ->
+            listDeviceStorages(ctx)
+                .filter { !it.isPrimary && it.canBrowse }
+                .mapNotNull { it.root }
+                .forEach { volRoot ->
+                    roots += File(volRoot, "Download")
+                    roots += File(volRoot, "Downloads")
+                    roots += operaDownloadCandidates(volRoot)
+                }
+        }
+        return roots.filter { it.exists() && it.isDirectory }
+            .distinctBy { runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) }
+    }
+
+    private fun walkFiles(
+        directory: File,
+        depth: Int,
+        maxDepth: Int,
+        visited: MutableSet<String>,
+        onFile: (File) -> Unit,
+    ) {
+        if (depth > maxDepth) return
+        if (!directory.exists() || !directory.isDirectory) return
+        val path = runCatching { directory.canonicalPath }.getOrDefault(directory.absolutePath)
+        if (!visited.add(path)) return
+
+        // Avoid scanning huge/system-ish trees from storage root.
+        if (depth == 0 && isStorageRoot(directory)) {
+            directory.listFiles()
+                ?.filter { it.isDirectory && shouldScanTopLevelName(it.name) }
+                ?.forEach { child ->
+                    walkFiles(child, depth + 1, maxDepth, visited, onFile)
+                }
+            directory.listFiles()
+                ?.filter { it.isFile }
+                ?.forEach(onFile)
+            return
+        }
+
+        val children = directory.listFiles() ?: return
+        children.forEach { child ->
+            if (child.isDirectory) {
+                val name = child.name
+                if (shouldSkipDirectoryName(name)) return@forEach
+                walkFiles(child, depth + 1, maxDepth, visited, onFile)
+            } else {
+                onFile(child)
+            }
+        }
+    }
+
+    private fun isStorageRoot(directory: File): Boolean {
+        val storage = Environment.getExternalStorageDirectory()
+        return samePath(directory, storage)
+    }
+
+    private fun shouldScanTopLevelName(name: String): Boolean {
+        val lower = name.lowercase()
+        if (lower.startsWith('.')) return false
+        val blocked = setOf(
+            "android", "data", "obb", "lost.dir", "lost+found", "notifications",
+            "alarms", "ringtones", "systemui",
+        )
+        return lower !in blocked
+    }
+
+    private fun shouldSkipDirectoryName(name: String): Boolean {
+        val lower = name.lowercase()
+        return lower.startsWith('.') ||
+            lower in setOf("cache", "thumbnails", "tmp", "temp", ".thumbnails", "code_cache")
+    }
+
+    fun searchFiles(query: String, maxResults: Int = 50): List<FileItem> {
+        val trimmed = query.trim()
+        if (trimmed.length < 2) return emptyList()
+        val needle = trimmed.lowercase()
+        val results = mutableListOf<FileItem>()
+        categoryRoots().forEach { root ->
+            searchRecursive(root, needle, depth = 0, maxDepth = 5, out = results, maxResults = maxResults)
+            if (results.size >= maxResults) return@forEach
+        }
+        return results
+            .sortedByDescending { it.lastModified }
+            .take(maxResults)
+    }
+
+    private fun categoryRoots(): List<File> {
+        return FileCategory.entries
+            .map { it.resolveFolder() }
+            .distinctBy { runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) }
+    }
+
+    private fun searchRecursive(
+        directory: File,
+        needle: String,
+        depth: Int,
+        maxDepth: Int,
+        out: MutableList<FileItem>,
+        maxResults: Int,
+    ) {
+        if (depth > maxDepth || out.size >= maxResults) return
+        if (!directory.exists() || !directory.isDirectory) return
+        val children = directory.listFiles() ?: return
+        children.forEach { child ->
+            if (out.size >= maxResults) return
+            if (child.name.lowercase().contains(needle)) {
+                out += FileItem(child)
+            }
+            if (child.isDirectory) {
+                searchRecursive(child, needle, depth + 1, maxDepth, out, maxResults)
+            }
+        }
+    }
+
+    fun listFiles(directory: File): List<FileItem> {
+        if (!directory.exists() || !directory.isDirectory) return emptyList()
+        return directory.listFiles()
+            ?.map { FileItem(it) }
+            ?.sortedWith(
+                compareBy<FileItem> { !it.isDirectory }
+                    .thenBy { it.name.lowercase() }
+            )
+            .orEmpty()
+    }
+
+    fun createFolder(context: Context, parent: File, name: String): OperationResult {
+        val sanitized = name.trim()
+        if (sanitized.isEmpty()) return OperationResult.Error(context.getString(R.string.folder_name_empty))
+        if (sanitized.contains('/') || sanitized.contains('\\')) {
+            return OperationResult.Error(context.getString(R.string.folder_name_invalid))
+        }
+        val target = File(parent, sanitized)
+        if (target.exists()) return OperationResult.Error(context.getString(R.string.folder_exists))
+        return if (target.mkdirs()) {
+            OperationResult.Success(context.getString(R.string.folder_created, sanitized))
+        } else {
+            OperationResult.Error(context.getString(R.string.folder_create_failed))
+        }
+    }
+
+    fun rename(context: Context, file: File, newName: String): OperationResult {
+        val sanitized = newName.trim()
+        if (sanitized.isEmpty()) return OperationResult.Error(context.getString(R.string.name_empty))
+        if (sanitized.contains('/') || sanitized.contains('\\')) {
+            return OperationResult.Error(context.getString(R.string.name_invalid))
+        }
+        val target = File(file.parentFile, sanitized)
+        if (target.exists()) return OperationResult.Error(context.getString(R.string.name_taken))
+        return if (file.renameTo(target)) {
+            OperationResult.Success(context.getString(R.string.rename_success))
+        } else {
+            OperationResult.Error(context.getString(R.string.rename_failed))
+        }
+    }
+
+    fun deleteRecursively(context: Context, files: List<File>): OperationResult {
+        var failed = 0
+        val scanPaths = ArrayList<String>(files.size * 2)
+        files.forEach { file ->
+            if (!deleteDeep(context, file, scanPaths)) failed++
+        }
+        // One batched scanner call instead of per-file notify (big win on multi-delete).
+        flushMediaStoreScan(context, scanPaths)
+        return if (failed == 0) {
+            OperationResult.Success(context.getString(R.string.items_deleted, files.size))
+        } else {
+            OperationResult.Error(context.getString(R.string.items_delete_partial, failed))
+        }
+    }
+
+    /**
+     * Delete one file reliably after ZIP extract: close-friendly retries, then MediaStore
+     * URI deletion when plain [File.delete] is blocked on shared storage.
+     *
+     * Success means the path is gone on disk — never trust MediaStore row counts alone.
+     */
+    fun deleteSingleFile(context: Context, file: File): Boolean {
+        val target = runCatching { file.canonicalFile }.getOrDefault(file)
+        if (!target.exists()) return true
+        if (deleteDeep(context, target)) return true
+        // Archive libs (zip4j / ZipFile) sometimes release the FD a tick late.
+        repeat(5) { attempt ->
+            try {
+                Thread.sleep(100L * (attempt + 1))
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
+            // Encourage native FD finalizers before another delete attempt.
+            if (attempt == 1 || attempt == 3) {
+                runCatching { System.gc() }
+            }
+            if (!target.exists()) return true
+            if (deleteDeep(context, target)) return true
+        }
+        return !target.exists()
+    }
+
+    /**
+     * Delete the user-facing original archive after extract — including Chrome /
+     * Downloads / SAF sources that FileNest may have opened via a cache copy.
+     *
+     * Returns true only when every known original location is gone (content URI,
+     * public Downloads path by display name, and the local extract path when it
+     * was not merely a cache copy).
+     */
+    fun deleteOriginalArchive(
+        context: Context,
+        localFile: File,
+        sourceUri: Uri?,
+        displayName: String?,
+    ): Boolean {
+        val name = displayName?.takeIf { it.isNotBlank() } ?: localFile.name
+        val isCacheCopy = SharedFileResolver.isAppCacheFile(localFile)
+
+        // 1) Real paths we can see on disk (Chrome Download/, MediaStore DATA, …).
+        val originals = linkedSetOf<File>()
+        if (!isCacheCopy && localFile.exists()) {
+            originals += runCatching { localFile.canonicalFile }.getOrDefault(localFile)
+        }
+        sourceUri?.let { uri ->
+            SharedFileResolver.tryResolveFilesystemFile(context, uri, name)?.let { originals += it }
+        }
+        SharedFileResolver.findPublicFileByDisplayName(context, name)?.let { originals += it }
+
+        var allOriginalsGone = true
+        originals.forEach { file ->
+            if (file.exists() && !deleteSingleFile(context, file)) {
+                allOriginalsGone = false
+            }
+        }
+
+        // 2) Delete the content:// row itself (DocumentsContract / MediaStore URI).
+        if (sourceUri != null) {
+            deleteContentUri(context, sourceUri)
+            // Re-check: URI delete sometimes removes the MediaStore row first; path may lag.
+            originals.forEach { file ->
+                if (file.exists()) {
+                    deleteSingleFile(context, file)
+                }
+            }
+            SharedFileResolver.findPublicFileByDisplayName(context, name)?.let { leftover ->
+                if (leftover.exists() && !deleteSingleFile(context, leftover)) {
+                    allOriginalsGone = false
+                }
+            }
+            SharedFileResolver.tryResolveFilesystemFile(context, sourceUri, name)?.let { leftover ->
+                if (leftover.exists() && !deleteSingleFile(context, leftover)) {
+                    allOriginalsGone = false
+                }
+            }
+        }
+
+        // 3) Always drop the cache copy so we don't leave temp ZIPs behind.
+        if (isCacheCopy && localFile.exists()) {
+            deleteSingleFile(context, localFile)
+        } else if (!isCacheCopy && localFile.exists()) {
+            // Local path was the original — already attempted above; final retry.
+            if (!deleteSingleFile(context, localFile)) {
+                allOriginalsGone = false
+            }
+        }
+
+        // Success: no public original remains. Cache-only deletes without a found
+        // public file still count as success when the content URI is gone / unreadable.
+        val publicStillThere = SharedFileResolver.findPublicFileByDisplayName(context, name)
+            ?.takeIf { it.exists() }
+        if (publicStillThere != null) {
+            return false
+        }
+        if (sourceUri != null) {
+            val stillViaUri = SharedFileResolver.tryResolveFilesystemFile(context, sourceUri, name)
+            if (stillViaUri != null && stillViaUri.exists()) return false
+        }
+        if (!isCacheCopy && localFile.exists()) return false
+        return allOriginalsGone || !localFile.exists() || isCacheCopy
+    }
+
+    private fun deleteContentUri(context: Context, uri: Uri): Boolean {
+        val resolver = context.contentResolver
+        // SAF / Downloads document URIs (common when opening from Chrome).
+        if (DocumentsContract.isDocumentUri(context, uri)) {
+            val deleted = runCatching {
+                DocumentsContract.deleteDocument(resolver, uri)
+            }.getOrDefault(false)
+            if (deleted) return true
+        }
+        val rows = runCatching { resolver.delete(uri, null, null) }.getOrDefault(-1)
+        if (rows > 0) return true
+        // Some providers want an empty selection explicitly.
+        return runCatching { resolver.delete(uri, "", emptyArray()) }.getOrDefault(-1) > 0
+    }
+
+    fun paste(
+        context: Context,
+        clipboard: ClipboardState,
+        destinationDir: File,
+        onProgress: ((Float, String) -> Unit)? = null,
+    ): OperationResult {
+        if (!destinationDir.isDirectory) {
+            return OperationResult.Error(context.getString(R.string.dest_folder_invalid))
+        }
+
+        val items = clipboard.items.filter { it.exists() }
+        if (items.isEmpty()) return OperationResult.Error(context.getString(R.string.clipboard_empty))
+
+        // Resolve unique targets sequentially first (avoids name races under parallel copy).
+        val planned = ArrayList<Pair<File, File>>(items.size)
+        for (source in items) {
+            val target = uniqueName(File(destinationDir, source.name))
+            if (isNestedTarget(source, target)) {
+                return OperationResult.Error(context.getString(R.string.paste_into_source))
+            }
+            planned += source to target
+        }
+
+        val total = planned.size.coerceAtLeast(1)
+        val done = AtomicInteger(0)
+        val nextIndex = AtomicInteger(0)
+        val written = java.util.concurrent.CopyOnWriteArrayList<File>()
+        val errors = java.util.concurrent.ConcurrentLinkedQueue<String>()
+
+        val workers = when {
+            planned.size == 1 -> 1
+            planned.size < 4 -> 2
+            else -> Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
+        }
+
+        runBlocking {
+            coroutineScope {
+                List(workers) {
+                    async(Dispatchers.IO) {
+                        while (true) {
+                            val index = nextIndex.getAndIncrement()
+                            if (index >= planned.size) break
+                            val (source, target) = planned[index]
+                            val ok = when (clipboard.mode) {
+                                ClipboardMode.COPY -> copyDeep(source, target)
+                                ClipboardMode.CUT -> moveDeep(context, source, target)
+                            }
+                            if (!ok) {
+                                errors += source.name
+                                break
+                            }
+                            written += target
+                            val n = done.incrementAndGet()
+                            onProgress?.invoke((n.toFloat() / total).coerceIn(0f, 1f), source.name)
+                        }
+                    }
+                }.awaitAll()
+            }
+        }
+
+        if (errors.isNotEmpty()) {
+            return OperationResult.Error(
+                context.getString(R.string.process_failed_item, errors.first()),
+            )
+        }
+
+        // MediaStore off the critical path — UI can finish as soon as bytes are on disk.
+        scheduleMediaStoreAdded(context, written.toList())
+
+        val action = context.getString(
+            if (clipboard.mode == ClipboardMode.COPY) R.string.action_copied else R.string.action_moved,
+        )
+        return OperationResult.Success(
+            message = context.getString(R.string.items_pasted, items.size, action),
+            files = written.toList(),
+        )
+    }
+
+    fun uniqueName(file: File): File {
+        if (!file.exists()) return file
+        val parent = file.parentFile ?: return file
+        val name = file.nameWithoutExtension
+        val ext = file.extension
+        var i = 1
+        while (true) {
+            val candidate = if (file.isDirectory || ext.isEmpty()) {
+                File(parent, "$name ($i)")
+            } else {
+                File(parent, "$name ($i).$ext")
+            }
+            if (!candidate.exists()) return candidate
+            i++
+        }
+    }
+
+    private fun deleteDeep(
+        context: Context,
+        file: File,
+        scanPaths: MutableList<String>? = null,
+    ): Boolean {
+        if (file.isDirectory) {
+            file.listFiles()?.forEach { child ->
+                if (!deleteDeep(context, child, scanPaths)) return false
+            }
+        }
+        if (!file.exists()) return true
+        if (file.delete()) {
+            rememberDeletedPath(context, file, scanPaths)
+            return true
+        }
+        runCatching {
+            Files.deleteIfExists(file.toPath())
+        }
+        if (!file.exists()) {
+            rememberDeletedPath(context, file, scanPaths)
+            return true
+        }
+        // Shared-storage fallback via MediaStore (Download / WhatsApp / etc.).
+        if (!file.isDirectory && deleteViaMediaStore(context, file, scanPaths)) {
+            return true
+        }
+        return !file.exists()
+    }
+
+    private fun rememberDeletedPath(
+        context: Context,
+        file: File,
+        scanPaths: MutableList<String>?,
+    ) {
+        val parent = file.parent
+        if (scanPaths != null) {
+            scanPaths += file.absolutePath
+            if (!parent.isNullOrBlank()) scanPaths += parent
+        } else {
+            flushMediaStoreScan(
+                context,
+                buildList {
+                    add(file.absolutePath)
+                    if (!parent.isNullOrBlank()) add(parent)
+                },
+            )
+        }
+    }
+
+    /**
+     * Delete by resolving the MediaStore content URI(s) for [file], then removing those
+     * rows. Returns true only when the filesystem path is gone — a MediaStore hit alone
+     * is not enough (OEM indexes can drop while the ZIP file remains).
+     */
+    @Suppress("DEPRECATION")
+    private fun deleteViaMediaStore(
+        context: Context,
+        file: File,
+        scanPaths: MutableList<String>? = null,
+    ): Boolean {
+        val absolute = file.absolutePath
+        val canonical = runCatching { file.canonicalPath }.getOrDefault(absolute)
+        val resolver = context.contentResolver
+        val collections = buildList {
+            add(MediaStore.Files.getContentUri("external"))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                add(MediaStore.Downloads.EXTERNAL_CONTENT_URI)
+            }
+        }
+
+        val uris = linkedSetOf<Uri>()
+        collections.forEach { collection ->
+            uris += queryMediaStoreUris(resolver, collection, absolute, canonical, file)
+        }
+
+        uris.forEach { uri ->
+            runCatching { resolver.delete(uri, null, null) }
+        }
+
+        // Bulk delete by DATA as a backup when URI lookup missed (stale index / OEM).
+        if (file.exists()) {
+            collections.forEach { collection ->
+                runCatching {
+                    resolver.delete(
+                        collection,
+                        MediaStore.MediaColumns.DATA + "=?",
+                        arrayOf(absolute),
+                    )
+                }
+                if (canonical != absolute) {
+                    runCatching {
+                        resolver.delete(
+                            collection,
+                            MediaStore.MediaColumns.DATA + "=?",
+                            arrayOf(canonical),
+                        )
+                    }
+                }
+            }
+        }
+
+        if (file.exists()) {
+            runCatching { file.delete() }
+            runCatching { Files.deleteIfExists(file.toPath()) }
+        }
+
+        val gone = !file.exists()
+        if (gone) rememberDeletedPath(context, file, scanPaths)
+        return gone
+    }
+
+    @Suppress("DEPRECATION")
+    private fun queryMediaStoreUris(
+        resolver: ContentResolver,
+        collection: Uri,
+        absolute: String,
+        canonical: String,
+        file: File,
+    ): List<Uri> {
+        val found = mutableListOf<Uri>()
+        val projection = arrayOf(MediaStore.MediaColumns._ID)
+        val pathSelection = if (canonical == absolute) {
+            MediaStore.MediaColumns.DATA + "=?"
+        } else {
+            MediaStore.MediaColumns.DATA + "=? OR " + MediaStore.MediaColumns.DATA + "=?"
+        }
+        val pathArgs = if (canonical == absolute) {
+            arrayOf(absolute)
+        } else {
+            arrayOf(absolute, canonical)
+        }
+        runCatching {
+            resolver.query(collection, projection, pathSelection, pathArgs, null)?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                while (cursor.moveToNext()) {
+                    found += ContentUris.withAppendedId(collection, cursor.getLong(idCol))
+                }
+            }
+        }
+        if (found.isNotEmpty() || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return found
+        }
+        // Android 10+: DATA is often null — match DISPLAY_NAME + RELATIVE_PATH instead.
+        val name = file.name
+        val parent = file.parentFile ?: return found
+        val relativeParent = relativePathUnderStorage(parent)?.let { path ->
+            if (path.endsWith("/")) path else "$path/"
+        } ?: return found
+        runCatching {
+            resolver.query(
+                collection,
+                projection,
+                MediaStore.MediaColumns.DISPLAY_NAME + "=? AND " +
+                    MediaStore.MediaColumns.RELATIVE_PATH + "=?",
+                arrayOf(name, relativeParent),
+                null,
+            )?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                while (cursor.moveToNext()) {
+                    found += ContentUris.withAppendedId(collection, cursor.getLong(idCol))
+                }
+            }
+        }
+        return found
+    }
+
+    /** e.g. `/storage/emulated/0/Download/a` → `Download/a/` style relative path, or null. */
+    private fun relativePathUnderStorage(dir: File): String? {
+        val absolute = runCatching { dir.canonicalPath }.getOrDefault(dir.absolutePath)
+        val roots = buildList {
+            add(Environment.getExternalStorageDirectory())
+            runCatching {
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                    .parentFile
+            }.getOrNull()?.let { add(it) }
+        }
+        roots.forEach { root ->
+            val rootPath = runCatching { root.canonicalPath }.getOrDefault(root.absolutePath)
+            if (absolute == rootPath) return ""
+            if (absolute.startsWith(rootPath + File.separator)) {
+                return absolute.removePrefix(rootPath + File.separator)
+            }
+        }
+        return null
+    }
+
+    private fun flushMediaStoreScan(context: Context, paths: List<String>) {
+        if (paths.isEmpty()) return
+        val unique = paths.distinct()
+        runCatching {
+            MediaScannerConnection.scanFile(
+                context.applicationContext,
+                unique.toTypedArray(),
+                null,
+                null,
+            )
+        }
+    }
+
+    private fun scheduleMediaStoreAdded(context: Context, files: List<File>) {
+        if (files.isEmpty()) return
+        val appContext = context.applicationContext
+        thread(name = "media-scan-paste", isDaemon = true) {
+            notifyMediaStoreAdded(appContext, files)
+        }
+    }
+
+    private fun notifyMediaStoreAdded(context: Context, files: List<File>) {
+        if (files.isEmpty()) return
+        val paths = ArrayList<String>()
+        fun collect(file: File) {
+            if (file.isDirectory) {
+                file.listFiles()?.forEach { collect(it) }
+            } else if (file.exists()) {
+                paths += file.absolutePath
+            }
+        }
+        files.forEach { collect(it) }
+        if (paths.isEmpty()) return
+        flushMediaStoreScan(context, paths)
+    }
+
+    private fun copyDeep(source: File, target: File): Boolean {
+        return try {
+            if (source.isDirectory) {
+                if (!target.exists() && !target.mkdirs()) return false
+                source.listFiles()?.forEach { child ->
+                    if (!copyDeep(child, File(target, child.name))) return false
+                }
+                true
+            } else {
+                target.parentFile?.mkdirs()
+                val buffer = ByteArray(COPY_BUFFER)
+                BufferedInputStream(FileInputStream(source), COPY_BUFFER).use { input ->
+                    BufferedOutputStream(FileOutputStream(target), COPY_BUFFER).use { output ->
+                        while (true) {
+                            val n = input.read(buffer)
+                            if (n < 0) break
+                            output.write(buffer, 0, n)
+                        }
+                    }
+                }
+                target.setLastModified(source.lastModified())
+                true
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun moveDeep(context: Context, source: File, target: File): Boolean {
+        // Same-volume rename is effectively free — try that before any byte copy.
+        if (source.renameTo(target)) return true
+        // Cross-device / EXDEV: copy then delete source.
+        if (!copyDeep(source, target)) return false
+        val scanPaths = ArrayList<String>()
+        val ok = deleteDeep(context, source, scanPaths)
+        flushMediaStoreScan(context, scanPaths)
+        return ok
+    }
+
+    private fun isNestedTarget(source: File, target: File): Boolean {
+        if (!source.isDirectory) return false
+        val sourcePath = source.canonicalPath
+        val targetPath = target.canonicalPath
+        return targetPath == sourcePath || targetPath.startsWith(sourcePath + File.separator)
+    }
+
+    private const val COPY_BUFFER = 1024 * 1024
+}

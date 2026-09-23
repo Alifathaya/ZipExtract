@@ -1,0 +1,3500 @@
+package com.zipextract.app.ui
+
+import android.app.Application
+import androidx.annotation.StringRes
+import android.content.Context
+import android.media.MediaScannerConnection
+import android.net.Uri
+import android.os.SystemClock
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.zipextract.app.data.AppLanguage
+import com.zipextract.app.data.AppPreferences
+import com.zipextract.app.R
+import com.zipextract.app.data.ClipboardMode
+import com.zipextract.app.data.ClipboardState
+import com.zipextract.app.data.CategorySummary
+import com.zipextract.app.data.DeviceStorageVolume
+import com.zipextract.app.data.DuplicateFinder
+import com.zipextract.app.data.DuplicateGroup
+import com.zipextract.app.data.FileActions
+import com.zipextract.app.data.FileCategory
+import com.zipextract.app.data.FileFilter
+import com.zipextract.app.data.FileItem
+import com.zipextract.app.data.FileOperations
+import com.zipextract.app.data.InstalledApps
+import com.zipextract.app.data.AppSubFilter
+import com.zipextract.app.data.MediaAlbum
+import com.zipextract.app.data.MediaAlbumChip
+import com.zipextract.app.data.InboxFolderWatcher
+import com.zipextract.app.data.MediaChangeWatcher
+import com.zipextract.app.data.MediaStoreChange
+import com.zipextract.app.data.LibrarySubFilter
+import com.zipextract.app.data.LocaleHelper
+import com.zipextract.app.data.MediaLibrary
+import com.zipextract.app.data.MediaLibraryCache
+import com.zipextract.app.data.OperationResult
+import com.zipextract.app.data.ProgressState
+import com.zipextract.app.data.SharedFileResolver
+import com.zipextract.app.data.StorageInfo
+import com.zipextract.app.data.StorageKind
+import com.zipextract.app.data.ThemeMode
+import com.zipextract.app.data.ArchiveManager
+import com.zipextract.app.data.PdfPasswordHelper
+import com.zipextract.app.data.ZipManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.zip.Deflater
+import kotlin.jvm.Volatile
+
+sealed class ViewerContent {
+    abstract val file: File
+    val title: String get() = file.name
+
+    data class Image(
+        override val file: File,
+        /** Same-type siblings for swipe left/right (includes [file]). */
+        val playlist: List<File> = listOf(file),
+        val index: Int = 0,
+    ) : ViewerContent()
+
+    data class Pdf(
+        override val file: File,
+        val sourceUri: Uri? = null,
+    ) : ViewerContent()
+
+    data class Video(
+        override val file: File,
+        val sourceUri: Uri? = null,
+        /** Same-type siblings for swipe left/right (includes [file]). */
+        val playlist: List<File> = listOf(file),
+        val index: Int = 0,
+    ) : ViewerContent()
+}
+
+/** Where to land after closing the in-app viewer. */
+enum class ViewerReturnTarget {
+    /** Stay on current browser / library screen. */
+    STAY,
+    /** Back to home dashboard (recent photos, search, etc.). */
+    HOME,
+    /** Back to Cloud hub. */
+    CLOUD,
+}
+
+enum class ExtractDestination {
+    /** Folder next to the archive (default). */
+    SAME_FOLDER,
+    /** Download/FileNest/<name>/ */
+    FILENEST,
+    /** Public Downloads/<name>/ */
+    DOWNLOADS,
+}
+
+data class ExtractZipState(
+    val zipFile: File,
+    val entries: List<com.zipextract.app.data.ZipEntryItem> = emptyList(),
+    val selectedPaths: Set<String> = emptySet(),
+    val deleteOriginal: Boolean = false,
+    val destination: ExtractDestination = ExtractDestination.SAME_FOLDER,
+    val destinationDir: File = zipFile.parentFile ?: zipFile,
+    val isLoading: Boolean = false,
+    val isEncrypted: Boolean = false,
+    val password: String = "",
+    val error: String? = null,
+    /** content:// from Chrome / share sheet — needed to delete the real original. */
+    val sourceUri: android.net.Uri? = null,
+    val displayName: String? = null,
+)
+
+data class ExtractResultState(
+    val success: Boolean,
+    val title: String,
+    val message: String,
+    val destination: File? = null,
+    val fileCount: Int = 0,
+)
+
+data class BrowserUiState(
+    val showHome: Boolean = true,
+    val showExplorerRoots: Boolean = false,
+    val explorerMode: Boolean = false,
+    val explorerRootLabel: String = "",
+    val activeCategory: FileCategory? = null,
+    val categoryRoot: File? = null,
+    val storageInfo: StorageInfo? = null,
+    val storageVolumes: List<DeviceStorageVolume> = emptyList(),
+    val categorySummaries: List<CategorySummary> = emptyList(),
+    val recentFiles: List<FileItem> = emptyList(),
+    val searchQuery: String = "",
+    val searchResults: List<FileItem> = emptyList(),
+    val searchLoading: Boolean = false,
+    val homeLoading: Boolean = false,
+    val isSoftRefreshing: Boolean = false,
+    val fileFilter: FileFilter = FileFilter.ALL,
+    val currentDir: File = FileOperations.defaultRoot(),
+    val items: List<FileItem> = emptyList(),
+    val selectedPaths: Set<String> = emptySet(),
+    val selectionMode: Boolean = false,
+    val clipboard: ClipboardState? = null,
+    val progress: ProgressState? = null,
+    val canGoUp: Boolean = false,
+    val storageGranted: Boolean = false,
+    val sortNewestFirst: Boolean = false,
+    val showLargestFiles: Boolean = false,
+    val libraryMode: Boolean = false,
+    val librarySubFilter: LibrarySubFilter = LibrarySubFilter.ALL,
+    val appSubFilter: AppSubFilter = AppSubFilter.ALL,
+    val mediaAlbumId: String = MediaAlbum.ALL,
+    val mediaAlbums: List<MediaAlbumChip> = emptyList(),
+    val favoritePaths: Set<String> = emptySet(),
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val appLanguage: AppLanguage = AppLanguage.SYSTEM,
+    val languageChosen: Boolean = false,
+    val showFavoritesOnly: Boolean = false,
+    val fileDetails: FileItem? = null,
+    val duplicateGroups: List<DuplicateGroup> = emptyList(),
+    val showDuplicates: Boolean = false,
+    val showCloud: Boolean = false,
+    val safBookmarks: List<com.zipextract.app.data.cloud.SafBookmark> = emptyList(),
+    val cloudExportFile: File? = null,
+    val viewer: ViewerContent? = null,
+    val viewerReturnTarget: ViewerReturnTarget = ViewerReturnTarget.STAY,
+    val launchedFromExternalIntent: Boolean = false,
+    val extractDialog: ExtractZipState? = null,
+    val extractResult: ExtractResultState? = null,
+)
+
+class FileBrowserViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val prefs = AppPreferences(application)
+    private val appContext = application.applicationContext
+    private val initialCachedPhotos = prefs.loadCachedRecentPhotos()
+    private val initialCachedCategories = prefs.loadCachedCategorySummaries()
+        .ifEmpty { FileOperations.getEmptyCategorySummaries() }
+    private val hasStartupCache =
+        prefs.hasHomeUiCache() || MediaLibraryCache.exists(application)
+
+    private val _uiState = MutableStateFlow(
+        BrowserUiState(
+            favoritePaths = prefs.getFavoritePaths(),
+            themeMode = prefs.getThemeMode(),
+            appLanguage = prefs.getAppLanguage(),
+            languageChosen = prefs.hasLanguageChosen(),
+            categorySummaries = initialCachedCategories,
+            recentFiles = initialCachedPhotos,
+            storageInfo = prefs.loadCachedStorageInfo(),
+            safBookmarks = prefs.getSafBookmarks(),
+            // Skip loading spinner when we already have a previous session snapshot.
+            homeLoading = !hasStartupCache,
+        )
+    )
+    val uiState: StateFlow<BrowserUiState> = _uiState.asStateFlow()
+
+    private val _events = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    val events: SharedFlow<String> = _events.asSharedFlow()
+
+    private val root = FileOperations.defaultRoot()
+    private var searchJob: Job? = null
+    private var libraryJob: Job? = null
+    private var homeJob: Job? = null
+    private var softRefreshJob: Job? = null
+    private var resumeJob: Job? = null
+    private var cloudImportJob: Job? = null
+    private var activeJob: Job? = null
+    private var extractEncryptCheckJob: Job? = null
+    private var mediaWatcher: MediaChangeWatcher? = null
+    private var inboxWatcher: InboxFolderWatcher? = null
+    private var incrementalPersistJob: Job? = null
+    private val incrementalUpdateMutex = Mutex()
+    @Volatile
+    private var lastIncrementalEpochSeconds: Long =
+        (MediaLibraryCache.savedAtMs(appContext) / 1000L)
+            .takeIf { it > 0L }
+            ?.minus(2L)
+            ?: (System.currentTimeMillis() / 1000L - 30L)
+    @Volatile
+    private var mediaLibraryCache: MediaLibrary? = null
+    @Volatile
+    private var installedAppsCache: List<FileItem> = emptyList()
+    @Volatile
+    private var homeLoadedOnce: Boolean = false
+    init {
+        // Incremental MediaStore updates: insert changed rows, never rescan storage.
+        mediaWatcher = MediaChangeWatcher(application) { change ->
+            applyMediaStoreChange(change)
+            // MediaStore often finalizes size after the first notify — retry quickly.
+            viewModelScope.launch {
+                val delays = when (change.source) {
+                    "images", "video" -> longArrayOf(400L, 1_200L)
+                    "downloads" -> longArrayOf(500L, 1_500L)
+                    else -> longArrayOf(700L, 1_800L)
+                }
+                for (wait in delays) {
+                    delay(wait)
+                    applyMediaStoreChange(change)
+                }
+            }
+        }.also { it.start() }
+        // Filesystem watcher for camera / downloads / WhatsApp / Telegram / …
+        // Faster than waiting for MediaStore indexing on OEM devices.
+        inboxWatcher = InboxFolderWatcher(application) { files ->
+            applyFilesystemMediaFiles(files)
+            viewModelScope.launch {
+                delay(500L)
+                val source = mediaStoreSourceForFiles(files)
+                applyMediaStoreChange(MediaStoreChange(source = source, uri = null))
+            }
+        }.also { it.start() }
+        // Prefetch disk cache off the UI thread so the first category tap after
+        // process death / long idle paints from memory (no full storage walk).
+        viewModelScope.launch(Dispatchers.IO) {
+            if (mediaLibraryCache == null) {
+                mediaLibraryCache = MediaLibraryCache.load(appContext, allowStale = true)
+            }
+        }
+    }
+
+    private fun mediaStoreSourceForFiles(files: List<File>): String {
+        var images = 0
+        var videos = 0
+        var downloads = 0
+        files.forEach { file ->
+            val item = FileItem(file)
+            val path = file.absolutePath.lowercase()
+            when {
+                path.contains("/download") || path.contains("/opera") -> downloads++
+                item.isImage -> images++
+                item.isVideo -> videos++
+            }
+        }
+        return when {
+            downloads >= images && downloads >= videos && downloads > 0 -> "downloads"
+            images >= videos && images > 0 -> "images"
+            videos > 0 -> "video"
+            else -> "files"
+        }
+    }
+
+    fun setStorageGranted(granted: Boolean) {
+        val wasGranted = _uiState.value.storageGranted
+        _uiState.update { it.copy(storageGranted = granted) }
+        if (!granted) return
+
+        // First grant / cold start: load home without delaying the user.
+        if (!wasGranted || !homeLoadedOnce) {
+            refreshStorageVolumes()
+            loadHomeData(forceRefresh = false)
+            return
+        }
+
+        // Warm resume after idle: defer catch-up so a quick category tap stays snappy.
+        resumeJob?.cancel()
+        resumeJob = viewModelScope.launch {
+            delay(450)
+            refreshStorageVolumes()
+            val state = _uiState.value
+            if (mediaLibraryCache == null) {
+                mediaLibraryCache = withContext(Dispatchers.IO) {
+                    MediaLibraryCache.load(appContext)
+                }
+            }
+            when {
+                state.showHome || state.libraryMode || state.showLargestFiles -> {
+                    if (mediaLibraryCache == null) {
+                        loadHomeData(forceRefresh = false)
+                    } else {
+                        catchUpMediaStoreChangesSync()
+                    }
+                }
+                !wasGranted -> softRefresh()
+            }
+        }
+    }
+
+    fun loadHomeData(forceRefresh: Boolean = false) {
+        homeJob?.cancel()
+        homeJob = viewModelScope.launch {
+            val hasMemory = mediaLibraryCache != null && !forceRefresh
+            if (!hasMemory) {
+                val cachedCategories = prefs.loadCachedCategorySummaries()
+                    .ifEmpty { FileOperations.getEmptyCategorySummaries() }
+                val cachedPhotos = prefs.loadCachedRecentPhotos()
+                val cachedStorage = prefs.loadCachedStorageInfo()
+                val hasUiCache = prefs.hasHomeUiCache() ||
+                    cachedPhotos.isNotEmpty() ||
+                    MediaLibraryCache.exists(appContext)
+                _uiState.update { state ->
+                    state.copy(
+                        homeLoading = !hasUiCache,
+                        storageInfo = state.storageInfo ?: cachedStorage,
+                        categorySummaries = if (state.categorySummaries.any { it.itemCount > 0 }) {
+                            state.categorySummaries
+                        } else {
+                            cachedCategories
+                        },
+                        recentFiles = state.recentFiles.ifEmpty { cachedPhotos },
+                    )
+                }
+                // Cache may still list deleted photos — prune and top up soon.
+                pruneMissingImagesAndRefill()
+            } else {
+                _uiState.update { it.copy(homeLoading = false) }
+            }
+
+            val data = withContext(Dispatchers.IO) {
+                val library = obtainMediaLibrary(forceRefresh)
+                val categories = FileOperations.getCategorySummaries(library, appContext)
+                val recentFiles = library.images.take(12)
+                val volumes = FileOperations.listDeviceStorages(appContext)
+                val storage = volumes.firstOrNull { it.isPrimary }?.let {
+                    StorageInfo(totalBytes = it.totalBytes, freeBytes = it.freeBytes)
+                } ?: FileOperations.getStorageInfo()
+                persistHomeSnapshot(library, categories, recentFiles, storage)
+                HomeDashboardData(
+                    storageInfo = storage,
+                    storageVolumes = volumes,
+                    categories = categories,
+                    recentFiles = recentFiles,
+                )
+            }
+            homeLoadedOnce = true
+            _uiState.update {
+                it.copy(
+                    homeLoading = false,
+                    storageInfo = data.storageInfo,
+                    storageVolumes = data.storageVolumes,
+                    categorySummaries = data.categories,
+                    recentFiles = data.recentFiles,
+                )
+            }
+
+            // Catch rows indexed while the process was not observing; no filesystem scan.
+            if (!forceRefresh) {
+                catchUpMediaStoreChanges()
+            }
+        }
+    }
+
+    /** Flush home/media cache to disk so the next cold start opens instantly. */
+    fun persistHomeCache() {
+        val library = mediaLibraryCache ?: return
+        val state = _uiState.value
+        viewModelScope.launch(Dispatchers.IO) {
+            persistHomeSnapshot(
+                library = library,
+                categories = state.categorySummaries.ifEmpty {
+                    FileOperations.getCategorySummaries(library, appContext)
+                },
+                recentFiles = state.recentFiles.ifEmpty { library.images.take(12) },
+                storage = state.storageInfo ?: FileOperations.getStorageInfo(),
+            )
+        }
+    }
+
+    /** Query only rows newer than the last cache/update timestamp. */
+    private fun catchUpMediaStoreChanges() {
+        viewModelScope.launch(Dispatchers.IO) {
+            catchUpMediaStoreChangesSync()
+        }
+    }
+
+    /** Soft refresh: only upsert MediaStore rows newer than the last update. */
+    private suspend fun catchUpMediaStoreChangesSync() {
+        applyMediaStoreChangeSync(MediaStoreChange(source = "files", uri = null))
+    }
+
+    /**
+     * Fast refresh used by the Refresh button and pull-to-refresh.
+     * Does not walk the whole storage tree.
+     */
+    fun softRefresh() {
+        softRefreshJob?.cancel()
+        softRefreshJob = viewModelScope.launch {
+            _uiState.update { it.copy(isSoftRefreshing = true) }
+            try {
+                val volumes = withContext(Dispatchers.IO) {
+                    FileOperations.listDeviceStorages(appContext)
+                }
+                val storage = volumes.firstOrNull { it.isPrimary }?.let {
+                    StorageInfo(totalBytes = it.totalBytes, freeBytes = it.freeBytes)
+                } ?: withContext(Dispatchers.IO) { FileOperations.getStorageInfo() }
+                prefs.saveStorageInfo(storage)
+                _uiState.update {
+                    it.copy(storageVolumes = volumes, storageInfo = storage)
+                }
+
+                val state = _uiState.value
+                when {
+                    state.showExplorerRoots -> Unit
+                    state.libraryMode && state.activeCategory == FileCategory.APPS -> {
+                        val apps = withContext(Dispatchers.IO) { InstalledApps.list(appContext) }
+                        installedAppsCache = apps
+                        val filtered = InstalledApps.filter(apps, state.appSubFilter)
+                        _uiState.update {
+                            it.copy(
+                                items = filtered,
+                                categorySummaries = it.categorySummaries.map { summary ->
+                                    if (summary.category == FileCategory.APPS) {
+                                        summary.copy(
+                                            itemCount = apps.size,
+                                            totalBytes = apps.sumOf { it.sizeBytes },
+                                        )
+                                    } else {
+                                        summary
+                                    }
+                                },
+                            )
+                        }
+                        withContext(Dispatchers.IO) {
+                            mediaLibraryCache?.let { library ->
+                                persistHomeSnapshot(
+                                    library = library,
+                                    categories = FileOperations.getCategorySummaries(library, appContext),
+                                    recentFiles = library.images.take(12),
+                                    storage = storage,
+                                )
+                            }
+                        }
+                    }
+                    state.showHome || state.libraryMode || state.showLargestFiles ||
+                        state.showFavoritesOnly -> {
+                        if (mediaLibraryCache == null) {
+                            mediaLibraryCache = withContext(Dispatchers.IO) {
+                                MediaLibraryCache.load(appContext)
+                            }
+                        }
+                        if (mediaLibraryCache == null) {
+                            // No baseline yet — one full build, then future refreshes stay soft.
+                            loadHomeData(forceRefresh = true)
+                            // loadHomeData is async; wait briefly for indicator
+                            delay(300)
+                        } else {
+                            catchUpMediaStoreChangesSync()
+                            // Keep Apps tile count in sync even on soft media catch-up.
+                            val apps = withContext(Dispatchers.IO) {
+                                InstalledApps.list(appContext)
+                            }
+                            _uiState.update {
+                                it.copy(
+                                    categorySummaries = it.categorySummaries.map { summary ->
+                                        if (summary.category == FileCategory.APPS) {
+                                            summary.copy(
+                                                itemCount = apps.size,
+                                                totalBytes = apps.sumOf { it.sizeBytes },
+                                            )
+                                        } else {
+                                            summary
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    !state.showHome && !state.libraryMode -> {
+                        // Explorer / folder list: re-list current folder + soft media catch-up.
+                        catchUpMediaStoreChangesSync()
+                        withContext(Dispatchers.IO) {
+                            refreshCurrentFolderListing()
+                        }
+                    }
+                }
+            } finally {
+                _uiState.update { it.copy(isSoftRefreshing = false) }
+            }
+        }
+    }
+
+    /** Full storage walk — slower; available from the menu. */
+    fun fullRescan() {
+        softRefreshJob?.cancel()
+        _uiState.update { it.copy(isSoftRefreshing = false) }
+        when {
+            _uiState.value.showLargestFiles -> {
+                invalidateMediaLibraryCache()
+                openLargestFiles()
+            }
+            _uiState.value.showHome || _uiState.value.showExplorerRoots -> {
+                invalidateMediaLibraryCache()
+                loadHomeData(forceRefresh = true)
+            }
+            _uiState.value.libraryMode -> {
+                val category = _uiState.value.activeCategory ?: return
+                invalidateMediaLibraryCache()
+                openCategoryLibrary(category, forceRefresh = true)
+            }
+            else -> {
+                // Folder browser: re-list folder; also rebuild library cache in background.
+                refreshCurrentFolderListing()
+                viewModelScope.launch(Dispatchers.IO) {
+                    obtainMediaLibrary(forceRefresh = true)
+                }
+            }
+        }
+    }
+
+    private fun refreshCurrentFolderListing() {
+        val state = _uiState.value
+        if (state.showHome || state.libraryMode || state.showExplorerRoots ||
+            state.showFavoritesOnly || state.showLargestFiles || state.showDuplicates
+        ) {
+            return
+        }
+        val dir = state.currentDir
+        val filter = state.fileFilter
+        val items = FileOperations.listFiles(dir)
+            .filter { it.matchesFilter(filter) }
+            .let { list ->
+                if (state.sortNewestFirst) {
+                    list.sortedWith(
+                        compareByDescending<FileItem> { it.isDirectory }
+                            .thenByDescending { it.lastModified },
+                    )
+                } else {
+                    list
+                }
+            }
+        _uiState.update {
+            it.copy(
+                items = items,
+                canGoUp = true,
+                selectedPaths = it.selectedPaths.filter { path ->
+                    items.any { item -> item.path == path }
+                }.toSet(),
+            )
+        }
+    }
+
+    /**
+     * Incrementally upserts one MediaStore notification burst into memory and the
+     * visible screen. No directory walk or full MediaStore query is performed.
+     */
+    private fun applyMediaStoreChange(change: MediaStoreChange) {
+        viewModelScope.launch(Dispatchers.IO) {
+            applyMediaStoreChangeSync(change)
+        }
+    }
+
+    /** Instant path from [InboxFolderWatcher] — no MediaStore wait. */
+    private fun applyFilesystemMediaFiles(files: List<File>) {
+        if (files.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val items = files.mapNotNull { file ->
+                if (!file.isFile || file.length() <= 0L) return@mapNotNull null
+                FileItem(file)
+            }
+            if (items.isEmpty()) return@launch
+            applyChangedItems(items)
+        }
+    }
+
+    private suspend fun applyMediaStoreChangeSync(change: MediaStoreChange) {
+        withContext(Dispatchers.IO) {
+            incrementalUpdateMutex.withLock {
+                val base = mediaLibraryCache ?: MediaLibraryCache.load(appContext)
+                if (base == null) {
+                    // No baseline yet; the normal first load will build it once.
+                    return@withLock
+                }
+                val queryStartedAt = System.currentTimeMillis() / 1000L
+                // Look back a bit further for camera saves — MediaStore DATE_* is
+                // often stamped a second or two after the file hits disk.
+                val since = when (change.source) {
+                    "images", "video", "media" ->
+                        minOf(lastIncrementalEpochSeconds, queryStartedAt - 20L)
+                    "downloads", "files" ->
+                        // Soft catch-up / resume / browser downloads.
+                        minOf(lastIncrementalEpochSeconds, queryStartedAt - 45L)
+                    else -> lastIncrementalEpochSeconds
+                }
+                val changed = FileOperations.queryRecentMediaStoreChanges(
+                    resolver = appContext.contentResolver,
+                    source = change.source,
+                    changedUri = change.uri,
+                    sinceEpochSeconds = since,
+                )
+                if (changed.isEmpty()) {
+                    // Do NOT advance the watermark on empty queries — camera apps often
+                    // notify MediaStore before the row is queryable.
+                    return@withLock
+                }
+                // Keep a small overlap because MediaStore timestamps have one-second precision.
+                lastIncrementalEpochSeconds =
+                    maxOf(lastIncrementalEpochSeconds, queryStartedAt - 2L)
+                applyChangedItemsLocked(base, changed)
+            }
+        }
+    }
+
+    private suspend fun applyChangedItems(changed: List<FileItem>) {
+        if (changed.isEmpty()) return
+        withContext(Dispatchers.IO) {
+            incrementalUpdateMutex.withLock {
+                val base = mediaLibraryCache ?: MediaLibraryCache.load(appContext) ?: return@withLock
+                applyChangedItemsLocked(base, changed)
+            }
+        }
+    }
+
+    private fun applyChangedItemsLocked(base: MediaLibrary, changed: List<FileItem>) {
+        val library = FileOperations.mergeIncremental(base, changed)
+        mediaLibraryCache = library
+        val categories = FileOperations.getCategorySummaries(library, appContext)
+        val recentFiles = library.images.take(12)
+        val storage = FileOperations.getStorageInfo()
+
+        _uiState.update { state ->
+            val baseState = state.copy(
+                homeLoading = false,
+                storageInfo = storage,
+                categorySummaries = categories,
+                recentFiles = recentFiles,
+            )
+            when {
+                state.libraryMode && state.activeCategory == FileCategory.APPS -> {
+                    // Installed apps are not MediaStore-backed; keep the current list.
+                    baseState
+                }
+                state.libraryMode && state.activeCategory != null -> {
+                    val category = state.activeCategory
+                    val categoryFiles = library.forCategory(category)
+                    when (category) {
+                        FileCategory.IMAGES, FileCategory.VIDEOS -> {
+                            val albums = MediaAlbum.buildChips(categoryFiles)
+                            val albumId =
+                                MediaAlbum.sanitizeSelection(state.mediaAlbumId, albums)
+                            baseState.copy(
+                                mediaAlbums = albums,
+                                mediaAlbumId = albumId,
+                                items = sortLibraryFiles(
+                                    MediaAlbum.filter(categoryFiles, albumId),
+                                ),
+                            )
+                        }
+                        FileCategory.DOCUMENTS -> baseState.copy(
+                            items = sortLibraryFiles(
+                                categoryFiles.filter {
+                                    state.librarySubFilter.matches(it)
+                                },
+                            ),
+                        )
+                        else -> baseState.copy(items = sortLibraryFiles(categoryFiles))
+                    }
+                }
+                state.showLargestFiles -> {
+                    val largest = (
+                        library.downloads + library.images + library.videos +
+                            library.documents + library.archives +
+                            library.apps + library.audio + library.others
+                        )
+                        .distinctBy { it.path }
+                        .filter { !it.isDirectory && it.sizeBytes > 0L }
+                        .sortedByDescending { it.sizeBytes }
+                        .take(150)
+                    baseState.copy(items = largest)
+                }
+                !state.showHome &&
+                    !state.showCloud &&
+                    !state.showFavoritesOnly &&
+                    !state.showDuplicates -> {
+                    val currentPath = runCatching {
+                        state.currentDir.canonicalPath
+                    }.getOrDefault(state.currentDir.absolutePath)
+                    val additions = changed.filter { item ->
+                        val parent = item.file.parentFile ?: return@filter false
+                        val parentPath = runCatching {
+                            parent.canonicalPath
+                        }.getOrDefault(parent.absolutePath)
+                        parentPath == currentPath && item.matchesFilter(state.fileFilter)
+                    }
+                    if (additions.isEmpty()) {
+                        baseState
+                    } else {
+                        val byPath = LinkedHashMap<String, FileItem>()
+                        state.items.forEach { byPath[it.path] = it }
+                        additions.forEach { byPath[it.path] = it }
+                        val items = if (state.sortNewestFirst) {
+                            byPath.values.sortedWith(
+                                compareByDescending<FileItem> { it.isDirectory }
+                                    .thenByDescending { it.lastModified },
+                            )
+                        } else {
+                            byPath.values.sortedWith(
+                                compareBy<FileItem> { !it.isDirectory }
+                                    .thenBy { it.name.lowercase() },
+                            )
+                        }
+                        baseState.copy(items = items)
+                    }
+                }
+                else -> baseState
+            }
+        }
+        scheduleIncrementalCacheSave(library)
+    }
+
+    /** Coalesce bursty camera/download events into one small cache write. */
+    private fun scheduleIncrementalCacheSave(library: MediaLibrary) {
+        incrementalPersistJob?.cancel()
+        incrementalPersistJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(1_200)
+            val latest = mediaLibraryCache ?: library
+            val state = _uiState.value
+            persistHomeSnapshot(
+                library = latest,
+                categories = state.categorySummaries,
+                recentFiles = state.recentFiles,
+                storage = state.storageInfo ?: FileOperations.getStorageInfo(),
+            )
+        }
+    }
+
+    private fun persistHomeSnapshot(
+        library: MediaLibrary,
+        categories: List<CategorySummary>,
+        recentFiles: List<FileItem>,
+        storage: StorageInfo,
+    ) {
+        MediaLibraryCache.save(appContext, library)
+        prefs.saveCategoryCounts(categories)
+        prefs.saveRecentPhotoPaths(recentFiles.map { it.path })
+        prefs.saveStorageInfo(storage)
+    }
+
+    fun openCategory(category: FileCategory) {
+        openCategoryLibrary(category, forceRefresh = false)
+    }
+
+    fun openCategoryLibrary(category: FileCategory, forceRefresh: Boolean = false) {
+        val folder = category.resolveFolder()
+        val subFilter = if (category == FileCategory.DOCUMENTS) {
+            _uiState.value.librarySubFilter
+        } else {
+            LibrarySubFilter.ALL
+        }
+        val appFilter = if (category == FileCategory.APPS) {
+            _uiState.value.appSubFilter
+        } else {
+            AppSubFilter.ALL
+        }
+
+        // Warm memory cache: paint the list immediately (no empty "Memuat…" flash).
+        // Never call File.exists() here — scanning thousands of paths on the UI thread
+        // made Categories / Images / Videos feel frozen after the 2.4.78 prune work.
+        val warmLibrary = if (!forceRefresh) mediaLibraryCache else null
+        if (warmLibrary != null && category != FileCategory.APPS) {
+            val usesMediaAlbums = category == FileCategory.IMAGES || category == FileCategory.VIDEOS
+            val base = warmLibrary.forCategory(category)
+            val mediaAlbums = if (usesMediaAlbums) MediaAlbum.buildChips(base) else emptyList()
+            val mediaAlbumId = MediaAlbum.ALL
+            val filtered = when (category) {
+                FileCategory.DOCUMENTS -> base.filter { subFilter.matches(it) }
+                FileCategory.IMAGES, FileCategory.VIDEOS -> MediaAlbum.filter(base, mediaAlbumId)
+                else -> base
+            }
+            val sorted = sortLibraryFiles(filtered)
+            _uiState.update {
+                it.copy(
+                    showHome = false,
+                    showCloud = false,
+                    activeCategory = category,
+                    categoryRoot = folder,
+                    currentDir = folder,
+                    fileFilter = FileFilter.forCategory(category),
+                    libraryMode = true,
+                    librarySubFilter = subFilter,
+                    appSubFilter = AppSubFilter.ALL,
+                    mediaAlbums = mediaAlbums,
+                    mediaAlbumId = mediaAlbumId,
+                    showFavoritesOnly = false,
+                    showLargestFiles = false,
+                    showDuplicates = false,
+                    selectionMode = false,
+                    selectedPaths = emptySet(),
+                    searchQuery = "",
+                    searchResults = emptyList(),
+                    items = sorted,
+                    canGoUp = true,
+                    progress = null,
+                )
+            }
+            libraryJob?.cancel()
+            libraryJob = viewModelScope.launch {
+                if (usesMediaAlbums) {
+                    // Prune deleted media off the UI thread after first paint.
+                    pruneMissingImagesAndRefill()
+                }
+                // Photos: catch up immediately so a shot taken seconds ago is visible.
+                val wait = if (usesMediaAlbums) 40L else 280L
+                delay(wait)
+                if (_uiState.value.activeCategory == category && _uiState.value.libraryMode) {
+                    catchUpMediaStoreChanges()
+                }
+            }
+            return
+        }
+
+        // Navigate immediately — never load/sort thousands of files on the UI thread.
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                showCloud = false,
+                activeCategory = category,
+                categoryRoot = folder,
+                currentDir = folder,
+                fileFilter = FileFilter.forCategory(category),
+                libraryMode = true,
+                librarySubFilter = subFilter,
+                appSubFilter = if (category == FileCategory.APPS) appFilter else AppSubFilter.ALL,
+                mediaAlbums = emptyList(),
+                mediaAlbumId = MediaAlbum.ALL,
+                showFavoritesOnly = false,
+                showLargestFiles = false,
+                showDuplicates = false,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+                searchQuery = "",
+                searchResults = emptyList(),
+                items = emptyList(),
+                canGoUp = true,
+                progress = ProgressState(
+                    title = str(R.string.loading_category, str(category.titleRes)),
+                    message = str(R.string.searching_all_category, str(category.nounRes)),
+                    indeterminate = true,
+                ),
+            )
+        }
+
+        libraryJob?.cancel()
+        libraryJob = viewModelScope.launch {
+            val prepared = withContext(Dispatchers.IO) {
+                if (!forceRefresh && mediaLibraryCache == null) {
+                    // Prefer any on-disk snapshot — even weeks old — over a full walk.
+                    mediaLibraryCache = MediaLibraryCache.load(appContext, allowStale = true)
+                }
+                if (!folder.exists()) folder.mkdirs()
+                if (category == FileCategory.APPS) {
+                    val apps = InstalledApps.list(appContext)
+                    installedAppsCache = apps
+                    val library = obtainMediaLibrary(forceRefresh = false)
+                    return@withContext CategoryOpenResult(
+                        items = InstalledApps.filter(apps, appFilter),
+                        mediaAlbums = emptyList(),
+                        mediaAlbumId = MediaAlbum.ALL,
+                        library = library,
+                    )
+                }
+                val library = obtainMediaLibrary(forceRefresh = forceRefresh)
+                val base = library.forCategory(category)
+                val usesMediaAlbums = category == FileCategory.IMAGES || category == FileCategory.VIDEOS
+                val mediaAlbums = if (usesMediaAlbums) {
+                    MediaAlbum.buildChips(base)
+                } else {
+                    emptyList()
+                }
+                val mediaAlbumId = MediaAlbum.ALL
+                val filtered = when (category) {
+                    FileCategory.DOCUMENTS -> base.filter { subFilter.matches(it) }
+                    FileCategory.IMAGES, FileCategory.VIDEOS -> MediaAlbum.filter(base, mediaAlbumId)
+                    else -> base
+                }
+                CategoryOpenResult(
+                    items = sortLibraryFiles(filtered),
+                    mediaAlbums = mediaAlbums,
+                    mediaAlbumId = mediaAlbumId,
+                    library = library,
+                )
+            }
+            if (_uiState.value.activeCategory != category || !_uiState.value.libraryMode) {
+                return@launch
+            }
+            _uiState.update {
+                it.copy(
+                    items = prepared.items,
+                    progress = null,
+                    canGoUp = true,
+                    librarySubFilter = if (category == FileCategory.DOCUMENTS) {
+                        subFilter
+                    } else {
+                        LibrarySubFilter.ALL
+                    },
+                    mediaAlbums = prepared.mediaAlbums,
+                    mediaAlbumId = prepared.mediaAlbumId,
+                    selectedPaths = emptySet(),
+                    categorySummaries = it.categorySummaries.map { summary ->
+                        if (summary.category == FileCategory.APPS && category == FileCategory.APPS) {
+                            summary.copy(
+                                itemCount = installedAppsCache.size,
+                                totalBytes = installedAppsCache.sumOf { it.sizeBytes },
+                            )
+                        } else {
+                            summary
+                        }
+                    },
+                )
+            }
+            // Let the first frames compose before a catch-up query.
+            delay(280)
+            if (
+                category != FileCategory.APPS &&
+                _uiState.value.activeCategory == category &&
+                _uiState.value.libraryMode
+            ) {
+                catchUpMediaStoreChanges()
+            }
+            // Rebuild snapshot in background when it was missing or very old.
+            val needsPersist = forceRefresh ||
+                MediaLibraryCache.isHardExpired(appContext) ||
+                !MediaLibraryCache.exists(appContext)
+            if (needsPersist || category == FileCategory.APPS) {
+                withContext(Dispatchers.IO) {
+                    persistHomeSnapshot(
+                        library = prepared.library,
+                        categories = FileOperations.getCategorySummaries(prepared.library, appContext),
+                        recentFiles = prepared.library.images.take(12),
+                        storage = _uiState.value.storageInfo ?: FileOperations.getStorageInfo(),
+                    )
+                }
+            }
+        }
+    }
+
+    private fun sortLibraryFiles(files: List<FileItem>): List<FileItem> {
+        return files.sortedByDescending { it.lastModified }
+    }
+
+    private fun obtainMediaLibrary(forceRefresh: Boolean): MediaLibrary {
+        if (!forceRefresh) {
+            mediaLibraryCache?.let { return it }
+            // Always accept a disk snapshot when present — even if older than HARD_EXPIRE.
+            MediaLibraryCache.load(appContext, allowStale = true)?.let { disk ->
+                mediaLibraryCache = disk
+                return disk
+            }
+        }
+        return FileOperations.scanMediaLibrary(
+            contentResolver = appContext.contentResolver,
+            context = appContext,
+        ).also { mediaLibraryCache = it }
+    }
+
+    private fun invalidateMediaLibraryCache() {
+        mediaLibraryCache = null
+    }
+
+    override fun onCleared() {
+        mediaWatcher?.stop()
+        mediaWatcher = null
+        inboxWatcher?.stop()
+        inboxWatcher = null
+        // Last chance flush before process teardown.
+        mediaLibraryCache?.let { library ->
+            runCatching {
+                MediaLibraryCache.save(appContext, library)
+                prefs.saveCategoryCounts(FileOperations.getCategorySummaries(library, appContext))
+                prefs.saveRecentPhotoPaths(library.images.take(12).map { it.path })
+                _uiState.value.storageInfo?.let { prefs.saveStorageInfo(it) }
+            }
+        }
+        super.onCleared()
+    }
+
+    fun updateSearchQuery(query: String) {
+        _uiState.update { it.copy(searchQuery = query) }
+        searchJob?.cancel()
+        val trimmed = query.trim()
+        if (trimmed.length < 2) {
+            _uiState.update { it.copy(searchResults = emptyList(), searchLoading = false) }
+            return
+        }
+        searchJob = viewModelScope.launch {
+            delay(300)
+            _uiState.update { it.copy(searchLoading = true) }
+            val results = withContext(Dispatchers.IO) {
+                FileOperations.searchFiles(trimmed)
+            }
+            _uiState.update {
+                it.copy(searchResults = results, searchLoading = false)
+            }
+        }
+    }
+
+    fun clearSearch() {
+        searchJob?.cancel()
+        _uiState.update {
+            it.copy(searchQuery = "", searchResults = emptyList(), searchLoading = false)
+        }
+    }
+
+    fun setFileFilter(filter: FileFilter) {
+        _uiState.update { it.copy(fileFilter = filter) }
+        refresh()
+    }
+
+    fun openFileFromAnywhere(item: FileItem) {
+        if (item.isDirectory) {
+            _uiState.update {
+                it.copy(
+                    showHome = false,
+                    activeCategory = null,
+                    categoryRoot = null,
+                    currentDir = item.file,
+                    fileFilter = FileFilter.ALL,
+                    libraryMode = false,
+                    // Keep search so Back from this folder can still feel contextual;
+                    // goHome clears it explicitly.
+                    searchQuery = "",
+                    searchResults = emptyList(),
+                )
+            }
+            refresh()
+            return
+        }
+
+        val fromHomeOrCloud = _uiState.value.showHome || _uiState.value.showCloud
+        // From home search / cloud: never jump into an empty parent folder list.
+        if (fromHomeOrCloud) {
+            when {
+                item.isPdf || item.isImage || item.isVideo -> openItem(item)
+                item.isApk -> installApkFile(item.file)
+                item.isArchive -> openExtractDialog(item.file.canonicalFile)
+                // In-app ExoPlayer handles m4a/opus/flac even when no external player exists.
+                item.isAudio -> {
+                    val (list, idx) = mediaPlaylistFor(item) { it.isAudio }
+                    openViewer(
+                        ViewerContent.Video(file = item.file, playlist = list, index = idx),
+                        ViewerReturnTarget.HOME,
+                    )
+                }
+                else -> showFileDetails(item)
+            }
+            return
+        }
+
+        // Browser / library: open media in-place; other files may reveal parent folder.
+        when {
+            item.isPdf || item.isImage -> openItem(item)
+            item.isApk -> installApkFile(item.file)
+            else -> {
+                val parent = item.file.parentFile
+                if (parent != null) {
+                    _uiState.update {
+                        it.copy(
+                            showHome = false,
+                            activeCategory = null,
+                            categoryRoot = null,
+                            currentDir = parent,
+                            fileFilter = FileFilter.ALL,
+                            libraryMode = false,
+                            searchQuery = "",
+                            searchResults = emptyList(),
+                        )
+                    }
+                    refresh()
+                }
+                openItem(item)
+            }
+        }
+    }
+
+    fun browseAllFiles() {
+        openExplorer()
+    }
+
+    /** Open the Explorer storage picker (Internal / SD / USB). */
+    fun openExplorer() {
+        refreshStorageVolumes()
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                showExplorerRoots = true,
+                explorerMode = false,
+                explorerRootLabel = "",
+                showCloud = false,
+                showFavoritesOnly = false,
+                showLargestFiles = false,
+                showDuplicates = false,
+                libraryMode = false,
+                activeCategory = null,
+                categoryRoot = null,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+                searchQuery = "",
+                searchResults = emptyList(),
+                mediaAlbums = emptyList(),
+                mediaAlbumId = MediaAlbum.ALL,
+                items = emptyList(),
+                canGoUp = true,
+                progress = null,
+            )
+        }
+    }
+
+    fun closeExplorerRoots() {
+        goHome()
+    }
+
+    /** Open a volume inside Explorer with breadcrumb navigation. */
+    fun openExplorerVolume(volume: DeviceStorageVolume) {
+        val dir = volume.root
+        if (dir == null || !dir.exists() || !dir.isDirectory) {
+            emit(str(R.string.storage_unavailable))
+            refreshStorageVolumes()
+            return
+        }
+        val label = when {
+            volume.isPrimary -> str(R.string.explorer_my_phone)
+            volume.label.isNotBlank() -> volume.label
+            volume.kind == StorageKind.SD_CARD -> str(R.string.storage_sd_card)
+            volume.kind == StorageKind.USB -> str(R.string.storage_usb)
+            else -> str(R.string.storage_external)
+        }
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                showExplorerRoots = false,
+                explorerMode = true,
+                explorerRootLabel = label,
+                showCloud = false,
+                showFavoritesOnly = false,
+                showLargestFiles = false,
+                showDuplicates = false,
+                libraryMode = false,
+                activeCategory = null,
+                categoryRoot = dir,
+                currentDir = dir,
+                fileFilter = FileFilter.ALL,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+                searchQuery = "",
+                searchResults = emptyList(),
+                mediaAlbums = emptyList(),
+                mediaAlbumId = MediaAlbum.ALL,
+                sortNewestFirst = false,
+            )
+        }
+        refresh()
+    }
+
+    /** Open a detected volume root (internal / microSD / USB). */
+    fun openStorageVolume(volume: DeviceStorageVolume) {
+        // Storage cards on home also enter the full Explorer flow.
+        openExplorerVolume(volume)
+    }
+
+    /** Re-detect volumes (e.g. after inserting SD / plugging USB Type-C). */
+    fun refreshStorageVolumes() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val volumes = FileOperations.listDeviceStorages(appContext)
+            val storage = volumes.firstOrNull { it.isPrimary }?.let {
+                StorageInfo(totalBytes = it.totalBytes, freeBytes = it.freeBytes)
+            } ?: FileOperations.getStorageInfo()
+            prefs.saveStorageInfo(storage)
+            _uiState.update {
+                it.copy(
+                    storageVolumes = volumes,
+                    storageInfo = storage,
+                )
+            }
+        }
+    }
+
+    fun openCloud(exportFile: File? = null) {
+        _uiState.update {
+            it.copy(
+                showCloud = true,
+                cloudExportFile = exportFile,
+                safBookmarks = prefs.getSafBookmarks(),
+            )
+        }
+    }
+
+    fun closeCloud() {
+        _uiState.update {
+            it.copy(
+                showCloud = false,
+                cloudExportFile = null,
+            )
+        }
+    }
+
+    fun updateSafBookmarks(bookmarks: List<com.zipextract.app.data.cloud.SafBookmark>) {
+        prefs.saveSafBookmarks(bookmarks)
+        _uiState.update { it.copy(safBookmarks = bookmarks) }
+    }
+
+    fun openImportedCloudFile(file: File) {
+        // Serialize hand-off so rapid cloud picks don't stack viewer opens / freeze UI.
+        cloudImportJob?.cancel()
+        cloudImportJob = viewModelScope.launch {
+            if (!file.exists() || file.length() <= 0L) {
+                _events.tryEmit(str(R.string.cloud_file_empty))
+                return@launch
+            }
+            val item = FileItem(file)
+            // Keep Cloud as return target even though we close the hub while viewing.
+            closeCloud()
+            kotlinx.coroutines.yield()
+            when {
+                item.isImage -> openViewer(ViewerContent.Image(file), ViewerReturnTarget.HOME)
+                item.isPdf -> openViewer(ViewerContent.Pdf(file), ViewerReturnTarget.HOME)
+                item.isVideo -> openViewer(ViewerContent.Video(file), ViewerReturnTarget.HOME)
+                item.isApk -> installApkFile(file)
+                item.isArchive -> {
+                    // Archives open extract UI; return home/cloud via normal flow after.
+                    openExtractDialog(file)
+                }
+                else -> openFileFromAnywhere(item)
+            }
+        }
+    }
+
+    fun goHome() {
+        searchJob?.cancel()
+        libraryJob?.cancel()
+        cloudImportJob?.cancel()
+        _uiState.update {
+            it.copy(
+                showHome = true,
+                showExplorerRoots = false,
+                explorerMode = false,
+                explorerRootLabel = "",
+                isSoftRefreshing = false,
+                showCloud = false,
+                cloudExportFile = null,
+                activeCategory = null,
+                categoryRoot = null,
+                fileFilter = FileFilter.ALL,
+                libraryMode = false,
+                showFavoritesOnly = false,
+                showLargestFiles = false,
+                showDuplicates = false,
+                duplicateGroups = emptyList(),
+                librarySubFilter = LibrarySubFilter.ALL,
+                appSubFilter = AppSubFilter.ALL,
+                mediaAlbumId = MediaAlbum.ALL,
+                mediaAlbums = emptyList(),
+                selectionMode = false,
+                selectedPaths = emptySet(),
+                items = emptyList(),
+                canGoUp = false,
+                searchQuery = "",
+                searchResults = emptyList(),
+                searchLoading = false,
+                progress = null,
+                viewer = null,
+                viewerReturnTarget = ViewerReturnTarget.STAY,
+                extractDialog = null,
+            )
+        }
+        loadHomeData(forceRefresh = false)
+    }
+
+    fun refresh() {
+        softRefresh()
+    }
+
+    fun openDirectory(item: FileItem) {
+        if (!item.isDirectory) return
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                showExplorerRoots = false,
+                currentDir = item.file,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+            )
+        }
+        refresh()
+    }
+
+    fun openItem(item: FileItem) {
+        // In selection mode, taps always toggle — never open extract/viewer.
+        if (_uiState.value.selectionMode) {
+            toggleSelect(item)
+            return
+        }
+        when {
+            item.isInstalledApp -> {
+                val pkg = item.packageName ?: return
+                if (!InstalledApps.launch(appContext, pkg)) {
+                    emit(str(R.string.launch_app_failed))
+                }
+            }
+            item.isDirectory -> openDirectory(item)
+            item.isApk -> installApkFile(item.file)
+            item.isApp -> {
+                // xapk / apks / apkm are zip-based bundles — extract first.
+                openExtractDialog(item.file.canonicalFile)
+            }
+            item.isArchive -> openExtractDialog(item.file.canonicalFile)
+            item.isPdf -> openViewer(ViewerContent.Pdf(item.file))
+            item.isImage -> {
+                val (list, idx) = mediaPlaylistFor(item) { it.isImage }
+                openViewer(ViewerContent.Image(file = item.file, playlist = list, index = idx))
+            }
+            item.isVideo -> {
+                val (list, idx) = mediaPlaylistFor(item) { it.isVideo }
+                openViewer(ViewerContent.Video(file = item.file, playlist = list, index = idx))
+            }
+            // In-app ExoPlayer handles m4a/opus/flac even when no external player exists.
+            item.isAudio -> {
+                val (list, idx) = mediaPlaylistFor(item) { it.isAudio }
+                openViewer(ViewerContent.Video(file = item.file, playlist = list, index = idx))
+            }
+            else -> toggleSelect(item)
+        }
+    }
+
+    /**
+     * Build a swipe playlist from the currently visible list (category / folder /
+     * search / recent), filtered to the same media kind as [anchor].
+     */
+    private fun mediaPlaylistFor(
+        anchor: FileItem,
+        matches: (FileItem) -> Boolean,
+    ): Pair<List<File>, Int> {
+        val state = _uiState.value
+        val pool = when {
+            state.searchQuery.isNotBlank() && state.searchResults.isNotEmpty() -> state.searchResults
+            state.items.isNotEmpty() -> state.items
+            state.recentFiles.isNotEmpty() -> state.recentFiles
+            else -> listOf(anchor)
+        }
+        val files = pool.asSequence()
+            .filter(matches)
+            .map { it.file }
+            .distinctBy { it.absolutePath }
+            .toList()
+        if (files.isEmpty()) return listOf(anchor.file) to 0
+        val idx = files.indexOfFirst { it.absolutePath == anchor.file.absolutePath }
+        return if (idx >= 0) {
+            files to idx
+        } else {
+            (listOf(anchor.file) + files) to 0
+        }
+    }
+
+    fun installApkFile(file: File) {
+        // PackageInstaller session I/O must not run on the main thread (large APKs ANR).
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    progress = ProgressState(str(R.string.apk_preparing_installer), file.name),
+                )
+            }
+            val result = withContext(Dispatchers.IO) {
+                FileActions.installApk(getApplication(), file)
+            }
+            _uiState.update { it.copy(progress = null) }
+            when (result) {
+                is FileActions.InstallApkResult.Started -> {
+                    emit(str(R.string.apk_opening_installer))
+                }
+                is FileActions.InstallApkResult.NeedInstallPermission -> {
+                    emit(str(R.string.apk_need_install_permission))
+                }
+                is FileActions.InstallApkResult.Failed -> {
+                    // Split packages (xapk/apks) or non-apk apps: fall back to extract / open-with.
+                    val item = FileItem(file)
+                    when {
+                        item.isApp && !item.isApk -> {
+                            emit(str(R.string.apk_needs_extract, item.extension.uppercase()))
+                            openExtractDialog(file)
+                        }
+                        else -> emit(result.reason)
+                    }
+                }
+            }
+        }
+    }
+
+    fun openViewer(
+        content: ViewerContent,
+        returnTarget: ViewerReturnTarget? = null,
+    ) {
+        val canOpen = when (content) {
+            is ViewerContent.Pdf -> {
+                content.sourceUri != null ||
+                    (content.file.exists() && content.file.isFile)
+            }
+            is ViewerContent.Image -> content.file.exists() && content.file.isFile
+            is ViewerContent.Video -> {
+                content.sourceUri != null ||
+                    (content.file.exists() && content.file.isFile && content.file.length() > 0L)
+            }
+        }
+        if (!canOpen) {
+            emit(str(R.string.file_not_found))
+            when (content) {
+                is ViewerContent.Image -> reportMissingImage(content.file.absolutePath)
+                is ViewerContent.Video -> reportMissingImage(content.file.absolutePath)
+                else -> Unit
+            }
+            return
+        }
+        val state = _uiState.value
+        val resolvedReturn = returnTarget ?: when {
+            state.showCloud -> ViewerReturnTarget.CLOUD
+            state.showHome -> ViewerReturnTarget.HOME
+            else -> ViewerReturnTarget.STAY
+        }
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                showCloud = false,
+                viewer = content,
+                viewerReturnTarget = resolvedReturn,
+                extractDialog = null,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+                // Preserve search so Back from viewer restores the previous results page.
+                searchQuery = if (resolvedReturn == ViewerReturnTarget.HOME) it.searchQuery else "",
+                searchResults = if (resolvedReturn == ViewerReturnTarget.HOME) it.searchResults else emptyList(),
+                searchLoading = if (resolvedReturn == ViewerReturnTarget.HOME) it.searchLoading else false,
+            )
+        }
+    }
+
+    fun openSharedUri(context: Context, uri: Uri, mimeType: String?) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    launchedFromExternalIntent = true,
+                    progress = ProgressState(str(R.string.progress_opening_file), uri.lastPathSegment.orEmpty()),
+                )
+            }
+            val resolved = withContext(Dispatchers.IO) {
+                SharedFileResolver.resolveShare(context, uri, mimeType)
+            }
+            _uiState.update { it.copy(progress = null) }
+            if (resolved == null) {
+                _uiState.update { it.copy(launchedFromExternalIntent = false, showHome = true) }
+                emit(str(R.string.file_cannot_open))
+                return@launch
+            }
+
+            val item = FileItem(resolved.file)
+            when {
+                item.isApk -> {
+                    _uiState.update { it.copy(launchedFromExternalIntent = false) }
+                    installApkFile(resolved.file)
+                }
+                item.isArchive -> extractZipFile(
+                    zip = resolved.file,
+                    sourceUri = resolved.sourceUri,
+                    displayName = resolved.displayName,
+                )
+                SharedFileResolver.isPdf(resolved.file, resolved.mimeType) -> {
+                    openViewer(
+                        ViewerContent.Pdf(
+                            file = resolved.file,
+                            sourceUri = resolved.sourceUri,
+                        )
+                    )
+                }
+                SharedFileResolver.isImage(resolved.file, resolved.mimeType) -> {
+                    openViewer(ViewerContent.Image(resolved.file))
+                }
+                SharedFileResolver.isVideo(resolved.file, resolved.mimeType) -> {
+                    openViewer(
+                        ViewerContent.Video(
+                            file = resolved.file,
+                            sourceUri = resolved.sourceUri,
+                        )
+                    )
+                }
+                item.isAudio -> {
+                    openViewer(
+                        ViewerContent.Video(
+                            file = resolved.file,
+                            sourceUri = resolved.sourceUri,
+                        )
+                    )
+                }
+                else -> {
+                    _uiState.update { it.copy(launchedFromExternalIntent = false, showHome = true) }
+                    emit(str(R.string.format_unsupported))
+                }
+            }
+        }
+    }
+
+    fun openViewerFile(file: File) {
+        val item = FileItem(file)
+        when {
+            item.isPdf -> openViewer(ViewerContent.Pdf(file))
+            item.isImage -> {
+                val (list, idx) = mediaPlaylistFor(item) { it.isImage }
+                openViewer(ViewerContent.Image(file = file, playlist = list, index = idx))
+            }
+            item.isVideo -> {
+                val (list, idx) = mediaPlaylistFor(item) { it.isVideo }
+                openViewer(ViewerContent.Video(file = file, playlist = list, index = idx))
+            }
+            item.isAudio -> {
+                val (list, idx) = mediaPlaylistFor(item) { it.isAudio }
+                openViewer(ViewerContent.Video(file = file, playlist = list, index = idx))
+            }
+            else -> emit(str(R.string.format_unsupported))
+        }
+    }
+
+    /** Keep [BrowserUiState.viewer] pointed at the page the user swiped to. */
+    fun updateViewerPage(file: File) {
+        _uiState.update { state ->
+            when (val viewer = state.viewer) {
+                is ViewerContent.Image -> {
+                    val idx = viewer.playlist.indexOfFirst { it.absolutePath == file.absolutePath }
+                        .takeIf { it >= 0 } ?: viewer.index
+                    state.copy(viewer = viewer.copy(file = file, index = idx))
+                }
+                is ViewerContent.Video -> {
+                    val idx = viewer.playlist.indexOfFirst { it.absolutePath == file.absolutePath }
+                        .takeIf { it >= 0 } ?: viewer.index
+                    state.copy(
+                        viewer = viewer.copy(
+                            file = file,
+                            index = idx,
+                            // External content URI only applies to the originally shared file.
+                            sourceUri = if (file.absolutePath == viewer.file.absolutePath) {
+                                viewer.sourceUri
+                            } else {
+                                null
+                            },
+                        ),
+                    )
+                }
+                else -> state
+            }
+        }
+    }
+
+    fun closeViewer(): Boolean {
+        val state = _uiState.value
+        val shouldFinish = state.launchedFromExternalIntent
+        val returnTarget = state.viewerReturnTarget
+        _uiState.update {
+            it.copy(
+                viewer = null,
+                viewerReturnTarget = ViewerReturnTarget.STAY,
+                launchedFromExternalIntent = false,
+            )
+        }
+        if (shouldFinish) {
+            goHome()
+            return true
+        }
+        when (returnTarget) {
+            ViewerReturnTarget.HOME,
+            ViewerReturnTarget.CLOUD,
+            -> restoreHomeAfterViewer()
+            ViewerReturnTarget.STAY -> Unit
+        }
+        return false
+    }
+
+    /**
+     * Delete the file currently open in the image/PDF viewer.
+     * For image/video playlists, stay in the viewer on the next sibling when possible.
+     * Returns true when the Activity should finish (opened via external VIEW/SEND intent).
+     */
+    fun deleteViewerFile(): Boolean {
+        val state = _uiState.value
+        val viewer = state.viewer ?: return false
+        val file = viewer.file
+        val path = runCatching { file.canonicalPath }.getOrDefault(file.absolutePath)
+        val shouldFinish = state.launchedFromExternalIntent
+        val returnTarget = state.viewerReturnTarget
+
+        val nextViewer: ViewerContent? = when (viewer) {
+            is ViewerContent.Image -> {
+                val nextList = viewer.playlist.filter {
+                    runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) != path &&
+                        it.absolutePath != file.absolutePath
+                }
+                if (nextList.isEmpty()) {
+                    null
+                } else {
+                    val nextIndex = viewer.index.coerceIn(0, nextList.lastIndex)
+                    ViewerContent.Image(
+                        file = nextList[nextIndex],
+                        playlist = nextList,
+                        index = nextIndex,
+                    )
+                }
+            }
+            is ViewerContent.Video -> {
+                val nextList = viewer.playlist.filter {
+                    runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) != path &&
+                        it.absolutePath != file.absolutePath
+                }
+                if (nextList.isEmpty()) {
+                    null
+                } else {
+                    val nextIndex = viewer.index.coerceIn(0, nextList.lastIndex)
+                    ViewerContent.Video(
+                        file = nextList[nextIndex],
+                        playlist = nextList,
+                        index = nextIndex,
+                    )
+                }
+            }
+            else -> null
+        }
+
+        if (nextViewer != null && !shouldFinish) {
+            _uiState.update { it.copy(viewer = nextViewer) }
+        } else {
+            _uiState.update {
+                it.copy(
+                    viewer = null,
+                    viewerReturnTarget = ViewerReturnTarget.STAY,
+                    launchedFromExternalIntent = false,
+                )
+            }
+        }
+
+        applyLocalRemovals(setOf(path))
+        if (path in prefs.getFavoritePaths()) {
+            prefs.toggleFavorite(path)
+            _uiState.update { it.copy(favoritePaths = prefs.getFavoritePaths()) }
+        }
+
+        activeJob?.cancel()
+        activeJob = viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    FileOperations.deleteRecursively(localizedContext(), listOf(file))
+                }
+                when (result) {
+                    is OperationResult.Success -> emit(result.message)
+                    is OperationResult.Error -> emit(result.message)
+                }
+                mediaLibraryCache?.let(::scheduleIncrementalCacheSave)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                emit(str(R.string.cancelled))
+                throw e
+            } finally {
+                _uiState.update { it.copy(progress = null) }
+                if (activeJob === this) activeJob = null
+            }
+        }
+
+        if (shouldFinish) {
+            goHome()
+            return true
+        }
+        if (nextViewer == null) {
+            when (returnTarget) {
+                ViewerReturnTarget.HOME,
+                ViewerReturnTarget.CLOUD,
+                -> restoreHomeAfterViewer()
+                ViewerReturnTarget.STAY -> Unit
+            }
+        }
+        return false
+    }
+
+    /** Return to home dashboard without wiping cached home content / search. */
+    private fun restoreHomeAfterViewer() {
+        searchJob?.cancel()
+        libraryJob?.cancel()
+        _uiState.update {
+            it.copy(
+                showHome = true,
+                showExplorerRoots = false,
+                explorerMode = false,
+                explorerRootLabel = "",
+                showCloud = false,
+                cloudExportFile = null,
+                activeCategory = null,
+                categoryRoot = null,
+                fileFilter = FileFilter.ALL,
+                libraryMode = false,
+                showFavoritesOnly = false,
+                showLargestFiles = false,
+                showDuplicates = false,
+                duplicateGroups = emptyList(),
+                librarySubFilter = LibrarySubFilter.ALL,
+                mediaAlbumId = MediaAlbum.ALL,
+                mediaAlbums = emptyList(),
+                selectionMode = false,
+                selectedPaths = emptySet(),
+                items = emptyList(),
+                canGoUp = false,
+                // Keep searchQuery / searchResults so Back returns to the search page.
+                searchLoading = false,
+                progress = null,
+                extractDialog = null,
+                viewer = null,
+                viewerReturnTarget = ViewerReturnTarget.STAY,
+            )
+        }
+    }
+
+    fun openExtractDialogForItem(item: FileItem) {
+        if (_uiState.value.selectionMode) {
+            toggleSelect(item)
+            return
+        }
+        openExtractDialog(item.file)
+    }
+
+    fun openExtractDialog(
+        zipFile: File,
+        sourceUri: android.net.Uri? = null,
+        displayName: String? = null,
+    ) {
+        val file = runCatching { zipFile.canonicalFile }.getOrDefault(zipFile)
+        if (!file.exists() || !file.isFile) {
+            emit(str(R.string.zip_not_found))
+            return
+        }
+        if (!ArchiveManager.isSupportedArchive(file)) {
+            emit(str(R.string.format_unsupported_ext, file.extension))
+            return
+        }
+        // Cache copies from Chrome/share: extract to FileNest, not app cache.
+        val fromIncoming = SharedFileResolver.isAppCacheFile(file)
+        val destinationChoice = if (fromIncoming) {
+            ExtractDestination.FILENEST
+        } else {
+            ExtractDestination.SAME_FOLDER
+        }
+        val destination = preferredExtractDir(file, destinationChoice)
+        _uiState.update {
+            it.copy(
+                extractDialog = ExtractZipState(
+                    zipFile = file,
+                    destination = destinationChoice,
+                    destinationDir = destination,
+                    deleteOriginal = false,
+                    isLoading = false,
+                    sourceUri = sourceUri,
+                    displayName = displayName ?: file.name,
+                ),
+                extractResult = null,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+            )
+        }
+        // Detect password protection off the main thread, then show the password field.
+        extractEncryptCheckJob?.cancel()
+        extractEncryptCheckJob = viewModelScope.launch {
+            val encrypted = withContext(Dispatchers.IO) { ArchiveManager.isPasswordProtected(file) }
+            if (!encrypted) return@launch
+            _uiState.update { state ->
+                val dialog = state.extractDialog
+                if (dialog?.zipFile == file) {
+                    state.copy(extractDialog = dialog.copy(isEncrypted = true))
+                } else {
+                    state
+                }
+            }
+        }
+    }
+
+    fun setExtractPassword(password: String) {
+        _uiState.update { state ->
+            val dialog = state.extractDialog ?: return@update state
+            state.copy(extractDialog = dialog.copy(password = password))
+        }
+    }
+
+    fun closeExtractDialog() {
+        extractEncryptCheckJob?.cancel()
+        extractEncryptCheckJob = null
+        _uiState.update { it.copy(extractDialog = null) }
+    }
+
+    fun toggleExtractEntry(path: String) {
+        _uiState.update { state ->
+            val dialog = state.extractDialog ?: return@update state
+            val next = dialog.selectedPaths.toMutableSet()
+            if (!next.add(path)) next.remove(path)
+            state.copy(extractDialog = dialog.copy(selectedPaths = next))
+        }
+    }
+
+    fun selectAllExtractEntries() {
+        _uiState.update { state ->
+            val dialog = state.extractDialog ?: return@update state
+            state.copy(
+                extractDialog = dialog.copy(
+                    selectedPaths = dialog.entries.map { it.path }.toSet(),
+                ),
+            )
+        }
+    }
+
+    fun deselectAllExtractEntries() {
+        _uiState.update { state ->
+            val dialog = state.extractDialog ?: return@update state
+            state.copy(extractDialog = dialog.copy(selectedPaths = emptySet()))
+        }
+    }
+
+    fun setDeleteOriginalZip(delete: Boolean) {
+        _uiState.update { state ->
+            val dialog = state.extractDialog ?: return@update state
+            state.copy(extractDialog = dialog.copy(deleteOriginal = delete))
+        }
+    }
+
+    fun setExtractDestinationChoice(choice: ExtractDestination) {
+        _uiState.update { state ->
+            val dialog = state.extractDialog ?: return@update state
+            val dir = preferredExtractDir(dialog.zipFile, choice)
+            state.copy(
+                extractDialog = dialog.copy(
+                    destination = choice,
+                    destinationDir = dir,
+                ),
+            )
+        }
+    }
+
+    private fun preferredExtractDir(zip: File, choice: ExtractDestination): File {
+        return when (choice) {
+            ExtractDestination.SAME_FOLDER -> ZipManager.sameFolderExtractDirectory(zip)
+            ExtractDestination.FILENEST -> ZipManager.downloadExtractDirectory(zip)
+            ExtractDestination.DOWNLOADS -> ZipManager.downloadsRootExtractDirectory(zip)
+        }
+    }
+
+    fun confirmExtract() {
+        val dialog = _uiState.value.extractDialog ?: return
+        val zip = dialog.zipFile
+        val deleteOriginal = dialog.deleteOriginal
+        val password = dialog.password.takeIf { it.isNotBlank() }
+        val choice = dialog.destination
+        val preferred = preferredExtractDir(zip, choice)
+        val sourceUri = dialog.sourceUri
+        val displayName = dialog.displayName ?: zip.name
+        // Stop any password-probe that may still hold the archive open.
+        extractEncryptCheckJob?.cancel()
+        extractEncryptCheckJob = null
+        // Close the small dialog immediately; results open in the chosen folder.
+        closeExtractDialog()
+
+        runJob(str(R.string.progress_extract_zip), zip.name, refreshAfter = false) {
+            try {
+                val destination = ZipManager.resolveWritableExtractDir(
+                    context = localizedContext(),
+                    zipFile = zip,
+                    preferred = preferred,
+                )
+                val written = ArchiveManager.extractArchive(
+                    context = localizedContext(),
+                    file = zip,
+                    destinationDir = destination,
+                    password = password,
+                ) { progress, name ->
+                    updateProgressThrottled(str(R.string.progress_extract_zip), name, progress)
+                }
+
+                // Open the folder immediately (shallow listing). Deep walks / MediaStore
+                // merge used to dominate wall-clock after the archive was already written.
+                showExtractedFolder(destination, emptyList())
+
+                // Auto-open / install primary extracted content (APK, PDF, media, …)
+                // without waiting for another tap.
+                withContext(Dispatchers.Main) {
+                    autoOpenAfterExtract(destination)
+                }
+
+                var deletedOriginal = false
+                if (deleteOriginal) {
+                    // No System.gc() / sleep — those added hundreds of ms for no benefit.
+                    deletedOriginal = FileOperations.deleteOriginalArchive(
+                        context = localizedContext(),
+                        localFile = zip,
+                        sourceUri = sourceUri,
+                        displayName = displayName,
+                    )
+                    if (!deletedOriginal) {
+                        deletedOriginal = FileOperations.deleteOriginalArchive(
+                            context = localizedContext(),
+                            localFile = zip,
+                            sourceUri = sourceUri,
+                            displayName = displayName,
+                        )
+                    }
+                    if (deletedOriginal) {
+                        val removed = mutableSetOf(
+                            runCatching { zip.canonicalPath }.getOrDefault(zip.absolutePath),
+                            zip.absolutePath,
+                        )
+                        SharedFileResolver.findPublicFileByDisplayName(localizedContext(), displayName)
+                            ?.let { found ->
+                                removed += runCatching { found.canonicalPath }.getOrDefault(found.absolutePath)
+                                removed += found.absolutePath
+                            }
+                        sourceUri?.let { uri ->
+                            SharedFileResolver.tryResolveFilesystemFile(localizedContext(), uri, displayName)
+                                ?.let { found ->
+                                    removed += runCatching { found.canonicalPath }.getOrDefault(found.absolutePath)
+                                    removed += found.absolutePath
+                                }
+                        }
+                        applyLocalRemovals(removed)
+                    }
+                }
+
+                // Media library + scan off the critical path so the user can browse now.
+                viewModelScope.launch(Dispatchers.IO) {
+                    val extractedItems = collectExtractedItemsShallow(destination, touchNewest = true)
+                    mediaLibraryCache = FileOperations.mergeIncremental(
+                        mediaLibraryCache ?: MediaLibrary(),
+                        extractedItems,
+                    )
+                    if (extractedItems.isNotEmpty()) {
+                        MediaScannerConnection.scanFile(
+                            appContext,
+                            (extractedItems.map { it.path } + destination.absolutePath).toTypedArray(),
+                            null,
+                            null,
+                        )
+                    } else {
+                        scanExtractedFiles(destination)
+                    }
+                }
+
+                val baseMsg = if (written > 0) {
+                    str(R.string.extract_success_toast, written)
+                } else {
+                    str(R.string.extract_empty_toast)
+                }
+                emit(
+                    when {
+                        !deleteOriginal -> baseMsg
+                        deletedOriginal -> "$baseMsg · ${str(R.string.extract_zip_deleted)}"
+                        else -> "$baseMsg · ${str(R.string.extract_zip_delete_failed)}"
+                    },
+                )
+            } catch (e: ZipManager.ZipPasswordException) {
+                // Missing/wrong password: reopen the dialog so the user can retry.
+                emit(e.message ?: str(R.string.zip_wrong_password))
+                _uiState.update {
+                    it.copy(
+                        extractDialog = ExtractZipState(
+                            zipFile = zip,
+                            destination = choice,
+                            destinationDir = preferred,
+                            deleteOriginal = deleteOriginal,
+                            isEncrypted = true,
+                            sourceUri = sourceUri,
+                            displayName = displayName,
+                        ),
+                        progress = null,
+                    )
+                }
+            } catch (e: Exception) {
+                val err = e.message ?: e.javaClass.simpleName
+                emit(str(R.string.extract_fail_toast, err))
+            }
+        }
+    }
+
+    fun dismissExtractResult() {
+        _uiState.update { it.copy(extractResult = null) }
+    }
+
+    fun openExtractResultFolder() {
+        val dest = _uiState.value.extractResult?.destination ?: return
+        _uiState.update { it.copy(extractResult = null) }
+        showExtractedFolder(dest, emptyList())
+    }
+
+    private fun scanExtractedFiles(root: File) {
+        val paths = mutableListOf<String>()
+        fun walk(dir: File, depth: Int) {
+            if (depth > 8) return
+            val children = dir.listFiles() ?: return
+            children.forEach { child ->
+                if (child.isDirectory) walk(child, depth + 1) else paths += child.absolutePath
+            }
+        }
+        if (root.isDirectory) walk(root, 0) else paths += root.absolutePath
+        if (paths.isEmpty()) {
+            MediaScannerConnection.scanFile(appContext, arrayOf(root.absolutePath), null, null)
+        } else {
+            MediaScannerConnection.scanFile(appContext, paths.toTypedArray(), null, null)
+        }
+    }
+
+    /** Open the main Download category page (same as tapping Download on home). */
+    private fun openDownloadCategoryPage() {
+        val downloadsRoot = FileCategory.DOWNLOADS.resolveFolder()
+        if (!downloadsRoot.exists()) downloadsRoot.mkdirs()
+        val cached = mediaLibraryCache?.forCategory(FileCategory.DOWNLOADS).orEmpty()
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                showCloud = false,
+                libraryMode = true,
+                showFavoritesOnly = false,
+                showLargestFiles = false,
+                showDuplicates = false,
+                duplicateGroups = emptyList(),
+                activeCategory = FileCategory.DOWNLOADS,
+                categoryRoot = downloadsRoot,
+                currentDir = downloadsRoot,
+                fileFilter = FileFilter.forCategory(FileCategory.DOWNLOADS),
+                selectionMode = false,
+                selectedPaths = emptySet(),
+                searchQuery = "",
+                searchResults = emptyList(),
+                searchLoading = false,
+                canGoUp = true,
+                extractDialog = null,
+                extractResult = null,
+                items = sortLibraryFiles(cached),
+                mediaAlbums = emptyList(),
+                mediaAlbumId = MediaAlbum.ALL,
+            )
+        }
+    }
+
+    /**
+     * Top-level-only listing for post-extract MediaStore merge — avoids a full tree walk
+     * that could take longer than the extract itself on large archives / SD cards.
+     */
+    private fun collectExtractedItemsShallow(root: File, touchNewest: Boolean): List<FileItem> {
+        val now = System.currentTimeMillis()
+        if (root.isFile) {
+            return listOf(
+                if (touchNewest) {
+                    FileItem(
+                        file = root,
+                        name = root.name,
+                        path = root.absolutePath,
+                        isDirectory = false,
+                        sizeBytes = root.length(),
+                        lastModified = now,
+                    )
+                } else {
+                    FileItem(root)
+                },
+            )
+        }
+        if (!root.isDirectory) return emptyList()
+        val children = root.listFiles() ?: return emptyList()
+        return children.mapNotNull { child ->
+            when {
+                child.isFile -> if (touchNewest) {
+                    FileItem(
+                        file = child,
+                        name = child.name,
+                        path = child.absolutePath,
+                        isDirectory = false,
+                        sizeBytes = child.length(),
+                        lastModified = now,
+                    )
+                } else {
+                    FileItem(child)
+                }
+                else -> null
+            }
+        }
+    }
+
+    /**
+     * After extract: automatically install/open the primary content so the user does not
+     * need a second tap. Priority: APK → PDF → uniform media set → single other file.
+     */
+    private fun autoOpenAfterExtract(destination: File) {
+        val files = listExtractedFilesForAutoOpen(destination)
+        if (files.isEmpty()) return
+        val items = files.map { FileItem(it) }
+
+        items.filter { it.isApk }.maxByOrNull { it.sizeBytes }?.let { apk ->
+            installApkFile(apk.file)
+            return
+        }
+
+        items.firstOrNull { it.isPdf }?.let { pdf ->
+            openViewer(ViewerContent.Pdf(pdf.file))
+            return
+        }
+
+        val images = items.filter { it.isImage }
+        if (images.isNotEmpty() && images.size == items.size) {
+            val list = images.map { it.file }
+            openViewer(ViewerContent.Image(file = list.first(), playlist = list, index = 0))
+            return
+        }
+
+        val videos = items.filter { it.isVideo }
+        if (videos.isNotEmpty() && videos.size == items.size) {
+            val list = videos.map { it.file }
+            openViewer(ViewerContent.Video(file = list.first(), playlist = list, index = 0))
+            return
+        }
+
+        val audios = items.filter { it.isAudio }
+        if (audios.isNotEmpty() && audios.size == items.size) {
+            val list = audios.map { it.file }
+            openViewer(ViewerContent.Video(file = list.first(), playlist = list, index = 0))
+            return
+        }
+
+        if (items.size != 1) return
+        val item = items.first()
+        when {
+            item.isArchive || (item.isApp && !item.isApk) -> openExtractDialog(item.file)
+            item.isDocument || item.isAudio || item.isVideo || item.isImage -> {
+                // Documents (non-PDF) and any leftover single media → system / in-app open.
+                if (item.isImage) {
+                    openViewer(ViewerContent.Image(item.file))
+                } else if (item.isVideo || item.isAudio) {
+                    openViewer(ViewerContent.Video(item.file))
+                } else {
+                    FileActions.openWith(appContext, item.file)
+                }
+            }
+            else -> FileActions.openWith(appContext, item.file)
+        }
+    }
+
+    /** Shallow file list for auto-open (unwraps a single root folder ZIP layout). */
+    private fun listExtractedFilesForAutoOpen(root: File, maxFiles: Int = 48): List<File> {
+        if (root.isFile) return listOf(root)
+        if (!root.isDirectory) return emptyList()
+
+        fun listFilesShallow(dir: File): List<File> {
+            return dir.listFiles()
+                ?.asSequence()
+                ?.filter { !it.name.startsWith(".") }
+                ?.filter { it.isFile }
+                ?.sortedBy { it.name.lowercase() }
+                ?.take(maxFiles)
+                ?.toList()
+                .orEmpty()
+        }
+
+        val topFiles = listFilesShallow(root)
+        if (topFiles.isNotEmpty()) return topFiles
+
+        val topDirs = root.listFiles()
+            ?.filter { it.isDirectory && !it.name.startsWith(".") }
+            .orEmpty()
+        // Common ZIP layout: one wrapper folder containing the real payload.
+        if (topDirs.size == 1) {
+            val nested = listFilesShallow(topDirs.first())
+            if (nested.isNotEmpty()) return nested
+            // One more level for e.g. archive/name/app.apk
+            val deeperDirs = topDirs.first().listFiles()
+                ?.filter { it.isDirectory && !it.name.startsWith(".") }
+                .orEmpty()
+            if (deeperDirs.size == 1) {
+                return listFilesShallow(deeperDirs.first())
+            }
+        }
+        return emptyList()
+    }
+
+    /**
+     * Open the extract destination folder and pin just-extracted files at the top.
+     */
+    private fun showExtractedFolder(destination: File, extracted: List<FileItem>) {
+        val folder = when {
+            destination.isDirectory -> destination
+            destination.parentFile != null -> destination.parentFile!!
+            else -> destination
+        }
+        if (!folder.exists()) folder.mkdirs()
+        val extractedPaths = extracted.mapTo(HashSet(extracted.size)) { it.path }
+        val pinned = extracted
+            .filter { it.file.isFile }
+            .sortedByDescending { it.lastModified }
+        // Avoid a second full directory listing when we already have the extract set;
+        // only list siblings that were already there.
+        val rest = runCatching {
+            FileOperations.listFiles(folder).filter { it.path !in extractedPaths }
+        }.getOrDefault(emptyList())
+        val items = pinned + rest
+
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                showCloud = false,
+                libraryMode = false,
+                showFavoritesOnly = false,
+                showLargestFiles = false,
+                showDuplicates = false,
+                activeCategory = null,
+                categoryRoot = null,
+                currentDir = folder,
+                fileFilter = FileFilter.ALL,
+                items = items,
+                progress = null,
+                canGoUp = true,
+                extractDialog = null,
+                extractResult = null,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+                mediaAlbums = emptyList(),
+                mediaAlbumId = MediaAlbum.ALL,
+                searchQuery = "",
+                searchResults = emptyList(),
+                searchLoading = false,
+            )
+        }
+        // Persist cache off the critical path.
+        mediaLibraryCache?.let { library ->
+            viewModelScope.launch(Dispatchers.IO) {
+                persistHomeSnapshot(
+                    library = library,
+                    categories = FileOperations.getCategorySummaries(library, appContext),
+                    recentFiles = library.images.take(12),
+                    storage = _uiState.value.storageInfo ?: FileOperations.getStorageInfo(),
+                )
+            }
+        }
+    }
+
+    /**
+     * Refresh Download library list and pin just-extracted files at the top.
+     */
+    private fun showDownloadListWithExtractedOnTop(extracted: List<FileItem>) {
+        val downloadsRoot = FileCategory.DOWNLOADS.resolveFolder()
+        // We already know every extracted path; upsert those exact rows instead of
+        // rescanning the device after extraction.
+        val baseline = mediaLibraryCache
+            ?: MediaLibraryCache.load(appContext)
+            ?: MediaLibrary()
+        val library = FileOperations.mergeIncremental(baseline, extracted)
+            .also { mediaLibraryCache = it }
+        val downloads = library.forCategory(FileCategory.DOWNLOADS)
+        val extractedPaths = extracted.map { it.path }.toHashSet()
+        // Prefer freshly built FileItem instances (touched timestamps) for the pin.
+        val pinned = extracted
+            .filter { it.file.exists() && it.file.isFile }
+            .sortedByDescending { it.lastModified }
+        val rest = downloads.filter { it.path !in extractedPaths }
+        val items = pinned + rest
+
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                showCloud = false,
+                libraryMode = true,
+                showFavoritesOnly = false,
+                showLargestFiles = false,
+                showDuplicates = false,
+                activeCategory = FileCategory.DOWNLOADS,
+                categoryRoot = downloadsRoot,
+                currentDir = downloadsRoot,
+                fileFilter = FileFilter.forCategory(FileCategory.DOWNLOADS),
+                items = items,
+                progress = null,
+                canGoUp = true,
+                extractDialog = null,
+                extractResult = null,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+                mediaAlbums = emptyList(),
+                mediaAlbumId = MediaAlbum.ALL,
+            )
+        }
+        persistHomeSnapshot(
+            library = library,
+            categories = FileOperations.getCategorySummaries(library, appContext),
+            recentFiles = library.images.take(12),
+            storage = FileOperations.getStorageInfo(),
+        )
+    }
+
+    /** Kept for call sites that previously opened the extract folder. */
+    @Suppress("UNUSED_PARAMETER")
+    private fun openFolderAfterExtract(dir: File) {
+        openDownloadCategoryPage()
+    }
+
+    fun goUp() {
+        val state = _uiState.value
+        if (state.showDuplicates) {
+            closeDuplicates()
+            return
+        }
+        if (state.showFavoritesOnly || state.showLargestFiles || state.libraryMode) {
+            goHome()
+            return
+        }
+        val dir = state.currentDir
+        val categoryRoot = state.categoryRoot
+
+        val atCategoryRoot = categoryRoot != null && FileOperations.samePath(dir, categoryRoot)
+        val atStorageRoot = FileOperations.samePath(dir, root)
+        val atVolumeRoot = state.storageVolumes.any { volume ->
+            val volumeRoot = volume.root ?: return@any false
+            FileOperations.samePath(dir, volumeRoot)
+        }
+
+        if (atCategoryRoot || atStorageRoot || atVolumeRoot) {
+            if (state.explorerMode) {
+                openExplorer()
+            } else {
+                goHome()
+            }
+            return
+        }
+
+        val parent = dir.parentFile
+        if (parent == null || !parent.exists()) {
+            if (state.explorerMode) {
+                openExplorer()
+            } else {
+                goHome()
+            }
+            return
+        }
+
+        _uiState.update {
+            it.copy(
+                currentDir = parent,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+            )
+        }
+        refresh()
+    }
+
+    fun navigateTo(path: File) {
+        if (!path.exists() || !path.isDirectory) return
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                showExplorerRoots = false,
+                currentDir = path,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+            )
+        }
+        refresh()
+    }
+
+    fun toggleSelectionMode() {
+        _uiState.update {
+            if (it.selectionMode) {
+                it.copy(selectionMode = false, selectedPaths = emptySet())
+            } else {
+                it.copy(selectionMode = true)
+            }
+        }
+    }
+
+    fun toggleSelect(item: FileItem) {
+        _uiState.update { state ->
+            val next = state.selectedPaths.toMutableSet()
+            if (!next.add(item.path)) next.remove(item.path)
+            state.copy(
+                selectionMode = true,
+                selectedPaths = next,
+            )
+        }
+    }
+
+    fun selectAll() {
+        _uiState.update { state ->
+            state.copy(
+                selectionMode = true,
+                selectedPaths = state.items.map { it.path }.toSet(),
+            )
+        }
+    }
+
+    fun clearSelection() {
+        _uiState.update { it.copy(selectionMode = false, selectedPaths = emptySet()) }
+    }
+
+    fun copySelected() = putClipboard(ClipboardMode.COPY)
+
+    fun cutSelected() = putClipboard(ClipboardMode.CUT)
+
+    fun clearClipboard() {
+        _uiState.update { it.copy(clipboard = null) }
+    }
+
+    fun resolvePasteTarget(state: BrowserUiState = _uiState.value): File? =
+        state.resolvePasteTargetDir()
+
+    private fun putClipboard(mode: ClipboardMode) {
+        val files = selectedFiles()
+        if (files.isEmpty()) {
+            emit(str(R.string.select_files_first))
+            return
+        }
+        _uiState.update {
+            it.copy(
+                clipboard = ClipboardState(mode, files),
+                selectionMode = false,
+                selectedPaths = emptySet(),
+            )
+        }
+        emit(
+            if (mode == ClipboardMode.COPY) str(R.string.clipboard_copied, files.size)
+            else str(R.string.clipboard_cut, files.size)
+        )
+    }
+
+    fun paste() {
+        val state = _uiState.value
+        val clipboard = state.clipboard
+        if (clipboard == null) {
+            emit(str(R.string.clipboard_empty))
+            return
+        }
+        val targetDir = state.resolvePasteTargetDir()
+        if (targetDir == null) {
+            emit(
+                if (state.needsAlbumPickForPaste()) {
+                    str(R.string.paste_pick_album)
+                } else {
+                    str(R.string.paste_need_folder)
+                },
+            )
+            return
+        }
+        if (clipboard.mode == ClipboardMode.CUT) {
+            val targetCanonical = runCatching { targetDir.canonicalFile }.getOrElse { targetDir }
+            val allAlreadyHere = clipboard.items.all { file ->
+                val parent = file.parentFile ?: return@all false
+                runCatching { parent.canonicalFile }.getOrElse { parent } == targetCanonical
+            }
+            if (allAlreadyHere) {
+                emit(str(R.string.paste_same_folder_cut))
+                return
+            }
+        }
+        val moving = clipboard.mode == ClipboardMode.CUT
+        val title = str(R.string.progress_pasting)
+        val busy = if (moving) str(R.string.progress_moving) else str(R.string.progress_copying)
+        val sourcePaths = clipboard.items.mapTo(LinkedHashSet()) { file ->
+            runCatching { file.canonicalPath }.getOrDefault(file.absolutePath)
+        }
+        // Hide Tempel/Pindah immediately on tap (copy and cut).
+        _uiState.update { it.copy(clipboard = null) }
+        // No full refreshAfter — patch the visible list locally when paste finishes.
+        runJob(title, busy, refreshAfter = false) {
+            val result = FileOperations.paste(
+                localizedContext(),
+                clipboard,
+                targetDir,
+            ) { progress, name ->
+                updateProgressThrottled(title, name, progress)
+            }
+            when (result) {
+                is OperationResult.Success -> {
+                    val added = result.files.map { FileItem(it) }
+                    withContext(Dispatchers.Main) {
+                        if (moving) applyLocalRemovals(sourcePaths)
+                        mediaLibraryCache = FileOperations.mergeIncremental(
+                            mediaLibraryCache ?: MediaLibrary(),
+                            added,
+                        )
+                        applyLocalPasteAdditions(targetDir, added)
+                    }
+                    mediaLibraryCache?.let(::scheduleIncrementalCacheSave)
+                    emit(result.message)
+                }
+                is OperationResult.Error -> emit(result.message)
+            }
+        }
+    }
+
+    fun deleteSelected() {
+        val files = selectedFiles()
+        if (files.isEmpty()) {
+            emit(str(R.string.select_files_first))
+            return
+        }
+        val removedPaths = files.mapTo(LinkedHashSet()) { file ->
+            runCatching { file.canonicalPath }.getOrDefault(file.absolutePath)
+        }
+        // Instant UI: drop rows immediately — never runJob→refresh (that shows
+        // "Memuat Download…" / full-library search overlay).
+        applyLocalRemovals(removedPaths)
+
+        activeJob?.cancel()
+        activeJob = viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    FileOperations.deleteRecursively(localizedContext(), files)
+                }
+                when (result) {
+                    is OperationResult.Success -> emit(result.message)
+                    is OperationResult.Error -> emit(result.message)
+                }
+                // UI/cache were already patched synchronously; persist without rescanning.
+                mediaLibraryCache?.let(::scheduleIncrementalCacheSave)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                emit(str(R.string.cancelled))
+                throw e
+            } finally {
+                _uiState.update { it.copy(progress = null) }
+                if (activeJob === this) activeJob = null
+            }
+        }
+    }
+
+    /**
+     * Instantly drop deleted paths from the visible list and in-memory library cache
+     * so the UI updates without a full device scan.
+     */
+    private fun applyLocalRemovals(removedPaths: Set<String>) {
+        if (removedPaths.isEmpty()) return
+        // Exact path set first; only fall back to prefix checks for folder deletes.
+        val exact = HashSet<String>(removedPaths.size * 2)
+        val folderPrefixes = ArrayList<String>(2)
+        removedPaths.forEach { path ->
+            exact.add(path)
+            runCatching { File(path).canonicalPath }.getOrNull()?.let(exact::add)
+            val asFile = File(path)
+            if (asFile.isDirectory || path.endsWith(File.separator)) {
+                val prefix = path.trimEnd(File.separatorChar) + File.separator
+                folderPrefixes += prefix
+                runCatching { asFile.canonicalPath }.getOrNull()?.let {
+                    folderPrefixes += it.trimEnd(File.separatorChar) + File.separator
+                }
+            }
+        }
+        fun gone(path: String): Boolean {
+            if (path in exact) return true
+            if (folderPrefixes.isEmpty()) return false
+            return folderPrefixes.any { path.startsWith(it) }
+        }
+        mediaLibraryCache = mediaLibraryCache?.let { library ->
+            MediaLibrary(
+                downloads = library.downloads.filterNot { gone(it.path) },
+                images = library.images.filterNot { gone(it.path) },
+                videos = library.videos.filterNot { gone(it.path) },
+                documents = library.documents.filterNot { gone(it.path) },
+                archives = library.archives.filterNot { gone(it.path) },
+                apps = library.apps.filterNot { gone(it.path) },
+                audio = library.audio.filterNot { gone(it.path) },
+                others = library.others.filterNot { gone(it.path) },
+            )
+        }
+        val patchedLibrary = mediaLibraryCache
+        var savedRecent: List<FileItem> = emptyList()
+        _uiState.update { state ->
+            val nextItems = state.items.filterNot { gone(it.path) }
+            // Keep recent strip full: drop deleted, then top up from remaining images.
+            // Avoid File.exists() here — pool may be thousands of entries on the UI thread.
+            val keptRecent = state.recentFiles.filterNot { gone(it.path) }
+            val nextRecent = refillRecentPhotos(keptRecent, patchedLibrary?.images.orEmpty(), verifyExists = false)
+            savedRecent = nextRecent
+            val nextCategories = if (patchedLibrary != null) {
+                FileOperations.getCategorySummaries(patchedLibrary, appContext)
+            } else {
+                state.categorySummaries
+            }
+            state.copy(
+                items = nextItems,
+                recentFiles = nextRecent,
+                categorySummaries = nextCategories,
+                selectedPaths = emptySet(),
+                selectionMode = false,
+                progress = null,
+            )
+        }
+        if (savedRecent.isNotEmpty() || patchedLibrary != null) {
+            prefs.saveRecentPhotoPaths(savedRecent.map { it.path })
+        }
+    }
+
+    /** Fill up to 12 recent photos from [pool], preferring [preferred] order first. */
+    private fun refillRecentPhotos(
+        preferred: List<FileItem>,
+        pool: List<FileItem>,
+        verifyExists: Boolean = true,
+    ): List<FileItem> {
+        val existingPreferred = if (verifyExists) {
+            preferred.filter { it.file.exists() && it.file.isFile }
+        } else {
+            preferred
+        }
+        if (existingPreferred.size >= 12) return existingPreferred.take(12)
+        val seen = existingPreferred.mapTo(HashSet(16)) { it.path }
+        val extras = pool.asSequence()
+            .filter { item ->
+                item.path !in seen && (!verifyExists || (item.file.exists() && item.file.isFile))
+            }
+            .onEach { seen.add(it.path) }
+            .take(12 - existingPreferred.size)
+            .toList()
+        return existingPreferred + extras
+    }
+
+    /**
+     * Drop image paths that no longer exist and refill recent / Images tab
+     * with the newest remaining photos (avoids long gray "missing" placeholders).
+     */
+    fun reportMissingImage(path: String) {
+        if (path.isBlank()) return
+        reportMissingImages(listOf(path))
+    }
+
+    private val pendingMissingPaths = LinkedHashSet<String>()
+    private var missingFlushJob: Job? = null
+
+    fun reportMissingImages(paths: Collection<String>) {
+        val cleaned = paths.map { it.trim() }.filter { it.isNotEmpty() }
+        if (cleaned.isEmpty()) return
+        synchronized(pendingMissingPaths) {
+            pendingMissingPaths.addAll(cleaned)
+        }
+        // Coalesce Coil / grid reports so one IO pass handles a burst of failures.
+        missingFlushJob?.cancel()
+        missingFlushJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(120)
+            val batch = synchronized(pendingMissingPaths) {
+                val copy = pendingMissingPaths.toList()
+                pendingMissingPaths.clear()
+                copy
+            }
+            if (batch.isEmpty()) return@launch
+            val confirmed = batch.filter { path ->
+                val file = File(path)
+                !file.exists() || !file.isFile
+            }.toSet()
+            if (confirmed.isEmpty()) return@launch
+            withContext(Dispatchers.Main) {
+                applyLocalRemovals(confirmed)
+            }
+        }
+    }
+
+    private var pruneJob: Job? = null
+
+    private fun pruneMissingImagesAndRefill(priorityPaths: Set<String> = emptySet()) {
+        pruneJob?.cancel()
+        pruneJob = viewModelScope.launch(Dispatchers.IO) {
+            val library = mediaLibraryCache
+                ?: MediaLibraryCache.load(appContext, allowStale = true)
+                ?: return@launch
+            fun keepExisting(list: List<FileItem>): List<FileItem> =
+                list.filter { item ->
+                    if (item.path in priorityPaths) return@filter false
+                    item.file.exists() && item.file.isFile
+                }
+
+            // Only touch images/videos — other categories don't need exists() sweeps.
+            val prunedImages = keepExisting(library.images)
+            val prunedVideos = keepExisting(library.videos)
+            val imagesChanged = prunedImages.size != library.images.size
+            val videosChanged = prunedVideos.size != library.videos.size
+            val nextLibrary = if (imagesChanged || videosChanged) {
+                library.copy(images = prunedImages, videos = prunedVideos)
+                    .also { mediaLibraryCache = it }
+            } else {
+                library.also { if (mediaLibraryCache == null) mediaLibraryCache = it }
+            }
+            val recent = refillRecentPhotos(
+                preferred = _uiState.value.recentFiles,
+                pool = nextLibrary.images,
+                verifyExists = true,
+            )
+            val categories = if (imagesChanged || videosChanged) {
+                FileOperations.getCategorySummaries(nextLibrary, appContext)
+            } else {
+                null
+            }
+            val active = _uiState.value.activeCategory
+            val albumId = _uiState.value.mediaAlbumId
+            val nextImageItems = if (active == FileCategory.IMAGES) {
+                sortLibraryFiles(MediaAlbum.filter(nextLibrary.images, albumId))
+            } else {
+                null
+            }
+            val nextVideoItems = if (active == FileCategory.VIDEOS) {
+                sortLibraryFiles(MediaAlbum.filter(nextLibrary.videos, albumId))
+            } else {
+                null
+            }
+            withContext(Dispatchers.Main) {
+                _uiState.update { state ->
+                    state.copy(
+                        recentFiles = recent,
+                        items = when {
+                            nextImageItems != null &&
+                                state.libraryMode &&
+                                state.activeCategory == FileCategory.IMAGES -> nextImageItems
+                            nextVideoItems != null &&
+                                state.libraryMode &&
+                                state.activeCategory == FileCategory.VIDEOS -> nextVideoItems
+                            else -> state.items
+                        },
+                        categorySummaries = categories ?: state.categorySummaries,
+                    )
+                }
+            }
+            prefs.saveRecentPhotoPaths(recent.map { it.path })
+            if (categories != null) {
+                persistHomeSnapshot(
+                    library = nextLibrary,
+                    categories = categories,
+                    recentFiles = recent,
+                    storage = _uiState.value.storageInfo ?: FileOperations.getStorageInfo(),
+                )
+            }
+        }
+    }
+
+    /**
+     * Pin just-pasted files at the top of the destination folder list without a full rescan.
+     */
+    private fun applyLocalPasteAdditions(destinationDir: File, added: List<FileItem>) {
+        if (added.isEmpty()) return
+        val dest = runCatching { destinationDir.canonicalFile }.getOrDefault(destinationDir)
+        _uiState.update { state ->
+            val current = runCatching { state.currentDir.canonicalFile }.getOrDefault(state.currentDir)
+            if (!FileOperations.samePath(current, dest)) {
+                return@update state.copy(progress = null)
+            }
+            val addedPaths = added.mapTo(HashSet(added.size)) { it.path }
+            val pinned = added.sortedByDescending { it.lastModified }
+            val rest = state.items.filter { it.path !in addedPaths }
+            val library = mediaLibraryCache
+            state.copy(
+                items = pinned + rest,
+                recentFiles = (added.filter { it.file.isFile } + state.recentFiles)
+                    .distinctBy { it.path }
+                    .take(12),
+                categorySummaries = if (library != null) {
+                    FileOperations.getCategorySummaries(library, appContext)
+                } else {
+                    state.categorySummaries
+                },
+                progress = null,
+            )
+        }
+    }
+
+    fun createFolder(name: String) {
+        val result = FileOperations.createFolder(localizedContext(), _uiState.value.currentDir, name)
+        handleResult(result)
+        if (result is OperationResult.Success) refresh()
+    }
+
+    fun renameSelected(newName: String) {
+        val file = selectedFiles().singleOrNull()
+        if (file == null) {
+            emit(str(R.string.select_one_rename))
+            return
+        }
+        val result = FileOperations.rename(localizedContext(), file, newName)
+        handleResult(result)
+        if (result is OperationResult.Success) {
+            clearSelection()
+            refresh()
+        }
+    }
+
+    fun createZip(zipName: String, bestCompression: Boolean, password: String? = null) {
+        val sources = selectedFiles().ifEmpty {
+            emit(str(R.string.select_for_zip))
+            return
+        }
+        val safeName = zipName.trim().let { if (it.endsWith(".zip", true)) it else "$it.zip" }
+        val destination = FileOperations.uniqueName(File(_uiState.value.currentDir, safeName))
+        val level = if (bestCompression) Deflater.BEST_COMPRESSION else Deflater.DEFAULT_COMPRESSION
+        val pass = password?.takeIf { it.isNotBlank() }
+
+        runJob(str(R.string.progress_creating_zip), destination.name) {
+            try {
+                ZipManager.createZip(localizedContext(), sources, destination, level, password = pass) { progress, name ->
+                    updateProgress(str(R.string.progress_creating_zip), name, progress)
+                }
+                _uiState.update { it.copy(selectionMode = false, selectedPaths = emptySet()) }
+                invalidateMediaLibraryCache()
+                emit(
+                    if (pass != null) str(R.string.zip_created_encrypted, destination.name)
+                    else str(R.string.zip_created, destination.name)
+                )
+                refresh()
+            } catch (e: Exception) {
+                emit(str(R.string.zip_create_failed, e.message ?: str(R.string.error_generic)))
+            }
+        }
+    }
+
+    fun extractSelected() {
+        val zip = selectedFiles().singleOrNull { it.isFile && FileItem(it).isArchive }
+            ?: selectedFiles().singleOrNull()?.takeIf { FileItem(it).isArchive }
+        if (zip == null) {
+            emit(str(R.string.select_one_zip_extract))
+            return
+        }
+        openExtractDialog(zip)
+    }
+
+    fun extractZipFile(
+        zip: File,
+        sourceUri: android.net.Uri? = null,
+        displayName: String? = null,
+    ) {
+        if (!zip.exists()) {
+            emit(str(R.string.zip_not_found))
+            return
+        }
+        // Don't navigate into app cache when Chrome/share handed us a temp copy.
+        if (!SharedFileResolver.isAppCacheFile(zip)) {
+            navigateTo(zip.parentFile ?: root)
+        }
+        openExtractDialog(zip, sourceUri = sourceUri, displayName = displayName)
+    }
+
+    fun toggleSort() {
+        _uiState.update { it.copy(sortNewestFirst = !it.sortNewestFirst) }
+        refresh()
+    }
+
+    private fun selectedFiles(): List<File> {
+        val paths = _uiState.value.selectedPaths
+        return _uiState.value.items
+            .filter { it.path in paths && !it.isInstalledApp }
+            .map { it.file }
+    }
+
+    private fun selectedInstalledApps(): List<FileItem> {
+        val paths = _uiState.value.selectedPaths
+        return _uiState.value.items.filter { it.path in paths && it.isInstalledApp }
+    }
+
+    private fun runJob(
+        title: String,
+        message: String,
+        refreshAfter: Boolean = true,
+        block: suspend () -> Unit,
+    ) {
+        activeJob?.cancel()
+        activeJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(progress = ProgressState(title, message, indeterminate = true))
+            }
+            try {
+                withContext(Dispatchers.IO) { block() }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                emit(str(R.string.cancelled))
+                throw e
+            } finally {
+                _uiState.update { it.copy(progress = null) }
+                if (activeJob === this) {
+                    activeJob = null
+                }
+                if (refreshAfter) {
+                    refresh()
+                }
+            }
+        }
+    }
+
+    fun cancelActiveJob() {
+        activeJob?.cancel()
+        activeJob = null
+        _uiState.update { it.copy(progress = null) }
+        emit(str(R.string.operation_cancelled))
+    }
+
+    private var lastProgressUiMs: Long = 0L
+
+    private fun updateProgress(title: String, message: String, progress: Float) {
+        _uiState.update {
+            it.copy(
+                progress = ProgressState(
+                    title = title,
+                    message = message,
+                    indeterminate = false,
+                    progress = progress.coerceIn(0f, 1f),
+                ),
+            )
+        }
+    }
+
+    /** Limit Compose recompositions during extract (~4 fps is enough for a progress bar). */
+    private fun updateProgressThrottled(title: String, message: String, progress: Float) {
+        val now = SystemClock.elapsedRealtime()
+        if (progress < 1f && now - lastProgressUiMs < 250L) return
+        lastProgressUiMs = now
+        updateProgress(title, message, progress)
+    }
+
+    fun setExtractDestination(dir: File) {
+        val current = _uiState.value.extractDialog ?: return
+        if (!dir.exists()) dir.mkdirs()
+        _uiState.update {
+            it.copy(
+                extractDialog = current.copy(
+                    destinationDir = dir,
+                    destination = ExtractDestination.SAME_FOLDER,
+                ),
+            )
+        }
+    }
+
+    fun shareSelected(context: Context) {
+        val apps = selectedInstalledApps()
+        if (apps.isNotEmpty()) {
+            shareSelectedApps(context)
+            return
+        }
+        val files = selectedFiles()
+        if (files.isEmpty()) {
+            emit(str(R.string.select_one_share))
+            return
+        }
+        if (!FileActions.shareFiles(context, files)) {
+            emit(str(R.string.share_failed))
+        }
+    }
+
+    /** True when selection is only PDF files — password share uses PDF encryption. */
+    fun selectionUsesPdfPassword(): Boolean {
+        val files = selectedFiles()
+        return files.isNotEmpty() && files.all { it.isFile && FileItem(it).isPdf }
+    }
+
+    /**
+     * Share with password:
+     * - PDF only → encrypt each PDF (native PDF password)
+     * - anything else → one encrypted ZIP
+     */
+    fun shareSelectedWithPassword(context: Context, password: String) {
+        val pass = password.trim()
+        if (pass.isEmpty()) {
+            emit(str(R.string.share_password_required))
+            return
+        }
+        if (selectedInstalledApps().isNotEmpty()) {
+            emit(str(R.string.share_password_apps_unsupported))
+            return
+        }
+        val files = selectedFiles()
+        if (files.isEmpty()) {
+            emit(str(R.string.select_one_share))
+            return
+        }
+        val usePdf = selectionUsesPdfPassword()
+        val title = str(R.string.share_password_preparing)
+        runJob(title, if (usePdf) str(R.string.progress_pdf_encrypt) else str(R.string.progress_creating_zip), refreshAfter = false) {
+            try {
+                val toShare = if (usePdf) {
+                    val total = files.size.coerceAtLeast(1)
+                    files.mapIndexed { index, file ->
+                        updateProgress(title, file.name, (index + 1f) / total)
+                        PdfPasswordHelper.encryptToCache(localizedContext(), file, pass)
+                    }
+                } else {
+                    val zipDir = File(appContext.cacheDir, "share_zip").also { it.mkdirs() }
+                    val base = when {
+                        files.size == 1 -> {
+                            val n = files.first().name
+                            if (n.contains('.')) n.substringBeforeLast('.') else n
+                        }
+                        else -> "shared-${files.size}"
+                    }.ifBlank { "shared" }
+                    val destination = FileOperations.uniqueName(File(zipDir, "$base.zip"))
+                    ZipManager.createZip(
+                        localizedContext(),
+                        files,
+                        destination,
+                        password = pass,
+                    ) { progress, name ->
+                        updateProgress(title, name, progress)
+                    }
+                    listOf(destination)
+                }
+                val shared = withContext(Dispatchers.Main) {
+                    FileActions.shareFiles(context, toShare)
+                }
+                if (!shared) {
+                    emit(str(R.string.share_failed))
+                    return@runJob
+                }
+                _uiState.update { it.copy(selectionMode = false, selectedPaths = emptySet()) }
+                emit(
+                    if (usePdf) str(R.string.share_password_done_pdf, toShare.size)
+                    else str(R.string.share_password_done_zip, toShare.first().name),
+                )
+            } catch (e: Exception) {
+                emit(e.message?.takeIf { it.isNotBlank() } ?: str(R.string.share_password_failed))
+            }
+        }
+    }
+
+    fun shareSelectedApps(context: Context) {
+        val apps = selectedInstalledApps()
+        if (apps.isEmpty()) {
+            emit(str(R.string.select_one_share))
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(progress = ProgressState(str(R.string.app_share_preparing), apps.first().name))
+            }
+            val staged = withContext(Dispatchers.IO) {
+                InstalledApps.stageApksForShare(context, apps)
+            }
+            _uiState.update { it.copy(progress = null) }
+            if (staged.isEmpty()) {
+                emit(str(R.string.app_share_failed))
+                return@launch
+            }
+            if (!FileActions.shareFiles(context, staged)) {
+                emit(str(R.string.share_failed))
+            }
+        }
+    }
+
+    fun compressSelectedApps() {
+        val apps = selectedInstalledApps()
+        if (apps.isEmpty()) {
+            emit(str(R.string.select_files_first))
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    progress = ProgressState(
+                        str(R.string.app_compress_preparing),
+                        str(R.string.progress_creating_zip),
+                    ),
+                )
+            }
+            val zip = withContext(Dispatchers.IO) {
+                val base = if (apps.size == 1) {
+                    apps.first().name.ifBlank { "app" }
+                } else {
+                    "apps-${apps.size}"
+                }
+                InstalledApps.compressApks(appContext, apps, base)
+            }
+            _uiState.update { it.copy(progress = null, selectionMode = false, selectedPaths = emptySet()) }
+            if (zip == null) {
+                emit(str(R.string.app_compress_failed))
+            } else {
+                emit(str(R.string.app_compress_done, zip.name))
+            }
+        }
+    }
+
+    fun uninstallSelectedApps() {
+        val apps = selectedInstalledApps()
+        if (apps.isEmpty()) {
+            emit(str(R.string.select_files_first))
+            return
+        }
+        val target = apps.firstOrNull { it.packageName != appContext.packageName }
+        val pkg = target?.packageName
+        if (pkg == null) {
+            emit(str(R.string.app_uninstall_self))
+            return
+        }
+        if (!InstalledApps.uninstall(appContext, pkg)) {
+            emit(str(R.string.app_uninstall_failed))
+            return
+        }
+        clearSelection()
+        emit(str(R.string.app_uninstall_started, target.name))
+    }
+
+    fun openWithSelected(context: Context) {
+        val file = selectedFiles().singleOrNull()
+        if (file == null) {
+            emit(str(R.string.select_one_open))
+            return
+        }
+        if (FileItem(file).isApk) {
+            installApkFile(file)
+            return
+        }
+        if (!FileActions.openWith(context, file)) {
+            emit(str(R.string.open_with_failed))
+        }
+    }
+
+    fun showFileDetails(item: FileItem) {
+        _uiState.update { it.copy(fileDetails = item) }
+    }
+
+    fun showSelectedDetails() {
+        val item = _uiState.value.items.firstOrNull { it.path in _uiState.value.selectedPaths }
+        if (item == null) {
+            emit(str(R.string.select_one_details))
+            return
+        }
+        showFileDetails(item)
+    }
+
+    fun closeFileDetails() {
+        _uiState.update { it.copy(fileDetails = null) }
+    }
+
+    fun openParentOfDetails() {
+        val item = _uiState.value.fileDetails ?: return
+        if (item.isInstalledApp) {
+            val pkg = item.packageName ?: return
+            closeFileDetails()
+            if (!InstalledApps.openAppInfo(appContext, pkg)) {
+                emit(str(R.string.launch_app_failed))
+            }
+            return
+        }
+        val parent = item.file.parentFile ?: return
+        closeFileDetails()
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                libraryMode = false,
+                showFavoritesOnly = false,
+                showLargestFiles = false,
+                activeCategory = null,
+                categoryRoot = null,
+                currentDir = parent,
+                fileFilter = FileFilter.ALL,
+            )
+        }
+        refresh()
+    }
+
+    fun toggleFavorite(path: String) {
+        val nowFavorite = prefs.toggleFavorite(path)
+        _uiState.update { it.copy(favoritePaths = prefs.getFavoritePaths()) }
+        emit(if (nowFavorite) str(R.string.favorite_added) else str(R.string.favorite_removed))
+    }
+
+    fun toggleFavoriteSelected() {
+        val path = _uiState.value.selectedPaths.singleOrNull()
+        if (path == null) {
+            emit(str(R.string.select_one_favorite))
+            return
+        }
+        toggleFavorite(path)
+    }
+
+    fun openFavorites() {
+        _uiState.update {
+            it.copy(
+                showHome = false,
+                libraryMode = false,
+                showFavoritesOnly = true,
+                showLargestFiles = false,
+                activeCategory = null,
+                categoryRoot = null,
+                currentDir = root,
+                fileFilter = FileFilter.ALL,
+                items = emptyList(),
+                canGoUp = true,
+                selectionMode = false,
+                selectedPaths = emptySet(),
+                progress = null,
+            )
+        }
+        viewModelScope.launch {
+            val items = withContext(Dispatchers.IO) {
+                prefs.getFavoritePaths().mapNotNull { path ->
+                    val file = File(path)
+                    if (file.exists()) FileItem(file) else null
+                }.sortedByDescending { it.lastModified }
+            }
+            if (!_uiState.value.showFavoritesOnly) return@launch
+            _uiState.update { it.copy(items = items) }
+        }
+    }
+
+    /** Storage cleanup tool: show the biggest files on the device so the user can delete them. */
+    fun openLargestFiles() {
+        activeJob?.cancel()
+        activeJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    progress = ProgressState(str(R.string.largest_files), str(R.string.progress_scanning), indeterminate = true),
+                )
+            }
+            try {
+                val items = withContext(Dispatchers.IO) {
+                    val library = obtainMediaLibrary(forceRefresh = false)
+                    (
+                        library.downloads + library.images + library.videos +
+                            library.documents + library.archives + library.apps +
+                            library.audio + library.others
+                        )
+                        .distinctBy { it.path }
+                        .filter { !it.isDirectory && it.sizeBytes > 0L }
+                        .sortedByDescending { it.sizeBytes }
+                        .take(150)
+                }
+                _uiState.update {
+                    it.copy(
+                        showHome = false,
+                        showCloud = false,
+                        libraryMode = false,
+                        showFavoritesOnly = false,
+                        showDuplicates = false,
+                        showLargestFiles = true,
+                        activeCategory = null,
+                        categoryRoot = null,
+                        fileFilter = FileFilter.ALL,
+                        items = items,
+                        canGoUp = true,
+                        selectionMode = false,
+                        selectedPaths = emptySet(),
+                        mediaAlbums = emptyList(),
+                        mediaAlbumId = MediaAlbum.ALL,
+                        searchQuery = "",
+                        searchResults = emptyList(),
+                        searchLoading = false,
+                        progress = null,
+                    )
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                emit(e.message ?: str(R.string.error_generic))
+            } finally {
+                _uiState.update { it.copy(progress = null) }
+                if (activeJob === this) activeJob = null
+            }
+        }
+    }
+
+    fun setThemeMode(mode: ThemeMode) {
+        prefs.setThemeMode(mode)
+        _uiState.update { it.copy(themeMode = mode) }
+    }
+
+    fun setAppLanguage(language: AppLanguage) {
+        prefs.setAppLanguage(language)
+        prefs.setLanguageChosen(true)
+        _uiState.update {
+            it.copy(
+                appLanguage = language,
+                languageChosen = true,
+            )
+        }
+        LocaleHelper.apply(language)
+    }
+
+    fun setLibrarySubFilter(filter: LibrarySubFilter) {
+        _uiState.update { it.copy(librarySubFilter = filter) }
+        val category = _uiState.value.activeCategory
+        val cached = mediaLibraryCache
+        if (category == null || cached == null || !_uiState.value.libraryMode) return
+        viewModelScope.launch(Dispatchers.Default) {
+            val base = cached.forCategory(category)
+            val filtered = if (category == FileCategory.DOCUMENTS) {
+                base.filter { filter.matches(it) }
+            } else {
+                base
+            }
+            val sorted = sortLibraryFiles(filtered)
+            if (_uiState.value.activeCategory != category) return@launch
+            _uiState.update { it.copy(items = sorted) }
+        }
+    }
+
+    fun setAppSubFilter(filter: AppSubFilter) {
+        _uiState.update {
+            it.copy(
+                appSubFilter = filter,
+                selectedPaths = emptySet(),
+                selectionMode = false,
+            )
+        }
+        if (_uiState.value.activeCategory != FileCategory.APPS || !_uiState.value.libraryMode) {
+            return
+        }
+        viewModelScope.launch(Dispatchers.Default) {
+            val source = installedAppsCache.ifEmpty {
+                withContext(Dispatchers.IO) {
+                    InstalledApps.list(appContext).also { installedAppsCache = it }
+                }
+            }
+            val filtered = InstalledApps.filter(source, filter)
+            if (_uiState.value.activeCategory != FileCategory.APPS) return@launch
+            _uiState.update { it.copy(items = filtered) }
+        }
+    }
+
+    fun setMediaAlbum(albumId: String) {
+        val state = _uiState.value
+        val category = state.activeCategory
+        if (!state.libraryMode || (category != FileCategory.IMAGES && category != FileCategory.VIDEOS)) {
+            return
+        }
+        // Update selection immediately for responsive chips; filter list off the UI thread.
+        _uiState.update {
+            it.copy(
+                mediaAlbumId = albumId,
+                selectedPaths = emptySet(),
+                selectionMode = false,
+            )
+        }
+        viewModelScope.launch(Dispatchers.Default) {
+            val source = when (category) {
+                FileCategory.IMAGES -> mediaLibraryCache?.images ?: state.items.filter { it.isImage }
+                FileCategory.VIDEOS -> mediaLibraryCache?.videos ?: state.items.filter { it.isVideo }
+                else -> return@launch
+            }
+            val albums = MediaAlbum.buildChips(source).ifEmpty { state.mediaAlbums }
+            val selected = MediaAlbum.sanitizeSelection(albumId, albums)
+            val sorted = sortLibraryFiles(MediaAlbum.filter(source, selected))
+            if (_uiState.value.activeCategory != category || !_uiState.value.libraryMode) {
+                return@launch
+            }
+            _uiState.update {
+                it.copy(
+                    mediaAlbumId = selected,
+                    mediaAlbums = albums,
+                    items = sorted,
+                )
+            }
+        }
+    }
+
+    fun findDuplicates() {
+        activeJob?.cancel()
+        activeJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    progress = ProgressState(str(R.string.progress_duplicates), str(R.string.progress_scanning), indeterminate = true),
+                )
+            }
+            try {
+                val groups = withContext(Dispatchers.IO) {
+                    val library = obtainMediaLibrary(forceRefresh = false)
+                    val pool = library.images + library.videos + library.documents +
+                        library.archives + library.apps + library.audio + library.others
+                    DuplicateFinder.findDuplicates(pool) { progress, message ->
+                        updateProgress(str(R.string.progress_duplicates), message, progress)
+                    }
+                }
+                _uiState.update {
+                    it.copy(
+                        showHome = false,
+                        showDuplicates = true,
+                        duplicateGroups = groups,
+                        libraryMode = false,
+                        showFavoritesOnly = false,
+                showLargestFiles = false,
+                        progress = null,
+                    )
+                }
+                emit(
+                    if (groups.isEmpty()) str(R.string.duplicates_none)
+                    else str(R.string.duplicates_found, groups.size),
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                emit(str(R.string.cancelled))
+                throw e
+            } catch (e: Exception) {
+                emit(str(R.string.duplicates_search_failed, e.message ?: str(R.string.error_generic)))
+            } finally {
+                _uiState.update { it.copy(progress = null) }
+                if (activeJob === this) activeJob = null
+            }
+        }
+    }
+
+    fun closeDuplicates() {
+        _uiState.update { it.copy(showDuplicates = false, duplicateGroups = emptyList()) }
+        goHome()
+    }
+
+    fun deleteDuplicateExtras() {
+        val extras = _uiState.value.duplicateGroups.flatMap { group ->
+            group.files.drop(1).map { it.file }
+        }
+        if (extras.isEmpty()) {
+            emit(str(R.string.duplicates_delete_none))
+            return
+        }
+        activeJob?.cancel()
+        activeJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(progress = ProgressState(str(R.string.progress_deleting_duplicates), str(R.string.files_count, extras.size)))
+            }
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    FileOperations.deleteRecursively(localizedContext(), extras)
+                }
+                invalidateMediaLibraryCache()
+                handleResult(result)
+                val groups = withContext(Dispatchers.IO) {
+                    val library = obtainMediaLibrary(forceRefresh = true)
+                    val pool = library.images + library.videos + library.documents +
+                        library.archives + library.apps + library.audio + library.others
+                    DuplicateFinder.findDuplicates(pool)
+                }
+                _uiState.update {
+                    it.copy(duplicateGroups = groups, progress = null, showDuplicates = true)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                emit(str(R.string.cancelled))
+                throw e
+            } catch (e: Exception) {
+                emit(str(R.string.delete_failed, e.message ?: str(R.string.error_generic)))
+            } finally {
+                _uiState.update { it.copy(progress = null) }
+                if (activeJob === this) activeJob = null
+            }
+        }
+    }
+
+    private fun handleResult(result: OperationResult) {
+        when (result) {
+            is OperationResult.Success -> {
+                invalidateMediaLibraryCache()
+                emit(result.message)
+            }
+            is OperationResult.Error -> emit(result.message)
+        }
+    }
+
+    private fun emit(message: String) {
+        _events.tryEmit(message)
+    }
+
+    private fun localizedContext() =
+        LocaleHelper.wrap(getApplication(), _uiState.value.appLanguage)
+
+    private fun str(@StringRes id: Int, vararg args: Any): String {
+        val localized = localizedContext()
+        return if (args.isEmpty()) {
+            localized.getString(id)
+        } else {
+            localized.getString(id, *args)
+        }
+    }
+
+    private data class CategoryOpenResult(
+        val items: List<FileItem>,
+        val mediaAlbums: List<MediaAlbumChip>,
+        val mediaAlbumId: String,
+        val library: MediaLibrary,
+    )
+
+    private data class HomeDashboardData(
+        val storageInfo: StorageInfo,
+        val storageVolumes: List<DeviceStorageVolume>,
+        val categories: List<CategorySummary>,
+        val recentFiles: List<FileItem>,
+    )
+}
