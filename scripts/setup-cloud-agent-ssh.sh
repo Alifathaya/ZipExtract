@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Bootstrap passwordless SSH to the Helsinki VPS for Cursor Cloud Agents.
+# Bootstrap passwordless SSH to the Contabo VPS (Helsinki = legacy proxy) for Cursor Cloud Agents.
 # Idempotent. Non-fatal: always exits 0 so install/start snapshots stay green
 # if the hub is temporarily unreachable.
 set -u
 
-DEPLOY_HOST="${DEPLOY_HOST:-${VPS_HOST:-62.238.96.225}}"
+DEPLOY_HOST="${DEPLOY_HOST:-${VPS_HOST:-173.249.25.166}}"
 DEPLOY_USER="${DEPLOY_USER:-root}"
 HUB_PORT="${TRENDBOT_HUB_PORT:-${VPS_HUB_PORT:-8088}}"
 SSH_ALIAS="${VPS_SSH_ALIAS:-trendbot-helsinki}"

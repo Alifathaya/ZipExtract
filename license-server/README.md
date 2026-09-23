@@ -47,15 +47,15 @@ Put Nginx/Caddy in front with HTTPS, proxy to `127.0.0.1:8787`.
 Default API base (no trailing slash):
 
 ```text
-http://62.238.96.225
+http://173.249.25.166
 ```
 
-Admin panel: `http://62.238.96.225/admin.html`
+Admin panel: `http://173.249.25.166/admin.html` (Helsinki lama di-proxy ke sini)
 
 Override in `local.properties` or CI env if needed:
 
 ```properties
-LICENSE_API_BASE_URL=http://62.238.96.225
+LICENSE_API_BASE_URL=http://173.249.25.166
 ```
 
 Cleartext HTTP to that IP is allowed via `network_security_config.xml`.
