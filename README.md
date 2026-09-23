@@ -37,12 +37,12 @@ Folder `license-server/` berisi API Node + admin panel web (untuk HP Anda).
 2. Set URL di `local.properties` atau CI:
 
 ```properties
-LICENSE_API_BASE_URL=http://62.238.96.225
+LICENSE_API_BASE_URL=http://173.249.25.166
 ```
 
-Admin: http://62.238.96.225/admin.html
+Admin: http://173.249.25.166/admin.html (Helsinki lama di-proxy ke sini)
 
-Tanpa URL custom, build memakai IP Helsinki di atas.
+Tanpa URL custom, build memakai IP Contabo di atas.
 
 Saat pertama dibuka, app akan meminta **izin akses semua file** (Android 11+) agar bisa browse & menulis di storage.
 

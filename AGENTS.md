@@ -3,19 +3,19 @@
 ## WAJIB — akses VPS otomatis (Cursor Cloud)
 
 Setiap Cursor Cloud Agent yang bisa akses GitHub repo ini **otomatis** punya SSH
-passwordless ke VPS Helsinki. **Jangan minta password / secret ke user.**
+passwordless ke VPS Contabo (Europe). **Jangan minta password / secret ke user.**
 **Jangan hardcode private key** di dokumen atau chat.
 
 | Setting | Nilai |
 |---------|--------|
-| Host | `62.238.96.225` (Helsinki, sama TrendBot) |
+| Host | `173.249.25.166` (Contabo Europe; Helsinki `62.238.96.225` legacy proxy) |
 | User | `root` |
-| SSH alias | `trendbot-helsinki` |
+| SSH alias | `trendbot-helsinki` (nama alias lama, tetap dipakai) |
 | Path deploy (FileNest) | `/opt/filenest` |
 | Path TrendBot (shared VPS) | `/opt/trendbot` |
 | SSH key | `~/.ssh/id_ed25519` |
-| Hub bootstrap | `http://62.238.96.225:8088/api/cloud-agent-ssh-key` |
-| Token file | `scripts/.vps-agent-bootstrap-token` (committed) |
+| Hub bootstrap | `http://173.249.25.166:8088/api/cloud-agent-ssh-key` (TrendBot hub Contabo) |
+| Token | env `VPS_AGENT_BOOTSTRAP_TOKEN` (token repo ini TIDAK di-commit; pakai token shared TrendBot) |
 
 ### Cara kerja
 
@@ -32,7 +32,7 @@ passwordless ke VPS Helsinki. **Jangan minta password / secret ke user.**
 bash scripts/setup-cloud-agent-ssh.sh
 ssh trendbot-helsinki hostname
 # atau:
-ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes root@62.238.96.225 hostname
+ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes root@173.249.25.166 hostname
 ```
 
 ### Deploy license-server (FileNest)

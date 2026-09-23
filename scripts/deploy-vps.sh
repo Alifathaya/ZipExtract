@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Deploy FileNest license-server to Helsinki VPS (TrendBot host).
+# Deploy FileNest license-server to Contabo VPS (Helsinki = legacy proxy, read-only docs).
 # Usage: ./scripts/deploy-vps.sh --branch cursor/license-server-monthly-c8f7
 set -euo pipefail
 
 BRANCH="main"
-HOST="${VPS_HOST:-62.238.96.225}"
+HOST="${VPS_HOST:-173.249.25.166}"
 REMOTE_DIR="/opt/filenest"
 LICENSE_DIR="${REMOTE_DIR}/license-server"
 DOMAIN="${LICENSE_DOMAIN:-license.dwi.heryanto.com}"
