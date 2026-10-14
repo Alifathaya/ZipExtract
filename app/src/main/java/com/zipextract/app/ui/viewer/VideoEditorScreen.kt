@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.effect.BitmapOverlay
 import androidx.media3.effect.Crop
 import androidx.media3.effect.OverlayEffect
@@ -257,7 +258,7 @@ fun VideoEditorScreen(
             }
 
             if (exporting) {
-                LinearProgressIndicator(progress = { exportProgress }, modifier = Modifier.fillMaxWidth())
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 Text(stringResource(R.string.video_editor_exporting))
             }
 
@@ -304,8 +305,14 @@ fun VideoEditorScreen(
                                 }
                                 if (speed != 1f) effects += SpeedChangeEffect(speed)
 
+                                // Keep audio speed aligned with the video timestamp effect.
+                                val audioProcessors = if (speed != 1f && !muteAudio) {
+                                    listOf(SonicAudioProcessor().apply { setSpeed(speed) })
+                                } else {
+                                    emptyList()
+                                }
                                 val edited = EditedMediaItem.Builder(input)
-                                    .setEffects(Effects(emptyList(), effects))
+                                    .setEffects(Effects(audioProcessors, effects))
                                     .setRemoveAudio(muteAudio)
                                     .build()
 
