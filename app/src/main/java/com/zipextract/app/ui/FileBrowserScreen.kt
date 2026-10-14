@@ -146,6 +146,7 @@ import com.zipextract.app.ui.viewer.buildExplorerBreadcrumbs
 import com.zipextract.app.ui.viewer.ImageViewerScreen
 import com.zipextract.app.ui.viewer.PdfViewerScreen
 import com.zipextract.app.ui.viewer.VideoPlayerScreen
+import com.zipextract.app.ui.viewer.VideoEditorScreen
 import java.io.File
 import java.time.DayOfWeek
 import java.time.Instant
@@ -294,6 +295,7 @@ fun FileBrowserScreen(
     var showLanguagePicker by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val cloudScope = rememberCoroutineScope()
+    var editingVideo by remember { mutableStateOf<File?>(null) }
 
     // First launch: force language choice once.
     if (!state.languageChosen) {
@@ -397,6 +399,18 @@ fun FileBrowserScreen(
         )
     }
 
+    if (editingVideo != null) {
+        VideoEditorScreen(
+            sourceFile = editingVideo!!,
+            onClose = { editingVideo = null },
+            onExported = {
+                editingVideo = null
+                onRefresh()
+            },
+        )
+        return
+    }
+
     if (state.viewer != null) {
         when (val viewer = state.viewer) {
             is ViewerContent.Pdf -> PdfViewerScreen(
@@ -429,6 +443,7 @@ fun FileBrowserScreen(
                     initialIndex = viewer.index,
                     onClose = onCloseViewer,
                     onPageChanged = onViewerPageChanged,
+                    onEdit = { editingVideo = it },
                 )
             }
             null -> Unit
