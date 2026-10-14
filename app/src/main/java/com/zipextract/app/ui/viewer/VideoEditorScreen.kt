@@ -35,6 +35,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -66,6 +67,7 @@ import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.ScaleAndRotateTransformation
 import androidx.media3.effect.SpeedChangeEffect
 import androidx.media3.exoplayer.ExoPlayer
+import com.google.common.collect.ImmutableList
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
@@ -301,7 +303,7 @@ fun VideoEditorScreen(
                                 }
                                 if (overlayText.isNotBlank()) {
                                     val bitmap = createTextOverlay(overlayText)
-                                    effects += OverlayEffect(listOf(BitmapOverlay.createStaticBitmapOverlay(bitmap)))
+                                    effects += OverlayEffect(ImmutableList.of(BitmapOverlay.createStaticBitmapOverlay(bitmap)))
                                 }
                                 if (speed != 1f) effects += SpeedChangeEffect(speed)
 
@@ -320,7 +322,7 @@ fun VideoEditorScreen(
                                 val published = publishVideo(context, tempOutput, "${base}_edited_${stamp}.mp4")
                                 tempOutput.delete()
                                 published
-                            }.getOrElse { throw it }
+                            }
                         }
                         exporting = false
                         result.onSuccess {
