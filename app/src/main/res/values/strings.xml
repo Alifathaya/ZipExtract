@@ -479,5 +479,13 @@
     <string name="app_update_later">Nanti</string>
     <string name="app_update_downloading">Mengunduh update…</string>
     <string name="app_update_open_failed">Gagal mengunduh update</string>
+    <string name="app_update_download_failed">Download update gagal atau file tidak tersedia.</string>
+    <string name="app_update_download_failed_reason">Download update gagal (kode %1$d).</string>
+    <string name="app_update_download_incomplete">APK belum lengkap. Silakan unduh update lagi.</string>
+    <string name="app_update_stage_failed">Tidak bisa menyiapkan APK update.</string>
+    <string name="app_update_invalid_apk">File unduhan bukan APK Android yang valid.</string>
+    <string name="app_update_wrong_package">APK ini bukan aplikasi FileNest.</string>
+    <string name="app_update_not_newer">APK yang diunduh bukan versi yang lebih baru.</string>
+    <string name="app_update_install_permission">Izinkan FileNest memasang aplikasi di Pengaturan. Installer akan dibuka saat Anda kembali.</string>
     <string name="documents_root_summary">Penyimpanan lewat FileNest</string>
 </resources>
