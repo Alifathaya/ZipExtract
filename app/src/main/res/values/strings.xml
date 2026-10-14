@@ -119,6 +119,7 @@
     <string name="video_editor_text_note">Teks putih dengan outline hitam akan ditempatkan di bagian bawah video (maksimal 3 baris).</string>
     <string name="video_editor_audio_speed">Audio dan kecepatan</string>
     <string name="video_editor_mute">Bisukan audio asli</string>
+    <string name="video_editor_volume">Volume audio: %1$d%%</string>
     <string name="video_editor_speed">Kecepatan</string>
     <string name="video_editor_export">Ekspor video</string>
     <string name="video_editor_exporting">Sedang memproses video… jangan tutup FileNest.</string>
