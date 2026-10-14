@@ -39,7 +39,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 175
-        versionName = "1.2.38"
+        versionName = "1.2.38" // Published via the release workflow on main
         buildConfigField(
             "String",
             "LICENSE_API_BASE_URL",
