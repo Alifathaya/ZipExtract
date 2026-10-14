@@ -30,7 +30,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.io.File
 import com.zipextract.app.data.AppPreferences
+import com.zipextract.app.data.AppUpdateDownloadReceiver
+import com.zipextract.app.data.FileActions
 import com.zipextract.app.data.LocaleHelper
 import com.zipextract.app.data.ThemeMode
 import com.zipextract.app.license.AppUpdateInfo
@@ -284,6 +287,39 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         viewModel.setStorageGranted(hasStorageAccess())
+        resumePendingUpdateInstall()
+    }
+
+    /**
+     * If Android required the user to enable "Install unknown apps", resume the
+     * staged update as soon as the user returns from Settings with permission granted.
+     */
+    private fun resumePendingUpdateInstall() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !packageManager.canRequestPackageInstalls()
+        ) return
+
+        val prefs = getSharedPreferences(
+            AppUpdateDownloadReceiver.PREFERENCES,
+            MODE_PRIVATE,
+        )
+        val path = prefs.getString(AppUpdateDownloadReceiver.KEY_PENDING_APK, null) ?: return
+        val apk = File(path)
+        // Clear before starting the installer to prevent repeated launches on resume.
+        prefs.edit().remove(AppUpdateDownloadReceiver.KEY_PENDING_APK).apply()
+        when (val result = FileActions.installApk(this, apk)) {
+            FileActions.InstallApkResult.Started -> Unit
+            FileActions.InstallApkResult.NeedInstallPermission -> {
+                prefs.edit().putString(AppUpdateDownloadReceiver.KEY_PENDING_APK, path).apply()
+            }
+            is FileActions.InstallApkResult.Failed -> {
+                Toast.makeText(
+                    this,
+                    getString(R.string.apk_install_failed, result.reason),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -353,6 +389,13 @@ class MainActivity : AppCompatActivity() {
             val downloadUrl = resolveUpdateDownloadUrl(update) ?: return false
             return runCatching {
                 val dm = context.getSystemService(DownloadManager::class.java) ?: return false
+                val prefs = context.getSharedPreferences(
+                    AppUpdateDownloadReceiver.PREFERENCES,
+                    android.content.Context.MODE_PRIVATE,
+                )
+                val previousId = prefs.getLong(AppUpdateDownloadReceiver.KEY_DOWNLOAD_ID, -1L)
+                if (previousId > 0L) dm.remove(previousId)
+
                 val fileName = "FileNest-${update.version}.apk"
                 val request = DownloadManager.Request(Uri.parse(downloadUrl))
                     .setTitle(context.getString(R.string.app_update_title, update.version))
@@ -364,7 +407,11 @@ class MainActivity : AppCompatActivity() {
                     .setAllowedOverRoaming(true)
                     .setMimeType("application/vnd.android.package-archive")
                     .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-                dm.enqueue(request)
+                val downloadId = dm.enqueue(request)
+                prefs.edit()
+                    .putLong(AppUpdateDownloadReceiver.KEY_DOWNLOAD_ID, downloadId)
+                    .putString("expected_version", update.version)
+                    .apply()
                 true
             }.getOrDefault(false)
         }

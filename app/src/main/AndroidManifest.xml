@@ -143,5 +143,14 @@
         <receiver
             android:name=".data.ApkInstallReceiver"
             android:exported="false" />
+
+        <!-- Continue an update after DownloadManager finishes, even if the app was backgrounded. -->
+        <receiver
+            android:name=".data.AppUpdateDownloadReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>
