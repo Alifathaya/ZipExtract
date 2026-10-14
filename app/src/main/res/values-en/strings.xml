@@ -119,6 +119,7 @@
     <string name="video_editor_text_note">White text with a black outline is placed near the bottom (up to 3 lines).</string>
     <string name="video_editor_audio_speed">Audio and speed</string>
     <string name="video_editor_mute">Mute original audio</string>
+    <string name="video_editor_volume">Audio volume: %1$d%%</string>
     <string name="video_editor_speed">Speed</string>
     <string name="video_editor_export">Export video</string>
     <string name="video_editor_exporting">Processing video… keep FileNest open.</string>
