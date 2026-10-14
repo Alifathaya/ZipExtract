@@ -116,6 +116,7 @@ class AppUpdateDownloadReceiver : BroadcastReceiver() {
                             // MainActivity retries the staged APK after the user returns from Settings.
                         }
                         is FileActions.InstallApkResult.Failed -> {
+                            prefs.edit().remove(KEY_PENDING_APK).apply()
                             Toast.makeText(
                                 localized,
                                 localized.getString(R.string.apk_install_failed, result.reason),
@@ -137,8 +138,11 @@ class AppUpdateDownloadReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun PackageInfo.compatVersionCode(): Long =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) longVersionCode else @Suppress("DEPRECATION") versionCode.toLong()
+    private fun PackageInfo.compatVersionCode(): Long {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) return longVersionCode
+        @Suppress("DEPRECATION")
+        return versionCode.toLong()
+    }
 
     companion object {
         const val PREFERENCES = "app_update_download"
