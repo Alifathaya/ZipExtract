@@ -105,6 +105,28 @@
     <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
     <string name="language_filipino" translatable="false">Filipino</string>
 
+    <string name="video_editor_title">Edit video</string>
+    <string name="video_editor_trim">Trim video</string>
+    <string name="video_editor_start">Start</string>
+    <string name="video_editor_end">End</string>
+    <string name="video_editor_transform">Video transforms</string>
+    <string name="video_editor_mirror_h">Mirror horizontal</string>
+    <string name="video_editor_mirror_v">Mirror vertical</string>
+    <string name="video_editor_rotation">Rotation</string>
+    <string name="video_editor_crop">Center crop: %1$d%%</string>
+    <string name="video_editor_text_overlay">Add text</string>
+    <string name="video_editor_text_hint">Text or caption</string>
+    <string name="video_editor_text_note">White text with a black outline is placed near the bottom (up to 3 lines).</string>
+    <string name="video_editor_audio_speed">Audio and speed</string>
+    <string name="video_editor_mute">Mute original audio</string>
+    <string name="video_editor_volume">Audio volume: %1$d%%</string>
+    <string name="video_editor_speed">Speed</string>
+    <string name="video_editor_export">Export video</string>
+    <string name="video_editor_exporting">Processing video… keep FileNest open.</string>
+    <string name="video_editor_invalid_trim">The selected trim range is invalid.</string>
+    <string name="video_editor_export_success">Video saved: %1$s</string>
+    <string name="video_editor_export_failed">Video export failed: %1$s</string>
+    <string name="video_editor_original_kept">The original is unchanged. A new MP4 is saved under Movies/FileNest.</string>
     <string name="video_player_hint">Tap for playback controls · drag to seek</string>
     <string name="video_play_failed">Failed to play video: %1$s</string>
     <string name="video_share">Share</string>

@@ -14,6 +14,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -70,6 +71,7 @@ fun VideoPlayerScreen(
     initialIndex: Int = 0,
     onClose: () -> Unit,
     onPageChanged: (File) -> Unit = {},
+    onEdit: (File) -> Unit = {},
 ) {
     BackHandler(onBack = onClose)
     val context = LocalContext.current
@@ -185,6 +187,15 @@ fun VideoPlayerScreen(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = { onEdit(currentFile) },
+                    ) {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = stringResource(R.string.video_editor_title),
+                            tint = Color.White,
+                        )
+                    }
                     IconButton(
                         onClick = { shareGate = ShareGateDialog.Choice },
                         enabled = !sharing,
