@@ -10,6 +10,7 @@ import android.media.MediaMetadataRetriever
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.media.MediaScannerConnection
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
@@ -61,6 +62,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.audio.SonicAudioProcessor
+import androidx.media3.common.audio.ChannelMixingAudioProcessor
+import androidx.media3.common.audio.ChannelMixingMatrix
 import androidx.media3.effect.BitmapOverlay
 import androidx.media3.effect.Crop
 import androidx.media3.effect.OverlayEffect
@@ -109,6 +112,7 @@ fun VideoEditorScreen(
     var speed by remember { mutableFloatStateOf(1f) }
     var overlayText by remember { mutableStateOf("") }
     var muteAudio by remember { mutableStateOf(false) }
+    var audioVolume by remember { mutableFloatStateOf(1f) }
     var exporting by remember { mutableStateOf(false) }
     var exportProgress by remember { mutableFloatStateOf(0f) }
 
@@ -245,6 +249,13 @@ fun VideoEditorScreen(
                         Text(stringResource(R.string.video_editor_mute), modifier = Modifier.weight(1f))
                         Switch(checked = muteAudio, onCheckedChange = { muteAudio = it }, enabled = !exporting)
                     }
+                    Text(stringResource(R.string.video_editor_volume, (audioVolume * 100).toInt()))
+                    Slider(
+                        value = audioVolume,
+                        onValueChange = { audioVolume = it },
+                        valueRange = 0f..1.5f,
+                        enabled = !exporting && !muteAudio,
+                    )
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(stringResource(R.string.video_editor_speed))
                         listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f).forEach { factor ->
@@ -308,10 +319,20 @@ fun VideoEditorScreen(
                                 if (speed != 1f) effects += SpeedChangeEffect(speed)
 
                                 // Keep audio speed aligned with the video timestamp effect.
-                                val audioProcessors = if (speed != 1f && !muteAudio) {
-                                    listOf(SonicAudioProcessor().apply { setSpeed(speed) })
-                                } else {
-                                    emptyList()
+                                val audioProcessors = mutableListOf<androidx.media3.common.audio.AudioProcessor>()
+                                if (!muteAudio && speed != 1f) {
+                                    audioProcessors += SonicAudioProcessor().apply { setSpeed(speed) }
+                                }
+                                if (!muteAudio && audioVolume != 1f) {
+                                    val mixer = ChannelMixingAudioProcessor()
+                                    // Register diagonal volume matrices for common mono through surround channel layouts.
+                                    for (channels in 1..8) {
+                                        val coefficients = FloatArray(channels * channels) { index ->
+                                            if (index / channels == index % channels) audioVolume else 0f
+                                        }
+                                        mixer.putChannelMixingMatrix(ChannelMixingMatrix(channels, channels, coefficients))
+                                    }
+                                    audioProcessors += mixer
                                 }
                                 val edited = EditedMediaItem.Builder(input)
                                     .setEffects(Effects(audioProcessors, effects))
@@ -426,7 +447,11 @@ private fun publishVideo(context: Context, source: File, displayName: String): F
             FileOutputStream(File(directory, displayName)).use { output -> input.copyTo(output, 1024 * 1024) }
         }
     }
-    return File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "FileNest/$displayName")
+    val legacyPath = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "FileNest/$displayName")
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+        MediaScannerConnection.scanFile(context, arrayOf(legacyPath.absolutePath), arrayOf("video/mp4"), null)
+    }
+    return legacyPath
 }
 
 private fun formatTime(milliseconds: Long): String {
